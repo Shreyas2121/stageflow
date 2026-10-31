@@ -1,6 +1,6 @@
 # Phase 1 — Foundation
 
-**Status:** in progress. P1-C01 verified (A01, A02). P1-C02 through P1-C04 have not started.\
+**Status:** in progress. P1-C01 committed; P1-C02 verified (A01–A03). P1-C03 and P1-C04 have not started.\
 **Last updated:** 2026-10-31.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 6.1, 6.2, 6.4, 12, 13, and 16 (Phase 1).\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns P1-C01 through P1-C04. This file owns the rules those commits must satisfy.\
@@ -208,7 +208,7 @@ The page is dark, with light text, visible keyboard focus, and labels tied to in
 | --- | --- | --- | --- |
 | P1-A01 | `pnpm install`, root typecheck, and root lint exit 0 | Commands | verified |
 | P1-A02 | Compose Postgres and Redis are healthy | `docker compose ps` | verified |
-| P1-A03 | Parser and slug tests pass | `pnpm --filter @stageflow/shared test` | planned |
+| P1-A03 | Parser and slug tests pass | `pnpm --filter @stageflow/shared test` | verified |
 | P1-A04 | Guest session, meeting create, and fetch return the contracts in Section 5.3 | HTTP | planned |
 | P1-A05 | Webinar create returns `mode: "WEBINAR"` | HTTP | planned |
 | P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors | HTTP | planned |
@@ -219,6 +219,8 @@ The page is dark, with light text, visible keyboard focus, and labels tied to in
 FOUND-01 is A01–A03. FOUND-02 is A04–A07, demonstrated in the browser by A08–A09. Do not mark an ID verified because the file exists.
 
 P1-C01 verification (2026-10-31): install, root typecheck, and root lint exited 0. Compose startup and health wait exited 0; `docker compose ps` showed Postgres 16 and Redis 7 healthy on ports 5432 and 6379. The root `.env` was copied from `.env.example`. See the execution guide's P1-C01 verification record for the installed tooling versions. Later acceptance IDs remain planned.
+
+P1-C02 verification (2026-10-31): all 43 shared tests passed with Vitest 5.0.5. Root install, typecheck, and lint exited 0, including both apps importing `RoomMode` from `@stageflow/shared`. Shared build excludes the tests. A04–A09 remain planned.
 
 ## 7. Verification commands
 

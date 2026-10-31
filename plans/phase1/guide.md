@@ -1,6 +1,6 @@
 # Guide 1 — Phase 1, commit by commit
 
-**Status:** P1-C01 verified; initial commit authorized. P1-C02 through P1-C04 are not implemented.\
+**Status:** P1-C01 committed (`c2cce0d`). P1-C02 verified. P1-C03 and P1-C04 are not implemented.\
 **Last updated:** 2026-10-31.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -38,9 +38,9 @@ From the repo root, in PowerShell. Use `curl.exe`, not the `curl` alias.
 
 ## 3. P1-C01 — Workspace and local databases
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `chore(workspace): initialize the pnpm workspace and local databases`\
-**Actual commit:**
+**Actual commit:** `c2cce0d`
 
 **Why:** FOUND-01 needs a workspace, strict TypeScript, lint, and healthy Postgres and Redis before any product route exists. Covers P1-A01 and P1-A02.
 
@@ -102,7 +102,7 @@ docker compose ps
 
 ## 4. P1-C02 — Shared session and room contracts
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(shared): add session and room input contracts`\
 **Actual commit:**
 
@@ -117,6 +117,9 @@ docker compose ps
 - `packages/shared/src/contracts.test.ts`
 - `packages/shared/vitest.config.ts`
 - `packages/shared/package.json`
+- `pnpm-lock.yaml`
+- `apps/api/package.json`
+- `apps/web/package.json`
 - `apps/api/src/index.ts`
 - `apps/web/src/index.ts`
 
@@ -172,13 +175,13 @@ export type ParseResult<T> =
 
 `parseDisplayName(input: unknown)` accepts only a string, trims it, and applies the phase length and control-character rules. `parseRoomTitle` does the same for 1–80. `parseRoomMode` accepts only `MEETING` and `WEBINAR`.
 
-`createRoomSlug(nextByte: () => number)` draws until it has 12 alphabet characters. Alphabet is `A-Za-z0-9` (62 characters). A byte greater than or equal to 248 is discarded. If 32 draws in one call are discarded, throw an error whose message is `slug_source_exhausted`. `createRoomSlugFromCrypto()` passes a one-byte `crypto.getRandomValues` source.
+`createRoomSlug(nextByte: () => number)` draws until it has 12 alphabet characters. Alphabet is `A-Za-z0-9` (62 characters). A byte greater than or equal to 248 is discarded. Per the phase contract, 32 consecutive rejected draws throw an error whose message is `slug_source_exhausted`; an accepted byte resets that counter. `createRoomSlugFromCrypto()` passes a one-byte `crypto.getRandomValues` source.
 
 4. Tests, in the same commit:
    - Empty, whitespace, 41 characters, and a name containing `\n` fail as `invalid_display_name`. A 40-character name and surrounding spaces succeed with the trimmed value.
    - Title length 0 and 81 fail. Length 80 succeeds.
    - `meeting` fails as `invalid_mode`. Both exact modes succeed.
-   - A stub byte source that returns `0` then values above 247 produces a 12-character slug from the alphabet.
+   - A stub byte source that returns `0`, then values above 247, then enough accepted bytes produces a 12-character slug from the alphabet. An always-rejected source cannot complete a slug.
    - A source that always returns `255` throws `slug_source_exhausted`.
    - Two calls with different byte sequences can differ. Do not assert cryptographic uniqueness.
 
@@ -193,6 +196,8 @@ pnpm lint
 **Done when:** P1-A03 passes and both apps still typecheck against the shared export.
 
 **Handoff:** Callers can validate input without a database. No HTTP server exists yet.
+
+**Verification record (2026-10-31):** Installed Vitest 5.0.5 in shared and linked both apps to shared via `workspace:*`. `pnpm install`, `pnpm typecheck`, `pnpm lint`, and `pnpm --filter @stageflow/shared test` exited 0. All 43 tests passed, covering input boundaries, wrong input types, trimming, every ASCII control character, exact modes, rejected bytes, all 248 accepted byte mappings, the consecutive rejection limit and reset, different deterministic sources, and a real crypto-generated slug. Shared build output contains only `index` and `contracts` JavaScript/declarations; tests remain in the typecheck program. The Vitest config uses CommonJS syntax to match this package. The guide's rejection counter and fixture were corrected to follow the phase contract. P1-A03 is verified. No commit was made for P1-C02.
 
 ## 5. P1-C03 — Guest sessions and rooms
 

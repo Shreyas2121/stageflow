@@ -1,1 +1,3 @@
-export const webPackageName: string = '@stageflow/web';
+import type { RoomMode } from '@stageflow/shared';
+
+export const webRoomMode: RoomMode = 'MEETING';

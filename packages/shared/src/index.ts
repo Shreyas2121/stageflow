@@ -1,1 +1,1 @@
-export const sharedPackageName: string = '@stageflow/shared';
+export * from './contracts';
