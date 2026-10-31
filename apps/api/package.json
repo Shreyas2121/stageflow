@@ -1,0 +1,10 @@
+{
+  "name": "@stageflow/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src"
+  }
+}
