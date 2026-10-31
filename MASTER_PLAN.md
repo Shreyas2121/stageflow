@@ -3,7 +3,7 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phase 1 is in progress. P1-C01 is verified and still needs its git commit.\
+**Status:** Phase 1 is in progress. P1-C01 and P1-C02 are committed. P1-C03 is verified.\
 **Plan version:** `1.0.1`\
 **Last revised:** 2026-10-31
 
@@ -50,7 +50,7 @@ A slice is finished only when its verification has passed and that work is in a 
 
 Leave `Actual commit` blank in that commit. After it succeeds, write the real hash and set the slice status to `committed`. That hash line rides along in the next slice's commit. The last slice of a phase records its hash in one follow-up commit, `docs(phaseN): record the final slice hash`.
 
-A verified slice with no commit is the first job of the next session. Do not start the following slice until that commit exists. P1-C01 is in that state.
+A verified slice with no commit is the first job of the next session. Do not start the following slice until that commit exists.
 
 ### 1.3 Change control
 

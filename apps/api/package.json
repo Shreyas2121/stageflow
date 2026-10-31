@@ -4,10 +4,30 @@
   "private": true,
   "type": "commonjs",
   "dependencies": {
-    "@stageflow/shared": "workspace:*"
+    "@nestjs/common": "^11.2.8",
+    "@nestjs/config": "^12.0.1",
+    "@nestjs/core": "^11.2.8",
+    "@nestjs/jwt": "^12.0.3",
+    "@nestjs/platform-express": "^11.2.8",
+    "@nestjs/typeorm": "^12.0.2",
+    "@stageflow/shared": "workspace:*",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typeorm": "^1.1.2"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "dev": "dotenv -e ../../.env -- nest start --watch",
+    "build": "nest build",
+    "migration:run": "dotenv -e ../../.env -- typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.24",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "dotenv-cli": "^11.1.0",
+    "ts-node": "^10.9.2"
   }
 }

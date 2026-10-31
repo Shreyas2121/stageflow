@@ -1,6 +1,6 @@
 # Guide 1 — Phase 1, commit by commit
 
-**Status:** P1-C01 committed (`c2cce0d`). P1-C02 verified. P1-C03 and P1-C04 are not implemented.\
+**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`19fa57e`). P1-C03 verified. P1-C04 is not implemented.\
 **Last updated:** 2026-10-31.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -15,7 +15,7 @@ When the user authorizes implementation:
 1. Reinspect the workspace. If a slice is already present, verify it and continue. Do not duplicate it.
 2. Run P1-C01 through P1-C04 in order. Stop after the requested slice. A later section is not permission to skip the current one.
 3. Each slice leaves `pnpm typecheck` and `pnpm lint` passing, plus the tests introduced so far.
-4. Set a slice to `implemented`, then `verified`, only when that is true. Verification is not the end of the slice. Commit it before the next slice, using master Section 1.4. If `.git` is missing, `git init -b main` from the repo root first. Do not create a remote, push, or change git config. Leave `Actual commit` blank inside the slice commit, then write the real hash and set the status to `committed`. P1-C01 is verified and has no commit. Commit it before starting P1-C02.
+4. Set a slice to `implemented`, then `verified`, only when that is true. Verification is not the end of the slice. Commit it before the next slice, using master Section 1.4. If `.git` is missing, `git init -b main` from the repo root first. Do not create a remote, push, or change git config. Leave `Actual commit` blank inside the slice commit, then write the real hash and set the status to `committed`. P1-C01 and P1-C02 are committed.
 5. If a check cannot be run, leave its acceptance ID unverified and name the gap. Do not invent a passing result.
 6. If the installed Nest or TypeORM release forces a file move, update the remaining guide before continuing.
 
@@ -102,9 +102,9 @@ docker compose ps
 
 ## 4. P1-C02 — Shared session and room contracts
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): add session and room input contracts`\
-**Actual commit:**
+**Actual commit:** `19fa57e`
 
 **Why:** The API and the web app need one parser for names, titles, modes, and slugs. Covers P1-A03.
 
@@ -201,7 +201,7 @@ pnpm lint
 
 ## 5. P1-C03 — Guest sessions and rooms
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api): issue guest sessions and persist rooms`\
 **Actual commit:**
 
@@ -214,10 +214,13 @@ pnpm lint
 - `apps/api/package.json`
 - `apps/api/tsconfig.json`
 - `apps/api/nest-cli.json`
+- `pnpm-lock.yaml`
+- `README.md`
 - `apps/api/src/main.ts`
 - `apps/api/src/app.module.ts`
 - `apps/api/src/config/env.ts`
 - `apps/api/src/database/data-source.ts`
+- `apps/api/src/database/base.entity.ts`
 - `apps/api/src/migrations/1730332800000-CreateUsersAndRooms.ts`
 - `apps/api/src/users/user.entity.ts`
 - `apps/api/src/sessions/sessions.module.ts`
@@ -236,10 +239,10 @@ pnpm lint
 
 **Implementation:**
 
-1. Add NestJS 11, TypeORM, the PostgreSQL driver, `@nestjs/config`, `@nestjs/jwt`, and `dotenv-cli`. Use the decorator mode those releases require. `synchronize` is `false`. Migrations do not run on boot.
+1. Add NestJS 11, TypeORM, the PostgreSQL driver, `@nestjs/config`, `@nestjs/jwt`, and `dotenv-cli`. Use the decorator mode those releases require. API uses NodeNext module resolution with its CommonJS package type, allowing current ESM Nest integrations on Node 22 while emitting CommonJS. `synchronize` is `false`. Migrations do not run on boot.
 2. `env.ts` reads the variables from the phase contract and throws a message that names every missing key before `NestFactory.create`. Do not open Redis.
 3. Dev and migration scripts load `../../.env` through `dotenv-cli`. `migration:run` uses the TypeORM CLI against `src/database/data-source.ts`. If the installed package's binary name differs, use the binary that runs and correct this guide.
-4. Hand-write the migration for the two tables in phase Section 5.4. Entities use the same column names. Register the migration on the data source.
+4. Hand-write the migration for the two tables in phase Section 5.4. Entities use the same column names. Both entities extend an abstract database `BaseEntity` with the UUID `id` and `createdAt` columns (user-requested code reuse; no schema change). Register the migration on the data source. Use `uuidExtension: 'pgcrypto'` for `gen_random_uuid()` metadata and disable automatic extension installation.
 5. `POST /api/sessions/guest` uses `parseDisplayName` on the raw body. On failure, throw the shared error through `ApiException`, which the filter renders as `ApiErrorBody`. On success, insert the user with `isGuest: true` and sign the JWT.
 6. The guard reads only `Authorization: Bearer`. It verifies HS256 with `JWT_SECRET`, requires `sub` to be a UUID, and loads that user. Failure is `unauthorized`. Attach the user for the controller. Do not accept the token as a query parameter.
 7. `POST /api/rooms` parses title and mode, generates a slug with `createRoomSlugFromCrypto`, and inserts a `LIVE` room. Retry the insert up to five times on Postgres unique violation `23505`. The sixth failure is HTTP 500 `slug_exhausted`.
@@ -286,6 +289,12 @@ The search prints nothing.
 **Done when:** P1-A04 through P1-A07 pass. A restarted API without `synchronize` still serves a room created before the restart.
 
 **Handoff:** The web slice can call these routes. Room rows are not ended by any route.
+
+**Verification record (2026-10-31):** Nest 11.2.8, TypeORM 1.1.2, @nestjs/typeorm 12.0.2, @nestjs/config 12.0.1, and @nestjs/jwt 12.0.3 run on Node 22.23.2 with NodeNext resolution and CommonJS output. The CLI binary is `typeorm-ts-node-commonjs`; the migration ran successfully, and a second run reported no pending migrations. `pnpm typecheck`, `pnpm lint`, `pnpm --filter @stageflow/api build`, and all 43 shared tests passed. The dev command compiled and started only the four specified routes.
+
+Live HTTP verification passed 46 assertions: health, trimmed guest names, the user UUID, HS256 and the 12-hour token lifetime, meeting and webinar creation and exact fetch responses, named errors for invalid names/titles/modes, missing or invalid tokens, malformed and absent slugs, expired tokens, wrong signing algorithms, invalid UUID subjects, nonexistent users, query-token rejection, and CORS preflight. Startup checks rejected all four missing required keys together and a short JWT secret. A real Postgres collision fixture verified a successful retry and `slug_exhausted` after the sixth insert; those fixture rows were removed. The health outage check returned exactly HTTP 503 `{ "ok": false }` with Postgres stopped; Postgres was restored healthy afterward. The first outage attempt coincided with a watch rebuild and could not connect to the API; the rerun after startup passed. A room created before API restarts remained unchanged and fetchable by another guest. After extracting `BaseEntity`, both modes were created and fetched again with generated inherited IDs/timestamps. A07's source search printed no matches. A04–A07 are verified; browser work remains P1-C04.
+
+Tooling note: Nest CLI 11 pins Webpack 5.106.2, while its current transitive schema-utils declares a newer Webpack peer range. pnpm reports that upstream peer warning. The verified scripts use the TypeScript compiler path rather than Webpack.
 
 ## 6. P1-C04 — Home page and room shell
 

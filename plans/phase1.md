@@ -1,6 +1,6 @@
 # Phase 1 — Foundation
 
-**Status:** in progress. P1-C01 committed; P1-C02 verified (A01–A03). P1-C03 and P1-C04 have not started.\
+**Status:** in progress. P1-C01 and P1-C02 committed; P1-C03 verified (A01–A07). P1-C04 has not started.\
 **Last updated:** 2026-10-31.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 6.1, 6.2, 6.4, 12, 13, and 16 (Phase 1).\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns P1-C01 through P1-C04. This file owns the rules those commits must satisfy.\
@@ -184,6 +184,8 @@ Every insert sets `is_guest` true. There is no email column and no password colu
 
 Use text plus check constraints, not PostgreSQL enum types. Entity properties stay camelCase and map to these column names.
 
+At the user's request, both entities inherit the identical `id` and `createdAt` columns from an abstract database `BaseEntity`. This code reuse does not alter the table contract or migration.
+
 ### 5.5 Web
 
 | Route | Behavior |
@@ -209,10 +211,10 @@ The page is dark, with light text, visible keyboard focus, and labels tied to in
 | P1-A01 | `pnpm install`, root typecheck, and root lint exit 0 | Commands | verified |
 | P1-A02 | Compose Postgres and Redis are healthy | `docker compose ps` | verified |
 | P1-A03 | Parser and slug tests pass | `pnpm --filter @stageflow/shared test` | verified |
-| P1-A04 | Guest session, meeting create, and fetch return the contracts in Section 5.3 | HTTP | planned |
-| P1-A05 | Webinar create returns `mode: "WEBINAR"` | HTTP | planned |
-| P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors | HTTP | planned |
-| P1-A07 | App source has no password column, login route, socket, Redis client, WebRTC, or FFmpeg import | Search | planned |
+| P1-A04 | Guest session, meeting create, and fetch return the contracts in Section 5.3 | HTTP | verified |
+| P1-A05 | Webinar create returns `mode: "WEBINAR"` | HTTP | verified |
+| P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors | HTTP | verified |
+| P1-A07 | App source has no password column, login route, socket, Redis client, WebRTC, or FFmpeg import | Search | verified |
 | P1-A08 | The browser can create a meeting and the shell shows its title, mode, slug, host, and the foundation sentence | Browser | planned |
 | P1-A09 | The browser can open that slug from home, and an unknown slug shows `room_not_found` without leaving home | Browser | planned |
 
@@ -221,6 +223,8 @@ FOUND-01 is A01–A03. FOUND-02 is A04–A07, demonstrated in the browser by A08
 P1-C01 verification (2026-10-31): install, root typecheck, and root lint exited 0. Compose startup and health wait exited 0; `docker compose ps` showed Postgres 16 and Redis 7 healthy on ports 5432 and 6379. The root `.env` was copied from `.env.example`. See the execution guide's P1-C01 verification record for the installed tooling versions. Later acceptance IDs remain planned.
 
 P1-C02 verification (2026-10-31): all 43 shared tests passed with Vitest 5.0.5. Root install, typecheck, and lint exited 0, including both apps importing `RoomMode` from `@stageflow/shared`. Shared build excludes the tests. A04–A09 remain planned.
+
+P1-C03 verification (2026-10-31): migration succeeded and rerunning it reported no pending migrations. Root typecheck, lint, API build, and all 43 shared tests passed. Live HTTP checks verified guest JWTs, both room modes, exact fetch responses, contract errors, CORS, and invalid authentication. A real database fixture verified slug retry and exhaustion. Health returned exactly HTTP 503 `{ "ok": false }` during a database outage, then recovered after Postgres was restored. The original room survived API restarts and remained fetchable by another guest. After extracting the base entity, generated IDs/timestamps and both room modes were checked again. The prohibited-source search had no matches. Details and the corrected first outage attempt are recorded in the guide. A08–A09 remain planned.
 
 ## 7. Verification commands
 
