@@ -1,6 +1,6 @@
 # Guide 1 — Phase 1, commit by commit
 
-**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`1faf5b9`). P1-C03 committed (`2eb1371`). P1-C04 implementation committed (`eb95669`); browser verification pending.\
+**Status:** Phase 1 complete. P1-C01 committed (`c2cce0d`), P1-C02 committed (`1faf5b9`), P1-C03 committed (`2eb1371`), and P1-C04 committed (`eb95669`). A01–A09 verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -298,7 +298,7 @@ Tooling note: Nest CLI 11 pins Webpack 5.106.2, while its current transitive sch
 
 ## 6. P1-C04 — Home page and room shell
 
-**Status:** committed (implementation only; A08/A09 unverified)\
+**Status:** committed (A01–A09 verified)\
 **Proposed commit message:** `feat(web): create a room and open its shell`\
 **Actual commit:** `eb95669`
 
@@ -362,7 +362,17 @@ Repeat the A07 search. It still prints nothing.
 
 **Implementation verification (2026-10-31 / 2026-11-01):** React 19.3.1, Vite 8.3.5, React Router 8.5.1, TanStack Query 5.105.0, Zustand 5.0.16, and Tailwind 4.3.3 are installed and locked. Vite uses the React and Tailwind plugins, the root environment directory, port 5173 with `strictPort`, and explicit prebundling for the linked CommonJS shared package. Web typecheck and lint include `vite.config.ts`. Root `pnpm install`, `pnpm typecheck`, `pnpm lint`, all 43 shared tests, and `pnpm --filter @stageflow/web build` passed. The build emitted a non-failing warning for its 523.97 kB JavaScript chunk (159.48 kB gzip). Compose reports both databases healthy, and migration execution reports no pending migrations. The existing API dev server was reused and the web dev command started successfully. HTTP checks confirmed delivery of the root, a room deep link, and a fallback URL; all app modules transformed successfully; the API module received the root `VITE_API_BASE_URL`. The A07 source search had no matches.
 
-**Browser acceptance:** A08 and A09 remain unverified. No browser or computer-use tool is available in this session. None of the seven browser steps above has been claimed as performed: HTTP document/module delivery and a production build do not establish interaction, reload/session behavior, focus, or visual correctness. The implementation can be committed with this gap recorded, but Phase 1 has not exited and Phase 2 must not start until those browser steps pass.
+**Browser acceptance (2026-11-01):** A08 and A09 verified in isolated headless Chrome `156.0.8078.74` on Windows using the native Chrome DevTools Protocol. No Playwright or application dependency was added. The earlier verification gap was closed by driving the installed browser through its debugging endpoint. Inputs were filled with browser input events and buttons were clicked through browser mouse events; checks observed the rendered DOM, session storage, URL, and network requests.
+
+1. `/` rendered the home controls and exact foundation limitation sentence.
+2. Created `Design review` as `Ava`. `/r/L1fVHRTo6f4I` showed `Design review`, `MEETING`, `LIVE`, the 12 character slug, host `Ava`, and the exact foundation sentence.
+3. Reloaded that URL. The same room and stored guest user ID remained.
+4. Returned home, changed the display name to `Joining reviewer`, and joined `L1fVHRTo6f4I`. The original room opened, host remained `Ava`, and the guest user ID changed, confirming a new session.
+5. Returned home and joined `zzzzzzzzzzzz`. Stayed at `/` and saw `Error: No room exists for that slug.`
+6. Opened the real room URL in an independent browser tab. It asked for a name on the home page, had no session in storage, and sent zero API requests.
+7. Used actual Tab key events to reach the brand link, display name, title, create meeting, create webinar, slug, and join controls in order. Every control matched `:focus-visible` and had a solid 3px outline. Inspected full-page screenshots of the home, room shell, and focused join button; dark styling, labels, room fields, limitation text, and keyboard focus were visible. No uncaught browser exceptions occurred.
+
+The first browser harness run incorrectly tried to serialize a DOM element as a Boolean and timed out despite the home page rendering. Corrected that observation in the temporary harness; all seven steps passed on the next run. No product code changed. The final A07 source search again had no matches. All phase acceptance IDs are now verified; Phase 1 has exited.
 
 ## 7. Phase exit
 

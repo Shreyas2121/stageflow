@@ -39,7 +39,7 @@ Guest state is stored in `sessionStorage` under `stageflow.session`. Reloading t
 
 This phase has no socket, no camera, no Redis client, and no broadcast. It does not join a live stage, end a room, or provide login accounts.
 
-`pnpm --filter @stageflow/web build` creates the web production bundle. Automated checks pass, but browser acceptance A08/A09 remains unverified because the implementation session had no browser tool. Run the seven browser steps in [the phase guide](plans/phase1/guide.md#6-p1-c04--home-page-and-room-shell) before treating Phase 1 as complete.
+`pnpm --filter @stageflow/web build` creates the web production bundle. Phase 1 is complete: automated checks pass, and all seven browser acceptance steps passed in isolated Chrome 156 on Windows on 2026-11-01. The [phase guide](plans/phase1/guide.md#6-p1-c04--home-page-and-room-shell) records creation, reload, joining, error handling, sessionless tabs, and keyboard focus verification.
 
 Docker Desktop must be running with Linux containers. Postgres 16 uses port 5432, database/user/password `stageflow`, and a named data volume. Redis 7 uses port 6379 without a configured persistent volume. Both services have health checks. If either port is already occupied, resolve that conflict before starting Compose.
 
