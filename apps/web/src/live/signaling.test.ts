@@ -1,0 +1,152 @@
+import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { io } from 'socket.io-client';
+import type { RoomSnapshot } from '@stageflow/shared';
+import { openIndependentSignaling, openSignaling, type RoomConnection } from './signaling';
+import { useRoomStore } from './room-store';
+
+vi.mock('socket.io-client', () => ({ io: vi.fn() }));
+
+class FakeSocket extends EventEmitter {
+  beforeAck: () => void = () => undefined;
+  constructor(readonly id: string) {
+    super();
+  }
+  connect() {
+    queueMicrotask(() => this.emit('connect'));
+  }
+  timeout() {
+    return this;
+  }
+  disconnect = vi.fn();
+  emitWithAck = vi.fn(async (event: string) => {
+    if (event === 'room:join') {
+      this.beforeAck();
+      return { ok: true, selfSocketId: this.id, iceServers: [] };
+    }
+    return { ok: true };
+  });
+}
+
+const sockets: FakeSocket[] = [];
+const connections: RoomConnection[] = [];
+const snapshot = (roomId: string): RoomSnapshot => ({
+  roomId,
+  revision: 1,
+  mode: 'MEETING',
+  status: 'LIVE',
+  participants: [],
+  stageSocketIds: [],
+  handSocketIds: [],
+  broadcast: null,
+});
+const joinRequest = {
+  roomId: 'room',
+  isAudioMuted: false,
+  isVideoOff: false,
+  isSyntheticBot: false,
+};
+function callbacks() {
+  return {
+    onEnded: vi.fn(),
+    onDisconnect: vi.fn(),
+    onDescription: vi.fn(),
+    onCandidate: vi.fn(),
+    onState: vi.fn(),
+    onJoined: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  vi.stubEnv('VITE_WS_URL', 'http://localhost:4000');
+  sockets.length = 0;
+  useRoomStore.getState().clear();
+  vi.mocked(io).mockImplementation(() => {
+    const socket = new FakeSocket(`socket-${sockets.length}`);
+    sockets.push(socket);
+    return socket as unknown as ReturnType<typeof io>;
+  });
+});
+afterEach(() => {
+  for (const connection of connections.splice(0)) connection.close();
+  vi.unstubAllEnvs();
+});
+
+describe('signaling connection ownership', () => {
+  it('keeps an independent socket and its snapshots outside the host store', async () => {
+    const host = openSignaling('host-token', 'room', callbacks());
+    connections.push(host);
+    await host.join(joinRequest);
+    sockets[0]!.emit('room:state', snapshot('room'));
+    const hostState = useRoomStore.getState();
+    const own = callbacks();
+    const demo = openIndependentSignaling('demo-token', 'room', own);
+    connections.push(demo);
+    sockets[1]!.beforeAck = () => sockets[1]!.emit('room:state', snapshot('room'));
+    await demo.join({ ...joinRequest, isSyntheticBot: true });
+    expect(own.onState).toHaveBeenCalledWith(snapshot('room'));
+    expect(own.onJoined).toHaveBeenCalledWith({
+      ok: true,
+      selfSocketId: 'socket-1',
+      iceServers: [],
+    });
+    expect(useRoomStore.getState()).toBe(hostState);
+    expect(sockets[0]!.disconnect).not.toHaveBeenCalled();
+    demo.close();
+    demo.close();
+    expect(sockets[1]!.disconnect).toHaveBeenCalledOnce();
+    expect(useRoomStore.getState()).toBe(hostState);
+    expect(useRoomStore.getState().selfSocketId).toBe('socket-0');
+    expect(io).toHaveBeenLastCalledWith(
+      'http://localhost:4000',
+      expect.objectContaining({
+        auth: { token: 'demo-token' },
+        forceNew: true,
+        reconnection: false,
+      }),
+    );
+  });
+
+  it('still replaces the previous host connection and writes/clears the host store', async () => {
+    const first = openSignaling('first', 'room', callbacks());
+    connections.push(first);
+    await first.join(joinRequest);
+    expect(useRoomStore.getState().selfSocketId).toBe('socket-0');
+    const next = openSignaling('next', 'next-room', callbacks());
+    connections.push(next);
+    expect(sockets[0]!.disconnect).toHaveBeenCalledOnce();
+    expect(useRoomStore.getState().roomId).toBe('next-room');
+    expect(useRoomStore.getState().selfSocketId).toBeNull();
+    next.close();
+    expect(useRoomStore.getState().roomId).toBeNull();
+  });
+
+  it('delivers early descriptions and candidates after the peer join callback', async () => {
+    const own = callbacks();
+    const delivery: string[] = [];
+    own.onJoined.mockImplementation(() => {
+      delivery.push('joined');
+    });
+    own.onDescription.mockImplementation(() => {
+      delivery.push('description');
+    });
+    own.onCandidate.mockImplementation(() => {
+      delivery.push('candidate');
+    });
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    sockets[0]!.beforeAck = () => {
+      sockets[0]!.emit('webrtc:description', { description: { type: 'offer', sdp: 'test' } });
+      sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+    };
+    await peer.join(joinRequest);
+    expect(delivery).toEqual(['joined', 'description', 'candidate']);
+    sockets[0]!.emit('room:state', snapshot('other-room'));
+    sockets[0]!.emit('room:ended', { roomId: 'other-room' });
+    expect(own.onState).not.toHaveBeenCalled();
+    expect(own.onEnded).not.toHaveBeenCalled();
+    sockets[0]!.emit('room:ended', { roomId: 'room' });
+    expect(own.onEnded).toHaveBeenCalledOnce();
+    expect(sockets[0]!.disconnect).toHaveBeenCalledOnce();
+  });
+});

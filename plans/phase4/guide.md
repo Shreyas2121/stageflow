@@ -1,6 +1,6 @@
 # Guide 4 — Phase 4, commit by commit
 
-**Status:** in progress. P4-C01 is committed; P4-C02 is verified; P4-C03 and P4-C04 are not implemented.\
+**Status:** in progress. P4-C01 and P4-C02 are committed; P4-C03 is verified; P4-C04 is not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
@@ -79,9 +79,9 @@ pnpm lint
 
 ## 3. P4-C02 — Stats drawer
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-hud): show a connection stats drawer`\
-**Actual commit:**
+**Actual commit:** `46852ecdf272e7b4588953a26fd3b7c7044b1027`
 
 **Why:** The host can inspect the connections they already have. Prepares DEMO-02.
 
@@ -124,7 +124,7 @@ Two independent Chrome contexts with fake camera/microphone devices joined a rea
 
 ## 4. P4-C03 — One independent demo peer
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-bots): negotiate a demo peer on its own socket`\
 **Actual commit:**
 
@@ -140,6 +140,8 @@ Two independent Chrome contexts with fake camera/microphone devices joined a rea
 - `apps/web/src/live/signaling.ts`
 - `apps/web/src/live/peer-manager.ts`
 - `apps/web/src/live/demo-peer.ts`
+- `apps/web/src/live/demo-peer.test.ts`
+- `apps/web/src/live/signaling.test.ts`
 
 **Implementation:**
 
@@ -158,6 +160,8 @@ pnpm lint
 ```
 
 Confirm by reading the host factory that spawning is not wired yet and that `openSignaling` still writes the room store.
+
+**Verification result (2026-11-01):** Shared tests passed (95, including three name-selection tests); web tests passed (23). Workspace typecheck and lint passed. Signaling tests confirm independent snapshots and closure do not replace the host socket or change its store, while the host factory still replaces its previous connection and writes/clears the store. Early descriptions and candidates follow the join callback. Demo engine tests cover synthetic join flags, own-snapshot sync, idempotent stop, rejected joins, cancellation during guest creation, and partial audio setup cleanup. Reading the independent factory confirms it does not reference `useRoomStore`; the page has no demo engine import or spawn control yet. P4-A02 is verified. Browser media verification follows in P4-C04.
 
 **Done when:** P4-A02 passes, the independent factory does not reference `useRoomStore`, and the slice is committed.
 

@@ -5,6 +5,7 @@ import type {
   JoinAck,
   JoinRoomRequest,
   MediaPatch,
+  RoomSnapshot,
   ServerToClientEvents,
 } from '@stageflow/shared';
 import { useRoomStore } from './room-store';
@@ -26,22 +27,30 @@ export type RoomConnection = {
 };
 let current: RoomConnection | null = null;
 
-export function openSignaling(
-  token: string,
-  roomId: string,
-  callbacks: {
-    onEnded: () => void;
-    onDisconnect: () => void;
-    onDescription: (payload: RelayedDescription) => void;
-    onCandidate: (payload: RelayedIceCandidate) => void;
-  },
-): RoomConnection {
+type SignalingCallbacks = {
+  onEnded: () => void;
+  onDisconnect: () => void;
+  onDescription: (payload: RelayedDescription) => void;
+  onCandidate: (payload: RelayedIceCandidate) => void;
+};
+
+function signalingUrl(): string {
   const url = import.meta.env.VITE_WS_URL;
   if (!url)
     throw new Error('The live room address is missing. Set VITE_WS_URL and restart the web app.');
-  current?.close();
-  useRoomStore.getState().begin(roomId);
-  const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(url, {
+  return url;
+}
+
+export function openIndependentSignaling(
+  token: string,
+  roomId: string,
+  callbacks: SignalingCallbacks & {
+    onState: (snapshot: RoomSnapshot) => void;
+    onJoined: (ack: Extract<JoinAck, { ok: true }>) => void;
+    onClosed?: () => void;
+  },
+): RoomConnection {
+  const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(signalingUrl(), {
     auth: { token },
     reconnection: false,
     autoConnect: false,
@@ -75,7 +84,7 @@ export function openSignaling(
       });
       const result = await socket.timeout(8000).emitWithAck('room:join', payload);
       if (result.ok && !closed) {
-        useRoomStore.getState().joined(result.selfSocketId, result.iceServers);
+        callbacks.onJoined(result);
         joined = true;
         for (const deliver of pending.splice(0)) deliver();
       }
@@ -93,10 +102,7 @@ export function openSignaling(
       cancelConnect?.();
       socket.removeAllListeners();
       socket.disconnect();
-      if (current === connection) {
-        current = null;
-        useRoomStore.getState().clear();
-      }
+      callbacks.onClosed?.();
     },
   };
   socket.on('webrtc:description', (payload) => {
@@ -110,7 +116,7 @@ export function openSignaling(
     else pending.push(() => callbacks.onCandidate(payload));
   });
   socket.on('room:state', (snapshot) => {
-    if (!closed) useRoomStore.getState().receive(snapshot);
+    if (!closed && snapshot.roomId === roomId) callbacks.onState(snapshot);
   });
   socket.on('room:ended', (payload) => {
     if (payload.roomId !== roomId || closed) return;
@@ -121,6 +127,28 @@ export function openSignaling(
     if (closed) return;
     connection.close();
     callbacks.onDisconnect();
+  });
+  return connection;
+}
+
+export function openSignaling(
+  token: string,
+  roomId: string,
+  callbacks: SignalingCallbacks,
+): RoomConnection {
+  signalingUrl();
+  current?.close();
+  useRoomStore.getState().begin(roomId);
+  const connection = openIndependentSignaling(token, roomId, {
+    ...callbacks,
+    onState: (snapshot) => useRoomStore.getState().receive(snapshot),
+    onJoined: (result) => useRoomStore.getState().joined(result.selfSocketId, result.iceServers),
+    onClosed: () => {
+      if (current === connection) {
+        current = null;
+        useRoomStore.getState().clear();
+      }
+    },
   });
   current = connection;
   return connection;

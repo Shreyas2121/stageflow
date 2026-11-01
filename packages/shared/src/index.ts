@@ -3,3 +3,4 @@ export * from './stage';
 export * from './signaling';
 export * from './negotiation';
 export * from './stats';
+export * from './demo-peers';

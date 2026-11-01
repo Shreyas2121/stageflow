@@ -1,6 +1,6 @@
 # Phase 4 — Demo peers and stats
 
-**Status:** in progress. P4-C01 stat deltas and P4-C02 connection stats drawer are verified; P4-C03 and P4-C04 remain planned.\
+**Status:** in progress. P4-C01 through P4-C03 are verified; P4-C04 remains planned.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4).\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
@@ -103,7 +103,7 @@ Roster rows with `isSyntheticBot` include the word `Demo`.
 | ID     | Observable result                                                                                                           | Method                                 | Status                                        |
 | ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------- |
 | P4-A01 | Bitrate, loss, frame rate, and ICE type follow Section 5.1, including a zero interval and zero packets                      | `pnpm --filter @stageflow/shared test` | verified (2026-11-01; 92 shared tests passed) |
-| P4-A02 | Name selection returns the first free demo name and null after three                                                        | Shared test                            | planned                                       |
+| P4-A02 | Name selection returns the first free demo name and null after three                                                        | Shared test                            | verified (2026-11-01; 95 shared tests passed) |
 | P4-A03 | Three meeting demo peers appear as tiles and as stage members. Stats update for each. One pulse moves Speaking to that peer | Browser                                | planned                                       |
 | P4-A04 | The fourth spawn stays disabled. A full meeting rejects another demo join without a new roster row                          | Browser                                | planned                                       |
 | P4-A05 | A webinar demo peer is an attendee, has no tile, and is not promoted                                                        | Browser                                | planned                                       |

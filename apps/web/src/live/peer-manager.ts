@@ -9,8 +9,13 @@ import {
   type StageIceCandidate,
   type CommandAck,
 } from '@stageflow/shared';
-import type { LocalMedia } from './local-media';
 import type { RoomConnection } from './signaling';
+
+export type TrackSource = {
+  microphoneTrack: () => MediaStreamTrack | null;
+  cameraTrack: () => MediaStreamTrack | null;
+  screenTrack: () => MediaStreamTrack | null;
+};
 
 type Peer = {
   pc: RTCPeerConnection;
@@ -30,7 +35,7 @@ export class PeerManager {
   private elements = new Set<HTMLVideoElement>();
 
   constructor(
-    private media: LocalMedia,
+    private media: TrackSource,
     private signaling: RoomConnection,
     private publish: (streams: RemoteStreams) => void,
     private onError: (message: string) => void,
