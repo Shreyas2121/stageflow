@@ -1,6 +1,6 @@
 # Phase 1 — Foundation
 
-**Status:** in progress. P1-C01 through P1-C03 committed (A01–A07 verified). P1-C04 implemented; browser acceptance A08/A09 unverified.\
+**Status:** in progress. All four implementation slices committed (A01–A07 verified). Browser acceptance A08/A09 remains unverified, so Phase 1 has not exited.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 6.1, 6.2, 6.4, 12, 13, and 16 (Phase 1).\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns P1-C01 through P1-C04. This file owns the rules those commits must satisfy.\

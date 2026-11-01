@@ -1,6 +1,6 @@
 # Guide 1 — Phase 1, commit by commit
 
-**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`1faf5b9`). P1-C03 committed (`2eb1371`). P1-C04 implemented; browser verification pending.\
+**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`1faf5b9`). P1-C03 committed (`2eb1371`). P1-C04 implementation committed (`eb95669`); browser verification pending.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -298,9 +298,9 @@ Tooling note: Nest CLI 11 pins Webpack 5.106.2, while its current transitive sch
 
 ## 6. P1-C04 — Home page and room shell
 
-**Status:** implemented (A08/A09 unverified)\
+**Status:** committed (implementation only; A08/A09 unverified)\
 **Proposed commit message:** `feat(web): create a room and open its shell`\
-**Actual commit:**
+**Actual commit:** `eb95669`
 
 **Why:** FOUND-02 is demonstrated by a person creating a room and opening it again. Covers P1-A08 and P1-A09.
 
