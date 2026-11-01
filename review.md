@@ -6,6 +6,8 @@ Report revised on 2026-11-01 after checking the independent review in Section 9.
 
 Remediation update (2026-11-01): C01 reconciles the planning documents and records the current rules in master version `1.0.3`. Section 8 records its verification and commit status. The findings and application verification below describe the original `b132cc3` review baseline unless explicitly updated; no application remediation or new physical acceptance is claimed by C01.
 
+C02 update (2026-11-01): The scoped Multer resolution is now `2.5.0`; the production audit reports no advisories. The full audit retains two moderate and one low development-tooling advisory, with temporary exceptions and verification recorded under C02. Application source is unchanged.
+
 ## 1. Verdict and scope
 
 The project has a credible V1 foundation, but it needs a reliability and structure pass before adding moderation and broadcasting. Keep the current stack and modular monolith. The highest priorities are recoverable room shutdown, ICE candidate ownership, predictable media lifecycles, and bounded server work. Extracting constants and adopting a consistent Tailwind convention will help maintainability, but those changes should not displace correctness fixes.
@@ -230,6 +232,8 @@ Do not put every literal into a root `constants.ts`, or move every local type in
 | `deepmerge@4.3.1` through Nest CLI checker               | Low, prototype poisoning; audit reports no published patched version              | Record temporary exception with owner/review date if no compatible fix is available. Avoid untrusted configuration input. [Deepmerge advisory](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)                                                              |
 
 Keep upgrades separate from behavior refactors, rerun both builds and relevant tests, and recheck advisories at implementation time. Do not use blanket `audit fix --force`, remove the lockfile, or treat differing Nest integration package majors as proof of incompatibility; inspect peer ranges. Existing checks pass with the installed versions. This audit is not a full supply-chain or application security audit.
+
+**C02 disposition (2026-11-01):** Rechecked all four advisories against the registry and publisher/advisory records. A parent-scoped override upgrades only `@nestjs/platform-express@11.2.8>multer` from `2.4.0` to `2.5.0`. The fresh production audit is clear; the full audit still exits 1 for `minimatch`, `glob`, and `deepmerge` in development tooling. These findings remain visible, with owner, review date, reachability, and removal criteria under C02. F19 is partially remediated, not closed.
 
 ### F20 — P2: documentation and displayed build identity contradict the code
 
@@ -515,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01's documentation work is recorded below; C02–C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01's documentation and C02's dependency work are recorded below; C03–C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -530,8 +534,8 @@ The immediate reliability chain is C03–C08 after C01. Dependency remediation C
 
 ### C01 — `docs(architecture): reconcile current phase status and remediation rules`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `b3b533f9a1eb65ef556c46a3bd24bfebdc7c692e`
 
 **Depends on:** none. **Addresses:** F20 and implementation ownership.
 
@@ -547,6 +551,9 @@ Record actual Phase 4 state, outstanding Phase 3 checks, the status of the phase
 
 ### C02 — `chore(deps): remediate audited dependencies with compatible resolutions`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C01. **Addresses:** F19.
 
 **Files:** `package.json`, `apps/api/package.json`, `pnpm-workspace.yaml` only if a narrowly scoped override is needed, `pnpm-lock.yaml`, `review.md`.
@@ -554,6 +561,38 @@ Record actual Phase 4 state, outstanding Phase 3 checks, the status of the phase
 Recheck the four advisories. Prefer supported parent upgrades and compatible transitive patches. Do not force minimatch/glob majors through incompatible parents. Record any unavoidable temporary exception with reachability, owner, and review date. No application refactor in this commit.
 
 **Verify/done:** frozen install validation, `pnpm audit --json`, root typecheck/lint, all current suites and both builds; report remaining exceptions honestly rather than requiring an impossible zero if no patch exists.
+
+**Resolution (2026-11-01):** The latest NestJS 11 Express adapter is still `11.2.8`, pins `multer@2.4.0`, and requires Nest common/core `^11.0.0`. The latest adapter overall is `12.3.2` and requires common/core `^12.0.0`; upgrading it alone would violate those peers. Keep the NestJS 11 stack and use the exact parent-scoped override in `pnpm-workspace.yaml` to install `multer@2.5.0`. The [Multer release](https://github.com/expressjs/multer/releases/tag/v2.5.0) fixes the advisory within major 2 and retains its entry-point API, dependency ranges, and Node engine floor. Both the adapter and Multer load successfully in a standalone Node check without starting the API. There is no current multipart/fileFilter endpoint; this removes the vulnerable production dependency before upload work exposes it. The regenerated lockfile changes only that resolution, its integrity, and the scoped override; direct dependency versions stay unchanged. Recheck the override on every Nest upgrade and remove it when the selected supported adapter itself resolves patched Multer.
+
+**Temporary advisory exceptions:** Owner for all three is the **StageFlow repository maintainer**. Recorded/rechecked **2026-11-01**; next review **2026-11-08**, or earlier when a compatible parent/fix is published or tooling starts accepting untrusted input. No audit-ignore rules, forced cross-major replacements, or vendored patches were added.
+
+| Advisory / retained version                                                                                        | Why retained and current reachability                                                                                                                                                                                                                                                                                                                                                                                                        | Removal criterion                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249), moderate; `minimatch@10.2.6` and `3.1.5` | Current parents `eslint@10.14.0`, `@eslint/config-array@0.23.5`, `typescript-eslint@8.72.1`, and Nest CLI 11/checker are already at their latest applicable releases and still request majors 10 or 3. The published fix is `11.0.1`, outside those ranges; the checker calls major 3's function export. Used for local lint/build/watch patterns, with no application request path found. Keep configuration/patterns repository-controlled | Parent releases adopt the patched major with a supported API, or upstream publishes a compatible backport; then update and rerun lint/build/tests |
+| [GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4), moderate; `glob@13.0.6`                  | Latest CLI 11 is `11.0.24` and pins `13.0.6`; the available fix `14.0.2` crosses that declared major. The installed CLI uses it for local asset discovery/copy/watch from `nest-cli.json`, including the fixed Lua asset pattern. No application request path found; do not accept untrusted asset globs                                                                                                                                     | A supported CLI 11 update/backport adopts a fixed release, or a separately verified toolchain migration replaces this dependency                  |
+| [GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4), low; `deepmerge@4.3.1`                   | No published patch. Latest `fork-ts-checker-webpack-plugin@9.1.0` still depends on it; its webpack checker path merges local configuration/options. No application request path found; use trusted build configuration                                                                                                                                                                                                                       | A patched compatible release or supported parent removes/replaces it; recheck the checker and API build                                           |
+
+The above reachability statements are source/dependency-path observations, not exploit proofs or a claim that development tools are safe with hostile configuration. Latest-parent checks used npm registry metadata, including declared dependencies, engines, and peer ranges; advisory fix thresholds were checked against the linked records.
+
+**Verification record (2026-11-01):** Node `22.23.2`, pnpm `12.9.1`. Shared was explicitly built before dependent checks. All three existing suites ran, including the real Redis integration suite using its isolated UUID prefixes; no API server was started and no shared container was stopped.
+
+| Check                                  | Result                                                                                                            |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`       | Pass; lockfile SHA-256 unchanged                                                                                  |
+| `pnpm audit --json`                    | Exit 1 as expected: zero high/critical, two moderate and one low advisory, all development-only; exceptions above |
+| `pnpm audit --prod --json`             | Pass; zero advisories                                                                                             |
+| `pnpm typecheck` / `pnpm lint`         | Pass across all packages                                                                                          |
+| `pnpm --filter @stageflow/shared test` | 95 tests, 5 files pass                                                                                            |
+| `pnpm --filter @stageflow/web test`    | 23 tests, 6 files pass                                                                                            |
+| `pnpm --filter @stageflow/api test`    | 19 real Redis tests, 1 file pass                                                                                  |
+| `pnpm --filter @stageflow/web build`   | Pass; unchanged existing large-chunk warning (615.65 kB JavaScript, Vite estimated gzip 186.55 kB)                |
+| `pnpm --filter @stageflow/api build`   | Pass; eight Lua assets emitted                                                                                    |
+
+`pnpm format:check` and `git diff --check` also passed after formatting the edited workspace configuration and report.
+
+**Additional strict-peer check:** `pnpm install --no-frozen-lockfile --strict-peer-dependencies` installed the scoped update but exited 1 for two **preexisting optional-peer mismatches**: TypeORM `1.1.2` requests `ioredis ^5.0.4` while `6.0.0` is installed; `schema-utils@4.8.1` requests `webpack ^5.112.0` while the CLI pins `5.106.2`. Registry peer metadata and the baseline lockfile confirm both precede C02, and neither resolution changed. Standard frozen installation, checks, tests, and both builds pass; strict peer validation does not. No peer suppression or unrelated driver/toolchain change was added. Retain these mismatches as explicit follow-up maintenance rather than representing the strict check as green.
+
+Record the actual C02 hash after commit under master Section 1.4; that status/hash update rides with the next requested slice. C02 also carries C01's post-commit status/hash entry.
 
 ### C03 — `refactor(shared): centralize identifiers and bounded signaling parsers`
 
