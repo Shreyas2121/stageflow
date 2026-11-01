@@ -1,3 +1,4 @@
+import { roomPrefix } from './live.keys';
 import { Logger } from '@nestjs/common';
 import {
   canRelay,
@@ -33,6 +34,7 @@ export class LiveService {
     private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
     private readonly operations: SerializedOperations,
     private readonly availability: { isReady(): boolean } = { isReady: () => true },
+    private readonly namespace = 'sf',
   ) {}
   private execute<T extends CommandAck>(
     client: LiveSession,
@@ -85,7 +87,7 @@ export class LiveService {
           status: room.status,
         };
         const user = client.user;
-        const result = await this.live.apply(`sf:room:${room.id}`, liveRoom, {
+        const result = await this.live.apply(roomPrefix(room.id, this.namespace), liveRoom, {
           type: 'join',
           socketId: client.id,
           userId: user.id,
@@ -115,7 +117,11 @@ export class LiveService {
       return this.operations.run(`room:${room.roomId}`, async () => {
         // Shutdown clears every association before releasing this queue. Until then, block the room.
         if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
-        const result = await this.live.apply(`sf:room:${room.roomId}`, room, command);
+        const result = await this.live.apply(
+          roomPrefix(room.roomId, this.namespace),
+          room,
+          command,
+        );
         if (!result.ok) return failure(result.error);
         this.publish(result, transport);
         return { ok: true };
@@ -134,7 +140,7 @@ export class LiveService {
       if (!room) return failure('not_joined');
       return this.operations.run(`room:${room.roomId}`, async () => {
         if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
-        const stage = await this.live.readStage(`sf:room:${room.roomId}`);
+        const stage = await this.live.readStage(roomPrefix(room.roomId, this.namespace));
         if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
         const target = transport.peer(toSocketId);
         if (!target?.connected || target.roomId !== room.roomId) return failure('peer_unavailable');
@@ -147,12 +153,12 @@ export class LiveService {
   // Intent stays until catalog end, Redis deletion, and notification all succeed. PostgreSQL or Redis
   // failure skips notification and leaves members associated so leave or disconnect can retry.
   // Notification failure after key deletion keeps the in-memory intent, so retry does not need the
-  // host participant. Process restart still drops sf:room:* and does not mark the catalog ENDED.
+  // host participant. Process restart still drops this namespace's room keys and does not mark the catalog ENDED.
   private async finishShutdown(room: LiveRoom, transport: LiveTransport): Promise<void> {
     this.ending.add(room.roomId);
     try {
       await this.rooms.end(room.roomId);
-      await this.live.deleteRoom(`sf:room:${room.roomId}`);
+      await this.live.deleteRoom(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
       this.ending.delete(room.roomId);
     } catch (error: unknown) {
@@ -168,7 +174,7 @@ export class LiveService {
       return this.operations.run(`room:${room.roomId}`, async () => {
         if (client.room !== room) return { ok: true };
         if (!this.ending.has(room.roomId)) {
-          const result = await this.live.apply(`sf:room:${room.roomId}`, room, {
+          const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
             type: 'leave',
             socketId: client.id,
           });

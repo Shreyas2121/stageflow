@@ -1,3 +1,4 @@
+import { parseLiveNamespace } from '../live/live.keys';
 const requiredKeys = ['JWT_SECRET', 'DATABASE_URL', 'REDIS_URL', 'CORS_ORIGIN'] as const;
 const missingKeys = requiredKeys.filter((key) => !process.env[key]?.trim());
 if (missingKeys.length > 0) {
@@ -8,6 +9,7 @@ if ((process.env.JWT_SECRET?.length ?? 0) < 16) {
 }
 
 export const env = {
+  LIVE_NAMESPACE: parseLiveNamespace(process.env.LIVE_NAMESPACE),
   PORT: Number(process.env.PORT || 4000),
   NODE_ENV: process.env.NODE_ENV || 'development',
   JWT_SECRET: process.env.JWT_SECRET!,

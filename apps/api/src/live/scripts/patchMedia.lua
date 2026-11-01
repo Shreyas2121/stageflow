@@ -10,4 +10,5 @@ for _, key in ipairs({ 'isAudioMuted', 'isVideoOff', 'isScreenSharing' }) do
     changed = true
   end
 end
+if changed then saveParticipant(command.socketId) end
 return finish(changed)

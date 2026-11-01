@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C12 are recorded below; C13 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C13 are recorded below; C14 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -761,8 +761,8 @@ Headless Chrome keyboard checks passed first-Tab skip-link visibility and 3px fo
 
 ### C12 — `refactor(web-ui): migrate live-room styles to feature components`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `a5f340882a63d959a887205426fd29595660d9dd`
 
 **Depends on:** C11. **Addresses:** remaining styling debt.
 
@@ -780,6 +780,9 @@ Headless Chrome checked the lobby at 320/720/721/1280px, disabled join before ca
 
 ### C13 — `perf(api-live): update only changed Redis records and cache Lua scripts`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C05. **Addresses:** F09/F10 script discipline.
 
 **Files:** `apps/api/src/live/live.repository.ts`, all eight `scripts/*.lua` files, `live.integration.test.ts`, relevant shared oracle fixtures if policy changes are required.
@@ -787,6 +790,24 @@ Headless Chrome checked the lobby at 320/720/721/1280px, disabled join before ca
 Pass real key names through KEYS, update only changed records, preserve one atomic revisioned snapshot and all no-op/rejection rules, cache scripts safely. Keep environment namespace configurable; if cluster compatibility is claimed, demonstrate same-slot hash tags and actual cluster behavior. Otherwise explicitly retain standalone-only support.
 
 **Verify/done:** real Redis parity/concurrency/TTL tests pass; instrumented operations show one mute does not recreate unrelated records; compare bounded-roster latency to a recorded baseline. No full-room protocol change or unapproved attendee cap.
+
+**Implementation/verification record (2026-11-01):** Each script now receives the five actual revision/participant/stage/hand/ending keys through KEYS. The common Lua helper tracks dirty participant IDs, stage memberships, and hand scores; ordinary changes issue only the required HSET/HDEL, SADD/SREM, and ZADD/ZREM operations. Host shutdown still deletes the three whole presence structures, preserving its ending intent, and every changed command still increments exactly once, refreshes existing live-key TTLs, and returns the same canonical full snapshot atomically. No-op/rejection behavior, including the repeated-ending-leave exception that refreshes only the intent TTL, is unchanged. Full-roster reads, sorting, and snapshot encoding remain; no protocol or attendee-cap change was made.
+
+LiveRepository computes content SHAs and uses EVALSHA. Only an explicit NOSCRIPT miss falls back to EVAL; network, replica, runtime, and fallback errors are not replayed. A pure key helper centralizes the actual key list and validates the new LIVE_NAMESPACE setting (default sf, 1-64 letters/digits/underscores/hyphens). LiveService keys and startup cleanup use that setting. The example environment and README record standalone Redis only, one API owner per namespace, and the fact that live namespaces do not isolate PostgreSQL catalog data. No cluster compatibility or hash-slot support is claimed.
+
+Shared prerequisite build, API typecheck/lint/build, all 51 API tests (22 real Redis cases plus 29 service/connection/cache cases), workspace formatting, and whitespace checks passed. Redis MONITOR regressions verify one mute writes one participant field without DEL, SADD, or ZADD; hand changes, promotion, demotion, and leave modify only the affected records, and an unrelated participant remains byte-identical. The monitor fixture uses an ECHO barrier after each mutation so observations from a prior command cannot leak into the next assertion. Existing pure-oracle parity, last-slot concurrency, independent media updates, TTL, and host-ending recovery pass. New tests cover namespace-isolated startup reset and service key routing, five-key script calls, content SHAs, cache-miss fallback, and non-replay of ambiguous errors. A separate probe flushed only the disposable Redis script cache: cold load, warm execution, and reload after SCRIPT FLUSH produced four EVALSHA calls, three EVAL fallbacks, and revision 4 without duplicate mutation.
+
+A compiled-API socket smoke with LIVE_NAMESPACE=c13_smoke passed real guest/room creation, joins and snapshots, a single-record mute, unchanged revision/publication on a repeated mute, target-only null ICE relay, host end, and room-key cleanup. Startup deleted a stale c13_smoke key and retained a c13_other sentinel. Tests, cache probes, and benchmarks used disposable Redis 7 on loopback port 16390; no developer live keys were cleared and no shared container was stopped. No browser or physical-media acceptance was rerun for this server-only optimization.
+
+**Latency record:** Before edits, an archived compiled baseline and Lua assets matching the pre-C13 implementation measured median/p95 request latency of 1.087/1.625 ms at 4 participants, 2.490/3.324 ms at 64, and 5.467/7.139 ms at 256. A final comparison ran the archived baseline and optimized repository against the same disposable Redis, serially, with three rounds and alternating implementation order. Each run created a fresh webinar roster, excluded setup and 20 warm-up changes, then measured 200 alternating host mute changes including the full snapshot response. No other verification or API process ran during timing. The table gives ranges across round medians and round p95s, in milliseconds; these are local Node 22/Windows/Docker timings, not load-test or production guarantees.
+
+| Roster | Baseline median range | Optimized median range | Baseline p95 range | Optimized p95 range |
+| ------ | --------------------- | ---------------------- | ------------------ | ------------------- |
+| 4      | 1.042-1.319           | 0.909-1.794            | 1.597-2.032        | 1.361-3.713         |
+| 64     | 2.174-2.356           | 1.861-2.014            | 2.858-3.197        | 2.610-2.905         |
+| 256    | 5.662-6.277           | 4.718-4.965            | 7.530-10.540       | 6.062-7.170         |
+
+The four-participant results are noisy and include a slower optimized round; no universal latency win is claimed. The instrumented reduction in writes is deterministic, and the larger bounded fixtures show lower medians while retaining full snapshots. The fixture sizes are benchmark inputs, not new product limits. C13 carries C12's post-commit hash. Record C13's actual hash after commit for the next requested slice.
 
 ### C14 — `fix(tooling): build and watch shared before dependent tasks`
 

@@ -9,9 +9,11 @@ if not participant then return finish(false) end
 if participant.role == 'HOST' then
   redis.call('SET', endingKey, '1', 'EX', 86400)
   participants, stage, hands = {}, {}, {}
+  clearRoom = true
   return finish(true, true)
 end
 participants[command.socketId] = nil
-stage[command.socketId] = nil
-hands[command.socketId] = nil
+saveParticipant(command.socketId)
+setStage(command.socketId, false)
+setHand(command.socketId, nil)
 return finish(true)

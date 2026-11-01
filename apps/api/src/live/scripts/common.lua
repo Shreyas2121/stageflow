@@ -1,11 +1,7 @@
 -- Prepended to each command by LiveRepository; all reads and writes are atomic.
 local command = cjson.decode(ARGV[1])
 local room = command.room
-local revKey = KEYS[1] .. ':rev'
-local participantsKey = KEYS[1] .. ':participants'
-local stageKey = KEYS[1] .. ':stage'
-local handsKey = KEYS[1] .. ':hands'
-local endingKey = KEYS[1] .. ':ending'
+local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)
 local revision = tonumber(redis.call('GET', revKey)) or 0
 local participants = {}
 local raw = redis.call('HGETALL', participantsKey)
@@ -15,6 +11,22 @@ for _, id in ipairs(redis.call('SMEMBERS', stageKey)) do stage[id] = true end
 local hands = {}
 raw = redis.call('ZRANGE', handsKey, 0, -1, 'WITHSCORES')
 for i = 1, #raw, 2 do hands[raw[i]] = tonumber(raw[i + 1]) end
+
+local dirtyParticipants, dirtyStage, dirtyHands = {}, {}, {}
+local clearRoom = false
+local function saveParticipant(id)
+  dirtyParticipants[id] = true
+end
+local function setStage(id, present)
+  if (stage[id] or false) == present then return end
+  stage[id] = present and true or nil
+  dirtyStage[id] = true
+end
+local function setHand(id, raisedAt)
+  if hands[id] == raisedAt then return end
+  hands[id] = raisedAt
+  dirtyHands[id] = true
+end
 
 local function reject(error)
   return cjson.encode({ ok = false, error = error, revision = revision })
@@ -43,12 +55,22 @@ end
 
 local function finish(changed, roomEnded)
   if changed then
-    redis.call('DEL', participantsKey, stageKey, handsKey)
-    for id, participant in pairs(participants) do
-      redis.call('HSET', participantsKey, id, cjson.encode(participant))
+    if clearRoom then
+      redis.call('DEL', participantsKey, stageKey, handsKey)
+    else
+      for id in pairs(dirtyParticipants) do
+        if participants[id] then redis.call('HSET', participantsKey, id, cjson.encode(participants[id]))
+        else redis.call('HDEL', participantsKey, id) end
+      end
+      for id in pairs(dirtyStage) do
+        if stage[id] then redis.call('SADD', stageKey, id)
+        else redis.call('SREM', stageKey, id) end
+      end
+      for id in pairs(dirtyHands) do
+        if hands[id] then redis.call('ZADD', handsKey, hands[id], id)
+        else redis.call('ZREM', handsKey, id) end
+      end
     end
-    for id in pairs(stage) do redis.call('SADD', stageKey, id) end
-    for id, raisedAt in pairs(hands) do redis.call('ZADD', handsKey, raisedAt, id) end
     revision = redis.call('INCR', revKey)
     local expiring = { revKey, participantsKey, stageKey, handsKey }
     if redis.call('EXISTS', endingKey) == 1 then expiring[#expiring + 1] = endingKey end

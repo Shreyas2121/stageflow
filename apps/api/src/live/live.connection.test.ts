@@ -72,7 +72,7 @@ it('clears only sf:room keys on startup and reports live readiness', async () =>
     ['10', ['sf:room:one:rev', 'sf:room:one:participants']],
     ['0', ['sf:room:two:stage']],
   ];
-  const connection = new LiveConnection(redis);
+  const connection = new LiveConnection(redis, 'sf');
   const readiness = new LiveReadinessController(connection);
   expect(() => readiness.get()).toThrow(ServiceUnavailableException);
   await connection.open();

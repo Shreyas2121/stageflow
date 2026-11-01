@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Redis } from 'ioredis';
 import { applyStageCommand, type LiveState, type StageCommand } from '@stageflow/shared';
 import { LiveRepository } from './live.repository';
+import { LiveConnection } from './live.connection';
+import { roomPrefix } from './live.keys';
 
 function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
   return {
@@ -296,6 +298,84 @@ describe('Redis Lua stage transitions', () => {
     expect(await redis.exists(`${value}:broadcast`)).toBe(0);
   });
 
+  it('resets only the configured namespace and leaves another namespace intact', async () => {
+    const namespace = `sf_itest_${randomUUID()}`;
+    const own = roomPrefix('room', namespace);
+    const other = roomPrefix('room', `${namespace}_other`);
+    prefixes.add(own);
+    prefixes.add(other);
+    await repository.apply(own, empty(), join('host'));
+    await repository.apply(other, empty(), join('host'));
+    const connection = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
+    try {
+      await connection.open();
+      expect(connection.isReady()).toBe(true);
+      expect(await redis.exists(...keys(own))).toBe(0);
+      expect(await redis.hget(`${other}:participants`, 'host')).not.toBeNull();
+      expect(await redis.get(`${other}:rev`)).toBe('1');
+    } finally {
+      connection.close();
+    }
+  });
+
+  it('writes only the affected participant, stage membership and hand entry', async () => {
+    const value = prefix();
+    const room = empty('WEBINAR');
+    for (const command of [...webinarJoins, hand('b')])
+      await repository.apply(value, room, command);
+    const unrelated = await redis.hget(`${value}:participants`, 'b');
+    const monitor = await redis.monitor();
+    const observed: string[][] = [];
+    monitor.on('monitor', (_time: string, args: string[]) => observed.push(args));
+    async function writes(command: StageCommand) {
+      observed.length = 0;
+      await repository.apply(value, room, command);
+      const marker = randomUUID();
+      await redis.echo(marker);
+      await vi.waitFor(() =>
+        expect(observed.some((args) => args[0] === 'echo' && args[1] === marker)).toBe(true),
+      );
+      return observed.filter((args) =>
+        /^(hset|hdel|sadd|srem|zadd|zrem|del)$/i.test(args[0] ?? ''),
+      );
+    }
+    try {
+      const mute = await writes(patch({ isAudioMuted: true }));
+      expect(mute.map((args) => args.slice(0, 3))).toEqual([
+        ['HSET', `${value}:participants`, 'a'],
+      ]);
+      expect(await redis.hget(`${value}:participants`, 'b')).toBe(unrelated);
+      expect(await redis.zscore(`${value}:hands`, 'b')).toBe('2000');
+      const raise = await writes(hand('a'));
+      expect(raise.map((args) => [args[0], args[1], args.at(-1) === 'a'])).toEqual([
+        ['HSET', `${value}:participants`, false],
+        ['ZADD', `${value}:hands`, true],
+      ]);
+      const promotion = await writes(promote('a'));
+      expect(promotion.map((args) => args.slice(0, 3))).toEqual([
+        ['HSET', `${value}:participants`, 'a'],
+        ['SADD', `${value}:stage`, 'a'],
+        ['ZREM', `${value}:hands`, 'a'],
+      ]);
+      const demotion = await writes(demote('a'));
+      expect(demotion.map((args) => args.slice(0, 3))).toEqual([
+        ['HSET', `${value}:participants`, 'a'],
+        ['SREM', `${value}:stage`, 'a'],
+      ]);
+      await writes(hand('a'));
+      const leave = await writes({ type: 'leave', socketId: 'a' });
+      expect(leave.map((args) => args.slice(0, 3))).toEqual([
+        ['HDEL', `${value}:participants`, 'a'],
+        ['ZREM', `${value}:hands`, 'a'],
+      ]);
+      expect(await redis.hget(`${value}:participants`, 'b')).toBe(unrelated);
+      expect(await writes(patch({ isAudioMuted: false }, 'b'))).toEqual([]);
+      expect(await writes(patch({}, 'missing'))).toEqual([]);
+    } finally {
+      monitor.disconnect();
+    }
+  });
+
   it('admits only one concurrent join into the last stage slot', async () => {
     const value = prefix();
     const room = empty();
@@ -365,9 +445,13 @@ describe('Redis Lua stage transitions', () => {
       const ttl = await redis.ttl(`${value}:ending`);
       expect(ttl > 86390 && ttl <= 86400).toBe(true);
       const revision = Number(await redis.get(`${value}:rev`));
+      await redis.expire(`${value}:ending`, 120);
+      await redis.expire(`${value}:rev`, 120);
       const retry = await repository.apply(value, room, { type: 'leave', socketId: 'guest' });
       expect(retry).toMatchObject({ ok: true, changed: false, roomEnded: true, revision });
       expect(Number(await redis.get(`${value}:rev`))).toBe(revision);
+      expect(await redis.ttl(`${value}:ending`)).toBeGreaterThan(86390);
+      expect(await redis.ttl(`${value}:rev`)).toBeLessThanOrEqual(120);
       expect(await repository.apply(value, room, join('late'))).toMatchObject({
         ok: false,
         error: 'room_ended',

@@ -1,3 +1,4 @@
+import { env } from '../config/env';
 import { RoomsService } from '../rooms/rooms.service';
 import { LiveConnection } from './live.connection';
 import { LiveReadinessController } from './live.readiness.controller';
@@ -31,7 +32,7 @@ import { SignalingGateway } from './signaling.gateway';
         live: LiveRepository,
         operations: SerializedOperations,
         connection: LiveConnection,
-      ) => new LiveService(rooms, live, operations, connection),
+      ) => new LiveService(rooms, live, operations, connection, env.LIVE_NAMESPACE),
     },
     SignalingGateway,
   ],

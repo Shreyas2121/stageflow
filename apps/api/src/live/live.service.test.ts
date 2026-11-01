@@ -8,6 +8,7 @@ import type { RoomsService } from '../rooms/rooms.service';
 function fixture(
   mode: LiveState['mode'] = 'MEETING',
   availability: { isReady(): boolean } = { isReady: () => true },
+  namespace = 'sf',
 ) {
   let state: LiveState = {
     roomId: 'room',
@@ -76,7 +77,7 @@ function fixture(
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
-  const service = new LiveService(rooms, live, new SerializedOperations(), availability);
+  const service = new LiveService(rooms, live, new SerializedOperations(), availability, namespace);
   const join = (peer: LiveSession) =>
     service.join(
       peer,
@@ -88,6 +89,36 @@ function fixture(
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+it('uses the configured namespace for join, media, relay checks and shutdown', async () => {
+  const f = fixture('MEETING', { isReady: () => true }, 'preview-blue');
+  const host = f.client('host');
+  await f.join(host);
+  expect(f.live.apply).toHaveBeenCalledWith(
+    'preview-blue:room:room',
+    expect.anything(),
+    expect.objectContaining({ type: 'join' }),
+  );
+  await f.join(f.client('guest'));
+  await f.service.update(
+    host,
+    { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: true } },
+    f.transport,
+  );
+  expect(f.live.apply).toHaveBeenLastCalledWith(
+    'preview-blue:room:room',
+    expect.anything(),
+    expect.objectContaining({ type: 'patchMedia' }),
+  );
+  expect(await f.service.relay(host, 'guest', f.transport, vi.fn())).toEqual({ ok: true });
+  expect(f.live.readStage).toHaveBeenCalledWith('preview-blue:room:room');
+  await f.service.leave(host, f.transport);
+  expect(f.live.apply).toHaveBeenLastCalledWith(
+    'preview-blue:room:room',
+    expect.anything(),
+    expect.objectContaining({ type: 'leave' }),
+  );
+  expect(f.live.deleteRoom).toHaveBeenCalledWith('preview-blue:room:room');
+});
 it('rejects live commands while Redis readiness is down', async () => {
   const availability = { ready: false, isReady: () => availability.ready };
   const f = fixture('MEETING', availability);

@@ -41,7 +41,10 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   private lost = false;
   private closing = false;
 
-  constructor(redis?: LiveRedisClient) {
+  constructor(
+    redis?: LiveRedisClient,
+    private readonly namespace = env.LIVE_NAMESPACE,
+  ) {
     this.redis = redis ?? createRedis();
     this.client = this.redis as unknown as Redis;
     this.redis.on('error', (error) => {
@@ -94,7 +97,13 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   private async clearPresence(): Promise<void> {
     let cursor = '0';
     do {
-      const [next, keys] = await this.redis.scan(cursor, 'MATCH', 'sf:room:*', 'COUNT', 100);
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${this.namespace}:room:*`,
+        'COUNT',
+        100,
+      );
       cursor = next;
       if (keys.length) await this.redis.del(...keys);
     } while (cursor !== '0');

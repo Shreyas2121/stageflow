@@ -19,5 +19,6 @@ participants[command.socketId] = {
   isSyntheticBot = command.isSyntheticBot, joinedAt = command.joinedAt,
   isScreenSharing = false, isHandRaised = false, hostAudioLocked = false, hostVideoLocked = false
 }
-if onStage then stage[command.socketId] = true end
+saveParticipant(command.socketId)
+if onStage then setStage(command.socketId, true) end
 return finish(true)
