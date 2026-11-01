@@ -1,6 +1,7 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
+// PostgreSQL liveness only. Redis loss stays on GET /api/health/live and must not change this body.
 @Controller('health')
 export class HealthController {
   constructor(private readonly database: DataSource) {}

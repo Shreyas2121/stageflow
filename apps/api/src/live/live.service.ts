@@ -32,15 +32,21 @@ export class LiveService {
     private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
     private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
     private readonly operations: SerializedOperations,
+    private readonly availability: { isReady(): boolean } = { isReady: () => true },
   ) {}
   private execute<T extends CommandAck>(
     client: LiveSession,
     action: () => Promise<T>,
   ): Promise<T | Extract<CommandAck, { ok: false }>> {
-    return this.operations.run(`socket:${client.id}`, action).catch((error: unknown) => {
-      this.logger.error(error instanceof Error ? error.message : 'Live room command failed.');
-      return failure('server_error');
-    });
+    return this.operations
+      .run(`socket:${client.id}`, async () => {
+        if (!this.availability.isReady()) return failure('server_error');
+        return action();
+      })
+      .catch((error: unknown) => {
+        this.logger.error(error instanceof Error ? error.message : 'Live room command failed.');
+        return failure('server_error');
+      });
   }
 
   private publish(result: Extract<LiveResult, { ok: true }>, transport: LiveTransport): void {

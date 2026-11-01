@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C05 are recorded below; C06 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C06 are recorded below; C07 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -628,8 +628,8 @@ Shared prerequisite build, API typecheck, API lint, all 28 API tests (19 real Re
 
 ### C05 — `fix(api-live): complete host shutdown after partial persistence failures`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `2c7cfba8f30fb663f8a72bd329996d60ecd23095`
 
 **Depends on:** C04. **Addresses:** F01.
 
@@ -647,6 +647,9 @@ Shared tests (118), web tests (23), and API tests (34: 20 real Redis cases plus 
 
 ### C06 — `fix(api-live): expose Redis readiness and reset failed live sessions`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C05. **Addresses:** F04/F10 runtime failure.
 
 **Files:** create `apps/api/src/live/live.connection.ts`, readiness service/controller and focused tests; update `live.module.ts`, `live.service.ts`, `main.ts`, `health/health.controller.ts` only if preserving its contract, `README.md`.
@@ -654,6 +657,10 @@ Shared tests (118), web tests (23), and API tests (34: 20 real Redis cases plus 
 Separate Redis connection lifecycle from module metadata. Implement the selected V1 dependency-loss policy, distinct live readiness, and bounded shutdown. Do not quietly enable session resume. Test against disposable Redis or an injected failing client without touching developer live keys.
 
 **Verify/done:** Redis loss cannot leave readiness healthy and sockets silently stuck; PG-only health compatibility remains documented; API checks/build and isolated outage/reset smoke pass.
+
+**Implementation/verification record (2026-11-01):** Redis connection lifecycle now lives in `LiveConnection`, outside the module metadata. Startup still pings Redis, deletes only `sf:room:*`, and refuses to listen when Redis is unavailable. `retryStrategy` still returns null, so the process does not reconnect. After the connection is ready, `close` or `end` marks live readiness unhealthy once. A command error while the socket remains up does not reset sessions. The gateway then disconnects every socket and skips catalog leave: Redis cannot finish host shutdown, and catalog rows stay `LIVE`. `GET /api/health` is unchanged and still checks PostgreSQL only, returning `{ "ok": true }` or HTTP 503 `{ "ok": false }`. `GET /api/health/live` uses that same shape for Redis readiness. One second after loss, the process exits so a supervisor can restart it; intentional `disconnect()` does not schedule that exit, and a PostgreSQL health failure does not exit either. Restart listens only after Redis answers, then clears `sf:room:*`. There is no in-process media resume.
+
+The outage smoke used an injected Redis client. No API server was started, no shared container was stopped, and developer `sf:room:*` keys were not touched. API tests (41: 20 real Redis cases plus 21 service, readiness, and gateway regressions), API lint, API typecheck, and the API production build passed. No browser media acceptance was rerun; the existing client already treats a socket drop as a reset and does not reconnect. C06 carries C05's post-commit hash. Record C06's actual hash after commit for the next requested slice.
 
 ### C07 — `fix(webrtc): bind queued ICE candidates to accepted descriptions`
 

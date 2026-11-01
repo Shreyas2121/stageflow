@@ -5,7 +5,10 @@ import { LiveService, type LiveSession, type LiveTransport } from './live.servic
 import { SerializedOperations } from './serialized-operations';
 import type { LiveRepository } from './live.repository';
 import type { RoomsService } from '../rooms/rooms.service';
-function fixture(mode: LiveState['mode'] = 'MEETING') {
+function fixture(
+  mode: LiveState['mode'] = 'MEETING',
+  availability: { isReady(): boolean } = { isReady: () => true },
+) {
   let state: LiveState = {
     roomId: 'room',
     hostId: 'host',
@@ -73,7 +76,7 @@ function fixture(mode: LiveState['mode'] = 'MEETING') {
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
-  const service = new LiveService(rooms, live, new SerializedOperations());
+  const service = new LiveService(rooms, live, new SerializedOperations(), availability);
   const join = (peer: LiveSession) =>
     service.join(
       peer,
@@ -85,6 +88,17 @@ function fixture(mode: LiveState['mode'] = 'MEETING') {
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+it('rejects live commands while Redis readiness is down', async () => {
+  const availability = { ready: false, isReady: () => availability.ready };
+  const f = fixture('MEETING', availability);
+  const host = f.client('host');
+  expect(await f.join(host)).toMatchObject({ ok: false, error: 'server_error' });
+  expect(f.rooms.getById).not.toHaveBeenCalled();
+  expect(f.live.apply).not.toHaveBeenCalled();
+  expect(f.transport.join).not.toHaveBeenCalled();
+  availability.ready = true;
+  expect(await f.join(host)).toEqual({ ok: true });
+});
 it('uses trusted session identity, joins before snapshot, and suppresses no-op publications', async () => {
   const f = fixture();
   const host = f.client('host');

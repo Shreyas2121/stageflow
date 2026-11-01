@@ -27,6 +27,7 @@ import type {
 import { env } from '../config/env';
 import { SessionsService } from '../sessions/sessions.service';
 import type { User } from '../users/user.entity';
+import { LiveConnection } from './live.connection';
 import type { LiveRoom } from './live.repository';
 import { LiveService, type LiveSession, type LiveTransport } from './live.service';
 import { failure } from './signaling.messages';
@@ -57,6 +58,7 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
   constructor(
     private readonly sessions: SessionsService,
     private readonly live: LiveService,
+    private readonly connection: LiveConnection,
   ) {}
   private session(client: GuestSocket): LiveSession {
     return {
@@ -96,6 +98,11 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     },
   };
   afterInit(server: RoomServer): void {
+    this.connection.whenLost(() => {
+      // Leave cannot finish while Redis is down, and catalog rows stay LIVE until a later restart.
+      this.shuttingDown = true;
+      server.disconnectSockets(true);
+    });
     server.use((socket, next) => {
       void this.sessions
         .verifyToken(socket.handshake.auth?.token)

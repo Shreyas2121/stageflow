@@ -1,66 +1,40 @@
 import { RoomsService } from '../rooms/rooms.service';
+import { LiveConnection } from './live.connection';
+import { LiveReadinessController } from './live.readiness.controller';
 import { LiveService } from './live.service';
 import { SerializedOperations } from './serialized-operations';
-import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Redis } from 'ioredis';
-import { env } from '../config/env';
+import { Module } from '@nestjs/common';
 import { RoomsModule } from '../rooms/rooms.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { LiveRepository } from './live.repository';
 import { SignalingGateway } from './signaling.gateway';
 
-@Injectable()
-export class LiveConnection implements OnModuleInit, OnModuleDestroy {
-  readonly redis = new Redis(env.REDIS_URL, {
-    lazyConnect: true,
-    connectTimeout: 3000,
-    maxRetriesPerRequest: 0,
-    retryStrategy: () => null,
-  });
-  private readonly logger = new Logger(LiveConnection.name);
-
-  constructor() {
-    this.redis.on('error', (error: Error) => this.logger.error(`Redis: ${error.message}`));
-  }
-
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.redis.connect();
-      await this.redis.ping();
-      let cursor = '0';
-      do {
-        const [next, keys] = await this.redis.scan(cursor, 'MATCH', 'sf:room:*', 'COUNT', 100);
-        cursor = next;
-        if (keys.length) await this.redis.del(...keys);
-      } while (cursor !== '0');
-    } catch (error) {
-      this.redis.disconnect();
-      throw new Error('Redis startup failed; the API will not listen.', { cause: error });
-    }
-  }
-
-  onModuleDestroy(): void {
-    this.redis.disconnect();
-  }
-}
-
 @Module({
   imports: [SessionsModule, RoomsModule],
+  controllers: [LiveReadinessController],
   providers: [
-    LiveConnection,
+    {
+      provide: LiveConnection,
+      useFactory: () => new LiveConnection(),
+    },
     {
       provide: LiveRepository,
       inject: [LiveConnection],
-      useFactory: (connection: LiveConnection) => new LiveRepository(connection.redis),
+      useFactory: (connection: LiveConnection) => new LiveRepository(connection.client),
     },
     SerializedOperations,
     {
       provide: LiveService,
-      inject: [RoomsService, LiveRepository, SerializedOperations],
-      useFactory: (rooms: RoomsService, live: LiveRepository, operations: SerializedOperations) =>
-        new LiveService(rooms, live, operations),
+      inject: [RoomsService, LiveRepository, SerializedOperations, LiveConnection],
+      useFactory: (
+        rooms: RoomsService,
+        live: LiveRepository,
+        operations: SerializedOperations,
+        connection: LiveConnection,
+      ) => new LiveService(rooms, live, operations, connection),
     },
     SignalingGateway,
   ],
+  exports: [LiveConnection],
 })
 export class LiveModule {}

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { env } from './config/env';
 import { AppModule } from './app.module';
+import { bindLiveResetExit, LiveConnection } from './live/live.connection';
 import { ApiExceptionFilter } from './http/api-exception.filter';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 
@@ -17,6 +18,8 @@ async function bootstrap(): Promise<void> {
   });
   app.enableShutdownHooks();
   await app.listen(env.PORT);
+  // Redis loss exits after sockets are dropped. A PostgreSQL health failure must not exit.
+  bindLiveResetExit(app.get(LiveConnection), (code) => process.exit(code));
 }
 
 void bootstrap().catch((error: unknown) => {
