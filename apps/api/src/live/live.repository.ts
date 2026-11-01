@@ -30,6 +30,10 @@ export class LiveRepository {
     return JSON.parse(result) as LiveResult;
   }
 
+  async readStage(prefix: string): Promise<string[]> {
+    return this.redis.smembers(`${prefix}:stage`);
+  }
+
   async deleteRoom(prefix: string): Promise<void> {
     await this.redis.del(...['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`));
   }

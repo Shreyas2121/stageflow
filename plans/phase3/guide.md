@@ -1,6 +1,6 @@
 # Guide 3 — Phase 3, commit by commit
 
-**Status:** in progress. P3-C01 is verified; P3-C02 through P3-C05 are not implemented.\
+**Status:** in progress. P3-C01 is committed; P3-C02 is verified; P3-C03 through P3-C05 are not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -40,9 +40,9 @@ Do not add demo peers, `getStats`, promote buttons, FFmpeg, or a migration.
 
 ## 2. P3-C01 — Negotiation and relay decisions
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): decide glare, candidate order, and stage relay`\
-**Actual commit:**
+**Actual commit:** `db1a5aad5da39ed239f7c835a90494d8fbee98ab`
 
 **Why:** The glare rule has to be true in a function before a browser connection copies it. Covers P3-A01.
 
@@ -87,7 +87,7 @@ pnpm lint
 
 ## 3. P3-C02 — Relay between stage sockets
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-signaling): relay stage descriptions and ICE candidates`\
 **Actual commit:**
 
@@ -120,6 +120,8 @@ pnpm lint
 Start the API, Postgres, and Redis. With two Socket.IO clients, join the same meeting as host and guest. Send a description from one stage socket to the other and confirm the target receives `fromSocketId` and the SDP. From a webinar attendee socket, send a description to the host and confirm the ack is `not_on_stage` and the host receives nothing.
 
 Confirm a Phase 2 roster update still arrives after a third guest joins a meeting.
+
+**Verification result (2026-11-01):** P3-A02 verified against the running API, PostgreSQL, and Redis with Socket.IO clients. Offers and answers arrived only at the target with the sender socket id, including when a forged sender id was supplied. ICE candidates and null relayed. Invalid payloads were rejected. Attendee sends, sends to attendees, self sends, and missing stage targets returned `not_on_stage`; stale or cross-room stage targets returned `peer_unavailable`. Rejected sends reached no recipient. A third meeting join updated the host roster; media updates and webinar hand raise still succeeded. Test hosts left and ended both test rooms. Shared tests (72), API Redis tests (19), workspace typecheck, and lint passed.
 
 **Done when:** P3-A02 passes and the slice is committed.
 

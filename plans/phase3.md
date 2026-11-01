@@ -1,6 +1,6 @@
 # Phase 3 — Meeting mesh
 
-**Status:** in progress. P3-C01 is verified; P3-C02 through P3-C05 have not started.\
+**Status:** in progress. P3-C01 is committed; P3-C02 is verified; P3-C03 through P3-C05 have not started.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 8.3, 9, and 16 (Phase 3).\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns P3-C01 through P3-C05. This file owns the rules those commits must satisfy.\
@@ -122,7 +122,7 @@ Leave, `room:ended`, an unexpected disconnect, and unmount close every peer conn
 | ID | Observable result | Method | Status |
 | --- | --- | --- | --- |
 | P3-A01 | Glare, candidate order, candidate drop, and the empty mesh for an attendee pass | `pnpm --filter @stageflow/shared test` | verified (2026-11-01; 72 tests passed) |
-| P3-A02 | A description between two stage sockets is delivered to the target only. An attendee send is `not_on_stage` | Gateway check with two sockets, plus the `canRelay` tests | planned |
+| P3-A02 | A description between two stage sockets is delivered to the target only. An attendee send is `not_on_stage` | Gateway check with two sockets, plus the `canRelay` tests | verified (2026-11-01; live relay and attendee rejection passed) |
 | P3-A03 | Two meeting browsers show each other's camera and play remote audio | Browser | planned |
 | P3-A04 | Mute and camera-off do not send a new offer. The other tile stays up, and the roster flag changes | Browser | planned |
 | P3-A05 | Screen share replaces the remote picture and restores the camera when sharing stops | Browser | planned |

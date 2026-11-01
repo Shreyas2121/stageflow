@@ -1,6 +1,8 @@
 import { Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConnectedSocket, MessageBody, OnGatewayDisconnect, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { canRelay } from '@stageflow/shared';
+import type { DescriptionRequest, IceCandidateRequest } from '@stageflow/shared';
 import type { ClientToServerEvents, CommandAck, IceServer, JoinAck, MediaPatch, RoomSnapshot, ServerToClientEvents, SignalingError, StageCommand } from '@stageflow/shared';
 import { env } from '../config/env';
 import { RoomsService } from '../rooms/rooms.service';
@@ -8,8 +10,9 @@ import { SessionsService } from '../sessions/sessions.service';
 import type { User } from '../users/user.entity';
 import { LiveRepository, type LiveRoom, type LiveResult } from './live.repository';
 
-type GuestSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, { user: User; room?: LiveRoom }>;
-type RoomServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type SocketData = { user: User; room?: LiveRoom };
+type GuestSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
+type RoomServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 const messages: Record<SignalingError, string> = {
   room_ended: 'This room has ended.', already_joined: 'This guest is already in the room.',
   host_not_present: 'The host has to join this meeting before anyone else.',
@@ -19,6 +22,8 @@ const messages: Record<SignalingError, string> = {
   not_host: 'Only the host can do that.', cannot_demote_host: 'The host must stay on stage.',
   not_speaker: 'This participant is not a speaker.', invalid_payload: 'The room command is invalid.',
   not_joined: 'Join the room first.', server_error: 'Unable to update the live room. Join again.',
+  not_on_stage: 'Only people on stage can exchange media.',
+  peer_unavailable: 'That person is no longer on stage.',
 };
 function failure(error: SignalingError): Extract<CommandAck, { ok: false }> {
   return { ok: false, error, message: messages[error] };
@@ -121,6 +126,55 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
         if (!result.ok) return failure(result.error);
         this.publish(result);
         return { ok: true };
+      });
+    });
+  }
+
+  private relay(client: GuestSocket, toSocketId: string, send: (target: GuestSocket) => void): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.data.room;
+      if (!room) return failure('not_joined');
+      return this.queue(`room:${room.roomId}`, async () => {
+        if (client.data.room !== room) return failure('room_ended');
+        const stage = await this.live.readStage(`sf:room:${room.roomId}`);
+        if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
+        const target = this.server.sockets.sockets.get(toSocketId);
+        if (!target?.connected || target.data.room?.roomId !== room.roomId) return failure('peer_unavailable');
+        send(target);
+        return { ok: true };
+      });
+    });
+  }
+
+  @SubscribeMessage('webrtc:description')
+  description(@ConnectedSocket() client: GuestSocket, @MessageBody() payload: unknown): Promise<CommandAck> | CommandAck {
+    if (!record(payload) || typeof payload.toSocketId !== 'string' || !payload.toSocketId
+      || !record(payload.description) || !['offer', 'answer'].includes(payload.description.type as string)
+      || typeof payload.description.sdp !== 'string') return failure('invalid_payload');
+    const { toSocketId, description } = payload as DescriptionRequest;
+    return this.relay(client, toSocketId, (target) => {
+      target.emit('webrtc:description', {
+        toSocketId, fromSocketId: client.id, description: { type: description.type, sdp: description.sdp },
+      });
+    });
+  }
+
+  @SubscribeMessage('webrtc:ice-candidate')
+  iceCandidate(@ConnectedSocket() client: GuestSocket, @MessageBody() payload: unknown): Promise<CommandAck> | CommandAck {
+    if (!record(payload) || typeof payload.toSocketId !== 'string' || !payload.toSocketId) return failure('invalid_payload');
+    const candidate = payload.candidate;
+    if (candidate !== null && (!record(candidate) || typeof candidate.candidate !== 'string'
+      || (candidate.sdpMid !== null && typeof candidate.sdpMid !== 'string')
+      || (candidate.sdpMLineIndex !== null && (typeof candidate.sdpMLineIndex !== 'number'
+        || !Number.isInteger(candidate.sdpMLineIndex) || candidate.sdpMLineIndex < 0)))) return failure('invalid_payload');
+    const request = payload as IceCandidateRequest;
+    return this.relay(client, request.toSocketId, (target) => {
+      target.emit('webrtc:ice-candidate', {
+        toSocketId: request.toSocketId, fromSocketId: client.id,
+        candidate: request.candidate === null ? null : {
+          candidate: request.candidate.candidate, sdpMid: request.candidate.sdpMid,
+          sdpMLineIndex: request.candidate.sdpMLineIndex,
+        },
       });
     });
   }
