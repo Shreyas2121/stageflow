@@ -1,3 +1,4 @@
+import { STAGE_CAPACITY } from './limits';
 import type { RoomMode, RoomStatus } from './contracts';
 
 export type ParticipantRole = 'HOST' | 'SPEAKER' | 'ATTENDEE';
@@ -107,7 +108,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       return fail('host_not_present');
     }
     const onStage = isHost || state.mode === 'MEETING';
-    if (onStage && state.stageSocketIds.length >= 4) return fail('stage_full');
+    if (onStage && state.stageSocketIds.length >= STAGE_CAPACITY) return fail('stage_full');
     next.participants.push({
       socketId: command.socketId,
       userId: command.userId,
@@ -173,7 +174,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
   if (!target) return fail('participant_not_found');
   if (command.type === 'promote') {
     if (target.role !== 'ATTENDEE') return fail('not_attendee');
-    if (next.stageSocketIds.length >= 4) return fail('stage_full');
+    if (next.stageSocketIds.length >= STAGE_CAPACITY) return fail('stage_full');
     target.role = 'SPEAKER';
     target.isHandRaised = false;
     removeHand(target.socketId);

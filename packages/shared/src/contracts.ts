@@ -1,3 +1,5 @@
+import { DISPLAY_NAME_MAX_LENGTH, ROOM_TITLE_MAX_LENGTH } from './limits';
+export { createRoomSlug, createRoomSlugFromCrypto } from './identifiers';
 export type RoomMode = 'MEETING' | 'WEBINAR';
 export type RoomStatus = 'LIVE' | 'ENDED';
 
@@ -62,43 +64,22 @@ function parseText(
 export function parseDisplayName(input: unknown): ParseResult<string> {
   return parseText(
     input,
-    40,
+    DISPLAY_NAME_MAX_LENGTH,
     'invalid_display_name',
     'Enter a display name from 1 to 40 characters.',
   );
 }
 
 export function parseRoomTitle(input: unknown): ParseResult<string> {
-  return parseText(input, 80, 'invalid_title', 'Enter a title from 1 to 80 characters.');
+  return parseText(
+    input,
+    ROOM_TITLE_MAX_LENGTH,
+    'invalid_title',
+    'Enter a title from 1 to 80 characters.',
+  );
 }
 
 export function parseRoomMode(input: unknown): ParseResult<RoomMode> {
   if (input === 'MEETING' || input === 'WEBINAR') return { ok: true, value: input };
   return { ok: false, error: 'invalid_mode', message: 'Choose a meeting or a webinar.' };
-}
-
-const slugAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
-export function createRoomSlug(nextByte: () => number): string {
-  let slug = '';
-  let consecutiveRejects = 0;
-  while (slug.length < 12) {
-    const byte = nextByte();
-    if (byte >= 248) {
-      consecutiveRejects += 1;
-      if (consecutiveRejects === 32) throw new Error('slug_source_exhausted');
-      continue;
-    }
-    consecutiveRejects = 0;
-    slug += slugAlphabet.charAt(byte % slugAlphabet.length);
-  }
-  return slug;
-}
-
-export function createRoomSlugFromCrypto(): string {
-  const bytes = new Uint8Array(1);
-  return createRoomSlug(() => {
-    crypto.getRandomValues(bytes);
-    return bytes[0]!;
-  });
 }

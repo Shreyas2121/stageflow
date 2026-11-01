@@ -9,14 +9,20 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { canRelay } from '@stageflow/shared';
-import type { DescriptionRequest, IceCandidateRequest } from '@stageflow/shared';
+import {
+  canRelay,
+  parseJoinRoomRequest,
+  parseDescriptionRequest,
+  parseIceCandidateRequest,
+  parseMediaPatch,
+  parseHandRequest,
+} from '@stageflow/shared';
+
 import type {
   ClientToServerEvents,
   CommandAck,
   IceServer,
   JoinAck,
-  MediaPatch,
   RoomSnapshot,
   ServerToClientEvents,
   SignalingError,
@@ -62,9 +68,6 @@ const messages: Record<SignalingError, string> = {
 };
 function failure(error: SignalingError): Extract<CommandAck, { ok: false }> {
   return { ok: false, error, message: messages[error] };
-}
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 @WebSocketGateway({ cors: { origin: env.CORS_ORIGIN } })
@@ -138,20 +141,13 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
 
   @SubscribeMessage('room:join')
   join(@ConnectedSocket() client: GuestSocket, @MessageBody() payload: unknown): Promise<JoinAck> {
+    const request = parseJoinRoomRequest(payload);
+    if (!request) return Promise.resolve(failure('invalid_payload'));
     return this.execute(client, async (): Promise<JoinAck> => {
       if (!client.connected) return failure('not_joined');
-      if (
-        !record(payload) ||
-        typeof payload.roomId !== 'string' ||
-        !['isAudioMuted', 'isVideoOff', 'isSyntheticBot'].every(
-          (key) => typeof payload[key] === 'boolean',
-        )
-      ) {
-        return failure('invalid_payload');
-      }
       if (client.data.room) return failure('already_joined');
-      return this.queue(`room:${payload.roomId}`, async (): Promise<JoinAck> => {
-        const room = await this.rooms.getById(payload.roomId as string);
+      return this.queue(`room:${request.roomId}`, async (): Promise<JoinAck> => {
+        const room = await this.rooms.getById(request.roomId);
         if (!room) return failure('room_not_found');
         if (room.status === 'ENDED') return failure('room_ended');
         const liveRoom: LiveRoom = {
@@ -166,9 +162,9 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
           socketId: client.id,
           userId: user.id,
           displayName: user.displayName,
-          isAudioMuted: payload.isAudioMuted as boolean,
-          isVideoOff: payload.isVideoOff as boolean,
-          isSyntheticBot: payload.isSyntheticBot as boolean,
+          isAudioMuted: request.isAudioMuted,
+          isVideoOff: request.isVideoOff,
+          isSyntheticBot: request.isSyntheticBot,
           joinedAt: Date.now(),
         });
         if (!result.ok) return failure(result.error);
@@ -221,16 +217,9 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     @ConnectedSocket() client: GuestSocket,
     @MessageBody() payload: unknown,
   ): Promise<CommandAck> | CommandAck {
-    if (
-      !record(payload) ||
-      typeof payload.toSocketId !== 'string' ||
-      !payload.toSocketId ||
-      !record(payload.description) ||
-      !['offer', 'answer'].includes(payload.description.type as string) ||
-      typeof payload.description.sdp !== 'string'
-    )
-      return failure('invalid_payload');
-    const { toSocketId, description } = payload as DescriptionRequest;
+    const request = parseDescriptionRequest(payload);
+    if (!request) return failure('invalid_payload');
+    const { toSocketId, description } = request;
     return this.relay(client, toSocketId, (target) => {
       target.emit('webrtc:description', {
         toSocketId,
@@ -245,21 +234,8 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     @ConnectedSocket() client: GuestSocket,
     @MessageBody() payload: unknown,
   ): Promise<CommandAck> | CommandAck {
-    if (!record(payload) || typeof payload.toSocketId !== 'string' || !payload.toSocketId)
-      return failure('invalid_payload');
-    const candidate = payload.candidate;
-    if (
-      candidate !== null &&
-      (!record(candidate) ||
-        typeof candidate.candidate !== 'string' ||
-        (candidate.sdpMid !== null && typeof candidate.sdpMid !== 'string') ||
-        (candidate.sdpMLineIndex !== null &&
-          (typeof candidate.sdpMLineIndex !== 'number' ||
-            !Number.isInteger(candidate.sdpMLineIndex) ||
-            candidate.sdpMLineIndex < 0)))
-    )
-      return failure('invalid_payload');
-    const request = payload as IceCandidateRequest;
+    const request = parseIceCandidateRequest(payload);
+    if (!request) return failure('invalid_payload');
     return this.relay(client, request.toSocketId, (target) => {
       target.emit('webrtc:ice-candidate', {
         toSocketId: request.toSocketId,
@@ -281,20 +257,12 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     @ConnectedSocket() client: GuestSocket,
     @MessageBody() payload: unknown,
   ): Promise<CommandAck> | CommandAck {
-    if (
-      !record(payload) ||
-      Object.keys(payload).some(
-        (key) =>
-          !['isAudioMuted', 'isVideoOff', 'isScreenSharing'].includes(key) ||
-          typeof payload[key] !== 'boolean',
-      )
-    ) {
-      return failure('invalid_payload');
-    }
+    const patch = parseMediaPatch(payload);
+    if (!patch) return failure('invalid_payload');
     return this.update(client, {
       type: 'patchMedia',
       socketId: client.id,
-      patch: payload as MediaPatch,
+      patch,
     });
   }
 
@@ -303,11 +271,12 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     @ConnectedSocket() client: GuestSocket,
     @MessageBody() payload: unknown,
   ): Promise<CommandAck> | CommandAck {
-    if (!record(payload) || typeof payload.raised !== 'boolean') return failure('invalid_payload');
+    const request = parseHandRequest(payload);
+    if (!request) return failure('invalid_payload');
     return this.update(client, {
       type: 'setHand',
       socketId: client.id,
-      raised: payload.raised,
+      raised: request.raised,
       raisedAt: Date.now(),
     });
   }

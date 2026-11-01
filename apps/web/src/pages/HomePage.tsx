@@ -1,3 +1,4 @@
+import { isRoomSlug } from '@stageflow/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
@@ -18,7 +19,7 @@ export function HomePage() {
       const name = parseDisplayName(displayName);
       if (!name.ok) throw new Error(name.message);
       if (action === 'join') {
-        if (!/^[A-Za-z0-9]{12}$/.test(slug)) throw new Error('Enter the 12 character room slug.');
+        if (!isRoomSlug(slug)) throw new Error('Enter the 12 character room slug.');
         const guest = await createGuest(name.value);
         setSession(guest);
         return getRoom(slug, guest.token);

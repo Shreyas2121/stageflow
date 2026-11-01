@@ -551,8 +551,8 @@ Record actual Phase 4 state, outstanding Phase 3 checks, the status of the phase
 
 ### C02 — `chore(deps): remediate audited dependencies with compatible resolutions`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `bb6db3fdbd38cdf91c542d828745c1a950fd8138`
 
 **Depends on:** C01. **Addresses:** F19.
 
@@ -798,4 +798,4 @@ The independent pass on 2026-11-01 checked source, the 103-path inventory, expan
 | Pre-join signaling queue                             | Incorporated into F03/C07. Count/bytes are uncapped; normal timeout/caller cleanup bounds retention time. No claim of indefinite normal retention.                                                                                                                            |
 | Inventory, test totals, versions and artifacts       | Retained 103 tracked paths, 95 shared + 23 web + 19 Redis cases, and copied Lua/test artifact observations. This revision did not independently rerun every original command or refresh the audit.                                                                            |
 
-The independent pass corroborated the remaining source-based findings, including Redis failure handling, full-room Lua rewrites, destructive startup, shared dist prerequisites, eager route loading, cache/error handling, and development-service bindings. All original acceptance limitations still apply. This is a corrected report and proposed implementation sequence, not completed application remediation.
+The independent pass corroborated the remaining source-based findings, including Redis failure handling, full-room Lua rewrites, destructive startup, shared dist prerequisites, eager route loading, cache/error handling, and development-service bindings. All original acceptance limitations still apply. This is a corrected report and proposed implementation sequence, not completed application remediation.**Implementation/verification record (2026-11-01):** Centralized UUID/slug validation and generation, text limits, and the unchanged four-slot stage policy. Existing contracts re-export slug generation for compatibility. Invalid byte sources (NaN, negative, fractional, infinite, or above 255) throw immediately; 248?255 rejection sampling and its bounded retry policy remain. Shared signaling parsers copy exact DTO fields before gateway socket/room queues and repository work, preserving the existing invalid_payload error. SDP is bounded at 65,536 UTF-16 code units, ICE text at 4,096, socket IDs at 128, mid at 256, and m-line index at 65,535; these are transport admission budgets, not SDP syntax validation. Non-empty ICE with both identifiers null is rejected; null and empty-string end markers remain accepted. Role/media policy and Lua are unchanged. Shared tests (117), web tests (23), real Redis tests (19), all-package lint and typecheck, and web production build passed; the existing large-chunk warning remains. Physical/browser media acceptance was not rerun for this parser slice. API build also passed. A compiled-gateway probe rejected malformed join, description, ICE, media, and hand events with invalid_payload before execute/relay/update or repository work. Workspace formatting and whitespace checks passed. C03 carries C02?s post-commit hash; record C03?s real hash after commit for the next slice.

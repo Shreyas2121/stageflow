@@ -1,3 +1,4 @@
+import { isUuid } from '@stageflow/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -32,7 +33,7 @@ export class SessionsService {
       payload === null ||
       !('sub' in payload) ||
       typeof payload.sub !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.sub)
+      !isUuid(payload.sub)
     ) {
       throw unauthorized;
     }

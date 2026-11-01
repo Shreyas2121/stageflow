@@ -1,3 +1,4 @@
+import { isUuid, isRoomSlug } from '@stageflow/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -12,7 +13,7 @@ export class RoomsService {
   constructor(@InjectRepository(Room) private readonly rooms: Repository<Room>) {}
 
   async getById(id: string): Promise<Room | null> {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+    if (!isUuid(id)) return null;
     return this.rooms.findOneBy({ id });
   }
 
@@ -71,7 +72,7 @@ export class RoomsService {
 
   async getBySlug(slug: string): Promise<RoomResponse> {
     const notFound = new ApiException(404, 'room_not_found', 'No room exists for that slug.');
-    if (!/^[A-Za-z0-9]{12}$/.test(slug)) throw notFound;
+    if (!isRoomSlug(slug)) throw notFound;
     const room = await this.rooms.findOne({ where: { slug }, relations: { host: true } });
     if (!room) throw notFound;
     return {
