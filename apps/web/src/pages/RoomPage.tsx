@@ -1,3 +1,4 @@
+import { PageState } from '../components/ui/page-state';
 import { Link, useParams } from 'react-router';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -13,35 +14,38 @@ export function RoomPage() {
 
   if (!session) {
     return (
-      <section className="page-state">
-        <p className="eyebrow">A name before you enter</p>
-        <h1>Let’s get you a guest session.</h1>
+      <PageState eyebrow="A name before you enter" title="Let’s get you a guest session.">
         <p className="muted">Enter a name on the home page, then join using this room’s slug.</p>
         <p className="room-slug">{slug}</p>
-        <Link className="text-link" to="/">
+        <Link
+          className="mt-4 inline-flex items-center gap-5 text-[13px] text-accent underline-offset-4 hover:underline"
+          to="/"
+        >
           Enter your name <span aria-hidden="true">↗</span>
         </Link>
-      </section>
+      </PageState>
     );
   }
 
   if (roomQuery.isPending)
     return (
-      <p className="page-state muted" role="status">
+      <p className="py-16 text-sm text-muted" role="status">
         Opening room…
       </p>
     );
   if (roomQuery.isError) {
     return (
-      <section className="page-state">
-        <h1>Unable to open this room.</h1>
+      <PageState title="Unable to open this room.">
         <p className="error-message" role="alert">
           Error: {roomQuery.error.message}
         </p>
-        <Link className="text-link" to="/">
+        <Link
+          className="mt-4 inline-flex items-center gap-5 text-[13px] text-accent underline-offset-4 hover:underline"
+          to="/"
+        >
           Back to home <span aria-hidden="true">↗</span>
         </Link>
-      </section>
+      </PageState>
     );
   }
 

@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C10 are recorded below; C11 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C11 are recorded below; C12 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -723,8 +723,8 @@ Headless Chrome 156, using a fake camera, microphone, and media prompt, kept Joi
 
 ### C10 — `fix(web-api): preserve request errors cancellation and session recovery`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `f7b356aa79a2eb943a7b3f88e250ab9b924b3567`
 
 **Depends on:** C09. **Addresses:** F16/F17 web config.
 
@@ -742,6 +742,9 @@ A headless Chrome smoke against the compiled API and a disposable Redis 7 contai
 
 ### C11 — `refactor(web-ui): define Tailwind tokens and reusable form primitives`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C10. **Addresses:** styling debt and F20 UI text.
 
 **Files:** `apps/web/src/index.css`, create `styles/theme.css`, `styles/base.css`, `components/ui/button.tsx`, `form-field.tsx`, `page-state.tsx`; update `App.tsx`, `pages/HomePage.tsx`, `main.tsx`.
@@ -749,6 +752,12 @@ A headless Chrome smoke against the compiled API and a disposable Redis 7 contai
 Adopt Section 4's Tailwind v4 convention. Migrate shell/home, preserve focus/labels/errors/responsiveness, add skip link and sensible input limits, and replace obsolete video/build milestone copy. Keep button semantics explicit. No new design system dependency.
 
 **Verify/done:** web typecheck/lint/build; manual keyboard/home create/join/320px and desktop inspection; obsolete home/shell selectors removed. No component snapshot suite.
+
+**Implementation/verification record (2026-11-01):** Added Tailwind v4 theme variables for surfaces, text, borders, accent/danger states, fonts, radii, shell width, and the layout breakpoint. Global element defaults now live in styles/base.css in the base layer so utilities can override them; index.css remains the entry imported by main.tsx and explicitly scans the web source directory. Shared Button, FormField, and PageState components provide static variant classes, explicit button types, native labels and hint associations, and consistent page-state headings. Home and shell layout now use utilities; their obsolete selectors and milestone copy were removed. Display name, room title, and slug maxLength values use the shared limits. Added a keyboard-visible skip link to the focusable main element. Room entry/error states also use PageState; live room class rules and media behavior remain for C12. No new dependencies or component snapshot tests were added.
+
+Shared prerequisite build, web typecheck/lint, all 81 web tests in 12 files, production build, workspace formatting, and whitespace checks passed. The final build reports 640.89 kB JavaScript (Vite estimated gzip 193.45 kB) and 23.42 kB CSS (6.24 kB estimated gzip); the existing large-chunk warning remains. This migration is a maintainability change, with no claimed transfer-size improvement.
+
+Headless Chrome keyboard checks passed first-Tab skip-link visibility and 3px focus outline, Enter moving focus to main, and the next Tab focusing the name input. Verified all label associations, the name hint, 40/80/12 input limits, native name-input truncation, visible validation errors, and reduced-motion transition removal. Inspected desktop (1280px) and 320px screenshots; both retain readable layouts without horizontal overflow, with stacked create actions at the narrow width. The 404 state also fits at 320px. Browser flows against the compiled API and disposable Redis 7 passed meeting creation and host live join, a second fresh guest joining from the 320px home page, 401 recovery through the shared page state, and webinar creation/navigation with storage denied. Synthetic camera/microphone devices were used; physical media checks remain pending. Smoke-created rooms ended through host leave, and the temporary services were stopped without restarting or clearing developer Redis. C11 carries C10's post-commit hash. Record C11's actual hash after commit for the next requested slice.
 
 ### C12 — `refactor(web-ui): migrate live-room styles to feature components`
 

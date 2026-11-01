@@ -1,0 +1,33 @@
+@theme {
+  --color-canvas: #101316;
+  --color-surface: #171b1e;
+  --color-field: #101417;
+  --color-control: #22292c;
+  --color-control-hover: #2e383b;
+  --color-ink: #edf0eb;
+  --color-muted: #a7afb2;
+  --color-hint: #98a2a5;
+  --color-placeholder: #7c8789;
+  --color-subtle: #899495;
+  --color-line: #343b3d;
+  --color-divider: #2b3033;
+  --color-input-line: #465052;
+  --color-hover-line: #778585;
+  --color-accent: #c9e798;
+  --color-accent-hover: #d9f0b3;
+  --color-accent-ink: #1a2511;
+  --color-focus: #d0eb94;
+  --color-eyebrow: #a3b78a;
+  --color-note-line: #39423c;
+  --color-note-marker: #b1c49d;
+  --color-note-marker-line: #7a8c6c;
+  --color-danger: #ffc1bc;
+  --color-danger-surface: #302022;
+  --color-danger-line: #94585b;
+  --font-sans: Inter, 'Segoe UI', sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --radius-control: 0.375rem;
+  --radius-panel: 0.75rem;
+  --container-shell: 66rem;
+  --breakpoint-layout: 45rem;
+}
