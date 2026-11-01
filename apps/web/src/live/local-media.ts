@@ -7,6 +7,8 @@ export class LocalMedia {
   private frame: number | null = null;
   private preview: HTMLVideoElement | null = null;
   private generation = 0;
+  private screen: MediaStream | null = null;
+  private screenGeneration = 0;
 
   async prepare(video: HTMLVideoElement, choices: DeviceChoices, onLevel: (level: number) => void): Promise<boolean> {
     this.stop();
@@ -81,7 +83,33 @@ export class LocalMedia {
   }
 
   previewStream(): MediaStream | null {
-    return this.streams[0] ?? null;
+    return this.screenTrack()?.readyState === 'live' ? this.screen : this.streams[0] ?? null;
+  }
+
+  screenTrack(): MediaStreamTrack | null {
+    return this.screen?.getVideoTracks()[0] ?? null;
+  }
+
+  async startScreenShare(): Promise<MediaStreamTrack> {
+    this.stopScreenShare();
+    const generation = this.screenGeneration;
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Screen sharing is unavailable in this browser.');
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    const track = stream.getVideoTracks()[0];
+    if (generation !== this.screenGeneration || !track || track.readyState !== 'live') {
+      stream.getTracks().forEach((captured) => captured.stop());
+      throw new Error('Screen sharing ended before it could start.');
+    }
+    this.screen = stream;
+    return track;
+  }
+
+  stopScreenShare(): void {
+    this.screenGeneration += 1;
+    const track = this.screenTrack();
+    if (track) track.onended = null;
+    this.screen?.getTracks().forEach((captured) => captured.stop());
+    this.screen = null;
   }
 
   async setSpeaker(deviceId: string): Promise<boolean> {
@@ -93,6 +121,7 @@ export class LocalMedia {
 
   stop(): void {
     this.generation += 1;
+    this.stopScreenShare();
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.source?.disconnect();

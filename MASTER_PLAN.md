@@ -3,9 +3,11 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phase 2 complete. Phase 1 is complete; all four Phase 2 slices are committed and P2-A01–P2-A08 verified on 2026-11-01.\
-**Plan version:** `1.0.1`\
+**Status:** Phase 3 implementation verified with automated test media; physical-device observations remain pending. Phases 1 and 2 are complete.\
+**Plan version:** `1.0.2`\
 **Last revised:** 2026-11-01
+
+**Revision note (1.0.2):** Schedule the initial offer from the impolite endpoint of a new pair. Repeated Chromium tests exposed ICE transports staying in `new` after simultaneous initial offers and implicit rollback. Both endpoints attach their audio and video tracks before negotiation; subsequent negotiation and all incoming glare decisions still use the shared reducer. This changes initial-offer scheduling in Section 9.2 and preserves RTC-01 through RTC-05 and the mesh media path. Physical microphone, audible output, camera-indicator, and native screen-picker observations remain unverified in the Phase 3 acceptance record.
 
 ## 1. How agents must use this document
 
@@ -379,7 +381,7 @@ Compare socket ids with ordinary string order: `isPolite = selfSocketId < remote
 
 Per peer, keep `makingOffer`, `ignoreOffer`, and `isSettingRemoteAnswerPending`.
 
-On `negotiationneeded`, if the connection is stable and not already making an offer, set `makingOffer`, call `setLocalDescription()` with no argument, send that local description, then clear `makingOffer` in `finally`.
+For a new pair with no remote description, the polite endpoint waits for the impolite endpoint's first offer. Both endpoints already have their audio and video transceivers and local tracks attached. After that initial scheduling rule, on `negotiationneeded`, if the connection is stable and not already making an offer, set `makingOffer`, call `setLocalDescription()` with no argument, send that local description, then clear `makingOffer` in `finally`.
 
 On a remote description:
 

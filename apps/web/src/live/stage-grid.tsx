@@ -40,9 +40,9 @@ function StageTile({ person, local, stream, manager, speakerId, large, speaking 
       void element.setSinkId(speakerId).catch(() => setBlocked(true));
     }
   }, [local, speakerId]);
-  return <article className={`stage-tile${local ? ' stage-local' : ''}${large ? ' stage-large' : ''}${speaking ? ' stage-speaking' : ''}`} aria-label={`${person.displayName}${local ? ' (You)' : ''}`}>
+  return <article className={`stage-tile${local ? ' stage-local' : ''}${large ? ' stage-large' : ''}${person.isScreenSharing ? ' stage-screen' : ''}${speaking ? ' stage-speaking' : ''}`} aria-label={`${person.displayName}${local ? ' (You)' : ''}`}>
     <video ref={video} autoPlay playsInline {...(local ? { muted: true } : {})} aria-label={`${person.displayName}'s video`} />
-    {(person.isVideoOff || !stream) && <div className="stage-placeholder"><strong>{person.displayName}</strong><span>{person.isVideoOff ? 'Video off' : 'Connecting…'}</span></div>}
+    {((person.isVideoOff && !person.isScreenSharing) || !stream) && <div className="stage-placeholder"><strong>{person.displayName}</strong><span>{person.isVideoOff ? 'Video off' : 'Connecting…'}</span></div>}
     <div className="stage-caption"><span>{person.displayName}{local ? ' · You' : ''}</span><span>{person.isAudioMuted ? 'Muted' : 'Mic on'}</span></div>
     {speaking && <span className="stage-speaking-label">Speaking</span>}
     {blocked && <button className="button button-secondary stage-play" onClick={() => {

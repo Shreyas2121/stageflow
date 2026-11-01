@@ -1,8 +1,8 @@
 # Phase 3 — Meeting mesh
 
-**Status:** in progress. P3-C01 through P3-C03 are committed; P3-C04 is verified with test audio; P3-C05 has not started.\
+**Status:** implementation verified with automated test media. P3-C01 through P3-C04 are committed; P3-C05 is verified. Phase exit remains pending physical-device and native picker observations.\
 **Last updated:** 2026-11-01.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 8.3, 9, and 16 (Phase 3).\
+**Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 8.3, 9, and 16 (Phase 3).\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns P3-C01 through P3-C05. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** RTC-01, RTC-02, RTC-03, RTC-04, RTC-05 for a meeting.
 
@@ -67,6 +67,8 @@ The browser keeps one `RTCPeerConnection` for each id that function returns, and
 
 `isPolite` is `selfSocketId < remoteSocketId`, using ordinary string order.
 
+For a new pair with no remote description, the impolite endpoint schedules the first offer and the polite endpoint waits for it, with both local tracks already attached. This follows master Section 9.2 revision 1.0.2. Repeated Chromium runs found simultaneous initial offers could leave ICE transports in `new` after rollback; serializing initial offer creation removed that stall in the repeated browser checks. The shared reducer remains the only incoming glare policy and every subsequent negotiation request still calls it.
+
 The shared reducer owns the collision rule. The peer manager calls it and does not repeat the boolean test. Flags are `polite`, `makingOffer`, `ignoreOffer`, `isSettingRemoteAnswerPending`, `signalingState`, and `remoteDescriptionSet`.
 
 For an incoming offer:
@@ -125,8 +127,8 @@ Leave, `room:ended`, an unexpected disconnect, and unmount close every peer conn
 | P3-A02 | A description between two stage sockets is delivered to the target only. An attendee send is `not_on_stage` | Gateway check with two sockets, plus the `canRelay` tests | verified (2026-11-01; live relay and attendee rejection passed) |
 | P3-A03 | Two meeting browsers show each other's camera and play remote audio | Browser | automated test media and speaker changes verified (2026-11-01); physical microphone and human audible output unverified |
 | P3-A04 | Mute and camera-off do not send a new offer. The other tile stays up, and the roster flag changes | Browser | verified (2026-11-01; Chromium test media) |
-| P3-A05 | Screen share replaces the remote picture and restores the camera when sharing stops | Browser | planned |
-| P3-A06 | Leave closes the remote tile, ends local tracks, and turns the camera indicator off when it can be seen | Browser | automated cleanup verified (2026-11-01); physical camera indicator unverified |
+| P3-A05 | Screen share replaces the remote picture and restores the camera when sharing stops | Browser | automated screen-fixture pixels, restoration and no new offers verified (2026-11-01); native picker and browser stop UI unverified |
+| P3-A06 | Leave closes the remote tile, ends local tracks, and turns the camera indicator off when it can be seen | Browser | automated camera/microphone/screen and peer cleanup verified on leave, navigation and room end (2026-11-01); physical camera indicator unverified |
 | P3-A07 | A webinar guest has no remote tile and no peer connection | Browser | verified (2026-11-01; zero capture calls and connections) |
 
 RTC-01 and RTC-02 are A01. RTC-03 is A01, A02, A03, and A07. RTC-04 is A05. RTC-05 is A06.
@@ -170,3 +172,7 @@ Phase 3 is done when A01–A07 are verified and each slice has been committed un
 - Tiles that render one `MediaStream` per stage socket.
 
 Phase 4 adds demo peers and the stats drawer on top of those connections. It does not replace the negotiation rule. Do not write `plans/phase4.md` until that work starts.
+
+## 10. Implementation verification record (2026-11-01)
+
+All five slices have implementation and automated verification. Shared tests: 72; web tests: 9; API Redis tests: 19. Workspace typecheck, lint, web production build, and the excluded-feature search passed. Four repeated browser screen-share flows and an expanded four-person mesh/fifth-rejection flow passed after master revision 1.0.2. The native screen picker and stop UI, human audible playback, physical microphone input, and physical camera indicator still need observation. These gaps keep the full phase exit open; no Phase 4 plan has been written.

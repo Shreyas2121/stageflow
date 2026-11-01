@@ -84,6 +84,8 @@ function LiveRoom({ room, session, onEnded }: {
   const [activeSocketId, setActiveSocketId] = useState<string | null>(null);
   const [speaker] = useState(() => new ActiveSpeaker(setActiveSocketId));
   const operation = useRef(0);
+  const shareVersion = useRef(0);
+  const [isSharing, setSharing] = useState(false);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -157,6 +159,7 @@ function LiveRoom({ room, session, onEnded }: {
     peers.current = null;
     speaker.close();
     media.stop();
+    setSharing(false);
     setPeerManager(null);
     setReady(false);
     setLevel(0);
@@ -263,6 +266,74 @@ function LiveRoom({ room, session, onEnded }: {
     }
   }
 
+  async function stopSharing(expectedTrack = media.screenTrack()) {
+    if (media.screenTrack() !== expectedTrack) return;
+    const active = connection.current;
+    const manager = peers.current;
+    const current = operation.current;
+    const version = ++shareVersion.current;
+    if (expectedTrack) expectedTrack.onended = null;
+    setBusy(true);
+    setError('');
+    try {
+      await manager?.replaceVideoTrack(media.cameraTrack());
+    } catch {
+      if (current === operation.current) setError('Unable to restore your camera. Leave and join again to retry.');
+    } finally {
+      if (media.screenTrack() === expectedTrack) media.stopScreenShare();
+    }
+    if (current !== operation.current || version !== shareVersion.current) return;
+    setSharing(false);
+    try {
+      if (active && connection.current === active) {
+        const result = await active.media({ isScreenSharing: false });
+        if (!result.ok && current === operation.current) setError(result.message);
+      }
+    } catch {
+      if (current === operation.current) setError('Screen sharing stopped, but the room could not be updated.');
+    } finally {
+      if (current === operation.current) setBusy(false);
+    }
+  }
+
+  async function startSharing() {
+    const active = connection.current;
+    const manager = peers.current;
+    if (!active || !manager || !selfSocketId || !snapshot?.stageSocketIds.includes(selfSocketId)) return;
+    const current = operation.current;
+    const version = ++shareVersion.current;
+    const valid = () => current === operation.current && version === shareVersion.current
+      && connection.current === active && peers.current === manager;
+    let track: MediaStreamTrack | undefined;
+    let announced = false;
+    setBusy(true);
+    setError('');
+    try {
+      track = await media.startScreenShare();
+      if (!valid()) return;
+      track.onended = () => { void stopSharing(track); };
+      await manager.replaceVideoTrack(track);
+      if (!valid()) return;
+      setSharing(true);
+      announced = true;
+      const result = await active.media({ isScreenSharing: true });
+      if (!result.ok) throw new Error(result.message);
+    } catch (failure) {
+      if (!valid()) return;
+      if (track) {
+        try { await manager.replaceVideoTrack(media.cameraTrack()); }
+        catch { /* The error below leaves the roster and leave action available. */ }
+        if (!valid()) return;
+        media.stopScreenShare();
+        setSharing(false);
+      }
+      if (announced) await active.media({ isScreenSharing: false }).catch(() => undefined);
+      if (valid()) setError(failure instanceof Error ? failure.message : 'Unable to share your screen. Try again.');
+    } finally {
+      if (valid()) setBusy(false);
+    }
+  }
+
   return (
     <div className="live-room">
       <div className="lobby-heading">
@@ -316,7 +387,7 @@ function LiveRoom({ room, session, onEnded }: {
           <ul className="roster" aria-live="polite">
             {snapshot.participants.map((participant) => <li key={participant.socketId} className="roster-row">
               <div className="roster-person"><strong>{participant.displayName}{participant.socketId === selfSocketId ? ' (You)' : ''}</strong><span className="role-label">{participant.role}</span></div>
-              <div className="roster-flags"><span>{participant.isAudioMuted ? 'Muted' : 'Mic on'}</span><span>{participant.isVideoOff ? 'Video off' : 'Video on'}</span>{participant.isHandRaised && <span className="raised-hand">Hand raised</span>}</div>
+              <div className="roster-flags"><span>{participant.isAudioMuted ? 'Muted' : 'Mic on'}</span><span>{participant.isVideoOff ? 'Video off' : 'Video on'}</span>{participant.isScreenSharing && <span>Screen sharing</span>}{participant.isHandRaised && <span className="raised-hand">Hand raised</span>}</div>
             </li>)}
           </ul>
         </div>}
@@ -333,6 +404,9 @@ function LiveRoom({ room, session, onEnded }: {
             {(self?.isVideoOff ?? isVideoOff) ? 'Turn camera on' : 'Turn camera off'}
           </button>
         </>}
+        {joined && selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId) && peerManager &&
+          <button id="toggle-screen-share" className="button button-secondary" disabled={busy} aria-pressed={isSharing}
+            onClick={() => void (isSharing ? stopSharing() : startSharing())}>{isSharing ? 'Stop sharing' : 'Share screen'}</button>}
         {self?.role === 'ATTENDEE' && <button id="toggle-hand" className="button button-secondary" disabled={busy} aria-pressed={self.isHandRaised}
           onClick={() => void send((active) => active.hand(!self.isHandRaised))}>{self.isHandRaised ? 'Lower hand' : 'Raise hand'}</button>}
         {joined ? <button id="leave-room" className="button button-secondary leave-button" disabled={busy} onClick={() => void leave()}>Leave room</button>

@@ -62,19 +62,25 @@ export class PeerManager {
       // https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection-addtransceiver
       // Assign both captured tracks before installing the negotiation handler.
       const audio = this.media.microphoneTrack();
-      const video = this.media.cameraTrack();
+      const screen = this.media.screenTrack();
+      const video = screen?.readyState === 'live' ? screen : this.media.cameraTrack();
       const localStream = new MediaStream([audio, video].filter((track): track is MediaStreamTrack => track !== null));
       if (audio) pc.addTrack(audio, localStream);
       else pc.addTransceiver('audio', { direction: 'sendrecv' });
       if (video) pc.addTrack(video, localStream);
       else pc.addTransceiver('video', { direction: 'sendrecv' });
-      pc.onnegotiationneeded = () => this.enqueue(id, peer, async () => {
-        if (this.decide(peer, { type: 'negotiation-needed' }) !== 'send-offer') return;
-        try {
-          await pc.setLocalDescription();
-          if (this.alive(id, peer)) await this.sendDescription(id, peer);
-        } finally { this.decide(peer, { type: 'local-offer-finished' }); }
-      });
+      pc.onnegotiationneeded = () => {
+        // Let the impolite endpoint start a new pair. This avoids two initial ICE
+        // gatherings racing a rollback; inbound glare decisions still belong to the reducer.
+        if (peer.flags.polite && !pc.remoteDescription) return;
+        this.enqueue(id, peer, async () => {
+          if (this.decide(peer, { type: 'negotiation-needed' }) !== 'send-offer') return;
+          try {
+            await pc.setLocalDescription();
+            if (this.alive(id, peer)) await this.sendDescription(id, peer);
+          } finally { this.decide(peer, { type: 'local-offer-finished' }); }
+        });
+      };
       pc.onicecandidate = ({ candidate }) => {
         if (!this.alive(id, peer)) return;
         void this.acknowledged(this.signaling.candidate({ toSocketId: id, candidate: candidate ? {
@@ -141,6 +147,15 @@ export class PeerManager {
   attach(element: HTMLVideoElement): () => void {
     this.elements.add(element);
     return () => { element.srcObject = null; this.elements.delete(element); };
+  }
+
+  async replaceVideoTrack(track: MediaStreamTrack | null): Promise<void> {
+    const results = await Promise.allSettled([...this.peers.values()].map(async ({ pc }) => {
+      const video = pc.getTransceivers().find((transceiver) => transceiver.receiver.track.kind === 'video');
+      if (video) await video.sender.replaceTrack(track);
+    }));
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   }
 
   private dispose(peer: Peer): void {

@@ -1,9 +1,9 @@
 # Guide 3 — Phase 3, commit by commit
 
-**Status:** in progress. P3-C01 through P3-C03 are committed; P3-C04 is verified with test audio; P3-C05 is not implemented.\
+**Status:** implementation verified with test media. P3-C01 through P3-C04 are committed; P3-C05 is verified. Physical-device and native picker observations remain unverified; the phase exit is pending those observations.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
+**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
 **Deliverable:** A four-person meeting mesh with screen share, in five commits. This is the only Phase 3 guide.
 
 ## 1. Execution rules
@@ -183,9 +183,9 @@ Record any failed step. A still screenshot does not verify A03, A04, A06, or A07
 
 ## 5. P3-C04 — Active speaker
 
-**Status:** verified with test audio; physical microphone observation unverified\
+**Status:** committed; physical microphone observation unverified\
 **Proposed commit message:** `feat(web-audio): highlight the active speaker`\
-**Actual commit:**
+**Actual commit:** `520b267910e29aa0472512f4f032d440f1bb13c1`
 
 **Why:** A viewer can see who is audible without writing that fact to Redis. Extends P3-A03.
 
@@ -226,7 +226,7 @@ In the two-window meeting, speak into one microphone and confirm that tile gains
 
 ## 6. P3-C05 — Screen share
 
-**Status:** planned\
+**Status:** verified with browser screen fixture; native picker observation unverified\
 **Proposed commit message:** `feat(web-stage): share the screen by replacing the video track`\
 **Actual commit:**
 
@@ -269,6 +269,14 @@ In the two-window meeting:
 4. Repeat the Phase 2 attendee join and confirm the guest still has no remote tile.
 
 Record what happened. If no browser is available, leave A05 unverified.
+
+**Verification result (2026-11-01):** All required static checks passed: workspace typecheck and lint, shared tests (72), web tests (9), API Redis tests (19), and the production web build. The excluded-feature search printed no matches. Chromium sessions used fake camera/microphone devices and a red canvas screen fixture returned by getDisplayMedia. Remote video pixels changed to the screen and back to the camera, roster flags and large-tile layout followed the share, and the offer count did not increase when starting or stopping a share. Page stop and an ended event matching the browser stop path both restored the camera; an already disabled camera stayed disabled. Cancellation and a failed replaceTrack left sharing unannounced and the screen track stopped. Joining during a share delivered the screen as the initial video track.
+
+Guest leave during a share closed peers, cleared retained video srcObjects, stopped camera/microphone/screen tracks, closed audio contexts, and removed the remote tile. Navigation during an active share, navigation with a pending picker, and host-ended cleanup passed. The expanded check connected four stage members, rejected a fifth without constructing a peer for it, and verified attendee hand/roster behavior with no media capture, peer connection, sharing button, or stage tiles.
+
+**Initial-connection correction:** Earlier repeated runs found intermittent ICE stalls when both endpoints initiated simultaneously. Master 1.0.2 and phase Section 5.2 now schedule the first offer from the impolite endpoint, with all inbound collisions still decided by the shared reducer. Four consecutive complete browser runs passed after the change; the expanded four-member and host-ended checks also passed. Saved unit tests cover scheduling, sender replacement without offers, replacement failure, screen ownership, cancellation, and late capture cleanup.
+
+**Acceptance gaps:** P3-A03 physical microphone/human audible output, P3-A06 physical camera indicator, and P3-A05 native picker UI/browser stop-control observations remain unverified. The screen fixture exercises the application and actual peer video transport; it does not verify the operating-system picker. All five slices can be recorded as implemented, but the full phase exit must remain pending those observations.
 
 **Done when:** P3-A01 through P3-A07 are verified and the slice is committed.
 

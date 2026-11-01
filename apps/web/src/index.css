@@ -126,6 +126,7 @@ meter::-webkit-meter-optimum-value { background: #c9e798; transition: width .08s
 .stage-sharing { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .stage-large { grid-column: 1 / -1; grid-row: 1; aspect-ratio: 16 / 9; }
 .stage-large video { object-fit: contain; transform: none; }
+.stage-screen video { object-fit: contain; transform: none; }
 .stage-speaking { border-color: #c9e798; box-shadow: 0 0 0 1px #c9e798; }
 .stage-speaking-label { position: absolute; top: 10px; right: 10px; border-radius: 4px; padding: 5px 9px; background: #c9e798; color: #1a2511; font-size: 12px; font-weight: 600; }
 button:disabled { cursor: not-allowed; }
