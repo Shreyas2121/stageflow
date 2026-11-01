@@ -2,7 +2,7 @@
 
 StageFlow is a bounded stage you can demo alone, with the negotiation, the stats, and the broadcast limits made explicit.
 
-This checkout contains the workspace, shared contracts, and P1-C03 HTTP API. Guests can create and fetch rooms through the API. The web package is still a typed placeholder; the home page and room shell arrive in P1-C04.
+Phase 1 implements guest sessions, room creation, and a web room shell. Enter a display name, create a meeting or webinar, or join an existing room with its 12 character slug. The shell shows the room title, format, live status, slug, and host name. Foundation build: the green room and video arrive in a later phase.
 
 Observed tools: Node `v22.23.2`, pnpm `12.9.1`, Docker `29.7.2`, and Docker Compose `v5.4.0`. Use Node 22 (`.nvmrc`).
 
@@ -13,15 +13,37 @@ pnpm install
 Copy-Item .env.example .env
 pnpm typecheck
 pnpm lint
+pnpm --filter @stageflow/shared test
 docker compose up -d
 docker compose ps
 pnpm --filter @stageflow/api migration:run
+```
+
+Copy the example only on first setup; keep any existing local `.env` values. Typecheck builds shared before either app starts. Compose should show Postgres and Redis healthy.
+
+Start the API and web app in separate PowerShell terminals, each at the workspace root:
+
+```powershell
 pnpm --filter @stageflow/api dev
 ```
 
+```powershell
+pnpm --filter @stageflow/web dev
+```
+
+Open `http://localhost:5173`. The API uses `http://localhost:4000/api`. Vite loads the root `.env` and uses port 5173 strictly, matching the API's configured CORS origin. Restart the web app after changing its environment values.
+
+The home page validates names and room titles through the shared parsers and requires an exact 12 character alphanumeric slug to join. Each valid create/join submission issues a new guest session. A failed join stays on the home page and displays the API error. The room shell at `/r/:slug` fetches its data with TanStack Query, keyed by slug and token.
+
+Guest state is stored in `sessionStorage` under `stageflow.session`. Reloading the same tab keeps the session; a new tab opened independently starts without it. A direct room URL without a session asks you to enter a name on the home page. Corrupt stored session data is cleared. Names and titles render as text.
+
+This phase has no socket, no camera, no Redis client, and no broadcast. It does not join a live stage, end a room, or provide login accounts.
+
+`pnpm --filter @stageflow/web build` creates the web production bundle. Automated checks pass, but browser acceptance A08/A09 remains unverified because the implementation session had no browser tool. Run the seven browser steps in [the phase guide](plans/phase1/guide.md#6-p1-c04--home-page-and-room-shell) before treating Phase 1 as complete.
+
 Docker Desktop must be running with Linux containers. Postgres 16 uses port 5432, database/user/password `stageflow`, and a named data volume. Redis 7 uses port 6379 without a configured persistent volume. Both services have health checks. If either port is already occupied, resolve that conflict before starting Compose.
 
-The root typecheck builds `@stageflow/shared` declarations and CommonJS output in `dist`, then checks all three packages. Shared uses Node16 resolution. API uses NodeNext resolution for the current Nest integration packages; both retain explicit CommonJS package types and CommonJS output. Web uses ES modules and bundler resolution in preparation for Vite. The API enables `experimentalDecorators` and `emitDecoratorMetadata` for Nest and TypeORM.
+The root typecheck builds `@stageflow/shared` declarations and CommonJS output in `dist`, then checks all three packages. Shared uses Node16 resolution. API uses NodeNext resolution for the current Nest integration packages; both retain explicit CommonJS package types and CommonJS output. Web uses Vite with ES modules and bundler resolution. The API enables `experimentalDecorators` and `emitDecoratorMetadata` for Nest and TypeORM.
 
 TypeScript `6.0.3` is the newest stable version supported by typescript-eslint `8.72.1` (which requires TypeScript below 6.1); TypeScript 7 is outside that range. ESLint `10.14.0` and its flat config cover all three packages, with explicit `any` forbidden. `pnpm --filter @stageflow/shared test` runs the shared parser and slug tests.
 

@@ -1,7 +1,7 @@
 # Phase 1 — Foundation
 
-**Status:** in progress. P1-C01 and P1-C02 committed; P1-C03 verified (A01–A07). P1-C04 has not started.\
-**Last updated:** 2026-10-31.\
+**Status:** in progress. P1-C01 through P1-C03 committed (A01–A07 verified). P1-C04 implemented; browser acceptance A08/A09 unverified.\
+**Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 6.1, 6.2, 6.4, 12, 13, and 16 (Phase 1).\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns P1-C01 through P1-C04. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** FOUND-01, FOUND-02.
@@ -215,8 +215,8 @@ The page is dark, with light text, visible keyboard focus, and labels tied to in
 | P1-A05 | Webinar create returns `mode: "WEBINAR"` | HTTP | verified |
 | P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors | HTTP | verified |
 | P1-A07 | App source has no password column, login route, socket, Redis client, WebRTC, or FFmpeg import | Search | verified |
-| P1-A08 | The browser can create a meeting and the shell shows its title, mode, slug, host, and the foundation sentence | Browser | planned |
-| P1-A09 | The browser can open that slug from home, and an unknown slug shows `room_not_found` without leaving home | Browser | planned |
+| P1-A08 | The browser can create a meeting and the shell shows its title, mode, slug, host, and the foundation sentence | Browser | unverified (no browser tool) |
+| P1-A09 | The browser can open that slug from home, and an unknown slug shows `room_not_found` without leaving home | Browser | unverified (no browser tool) |
 
 FOUND-01 is A01–A03. FOUND-02 is A04–A07, demonstrated in the browser by A08–A09. Do not mark an ID verified because the file exists.
 
@@ -225,6 +225,8 @@ P1-C01 verification (2026-10-31): install, root typecheck, and root lint exited 
 P1-C02 verification (2026-10-31): all 43 shared tests passed with Vitest 5.0.5. Root install, typecheck, and lint exited 0, including both apps importing `RoomMode` from `@stageflow/shared`. Shared build excludes the tests. A04–A09 remain planned.
 
 P1-C03 verification (2026-10-31): migration succeeded and rerunning it reported no pending migrations. Root typecheck, lint, API build, and all 43 shared tests passed. Live HTTP checks verified guest JWTs, both room modes, exact fetch responses, contract errors, CORS, and invalid authentication. A real database fixture verified slug retry and exhaustion. Health returned exactly HTTP 503 `{ "ok": false }` during a database outage, then recovered after Postgres was restored. The original room survived API restarts and remained fetchable by another guest. After extracting the base entity, generated IDs/timestamps and both room modes were checked again. The prohibited-source search had no matches. Details and the corrected first outage attempt are recorded in the guide. A08–A09 remain planned.
+
+P1-C04 implementation verification (2026-10-31 / 2026-11-01): install, root typecheck, root lint, all 43 shared tests, and the web production build passed. Both database containers remain healthy; the migration has no pending work. The Vite dev server delivered the home, room, and fallback documents and transformed the application modules; the root API environment value was present. A07 still has no source matches. The implementation includes the home forms, guest session storage, shared validation, room queries, error states, and dark responsive styling. No browser tool was available, so the seven required browser steps were not performed and A08/A09 remain unverified. The phase remains in progress.
 
 ## 7. Verification commands
 

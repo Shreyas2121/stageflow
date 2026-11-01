@@ -3,7 +3,7 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phase 1 is in progress. P1-C01 and P1-C02 are committed. P1-C03 is verified.\
+**Status:** Phase 1 is in progress. P1-C01 through P1-C03 are committed. P1-C04 is implemented; browser acceptance A08/A09 remains unverified.\
 **Plan version:** `1.0.1`\
 **Last revised:** 2026-10-31
 

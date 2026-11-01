@@ -1,7 +1,7 @@
 # Guide 1 — Phase 1, commit by commit
 
-**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`19fa57e`). P1-C03 verified. P1-C04 is not implemented.\
-**Last updated:** 2026-10-31.\
+**Status:** P1-C01 committed (`c2cce0d`). P1-C02 committed (`1faf5b9`). P1-C03 committed (`2eb1371`). P1-C04 implemented; browser verification pending.\
+**Last updated:** 2026-11-01.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
 **Deliverable:** Guest sessions and room create/fetch, in four commits. This is the only Phase 1 guide.
@@ -104,7 +104,7 @@ docker compose ps
 
 **Status:** committed\
 **Proposed commit message:** `feat(shared): add session and room input contracts`\
-**Actual commit:** `19fa57e`
+**Actual commit:** `1faf5b9`
 
 **Why:** The API and the web app need one parser for names, titles, modes, and slugs. Covers P1-A03.
 
@@ -201,9 +201,9 @@ pnpm lint
 
 ## 5. P1-C03 — Guest sessions and rooms
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api): issue guest sessions and persist rooms`\
-**Actual commit:**
+**Actual commit:** `2eb1371`
 
 **Why:** FOUND-02 is an HTTP contract. The browser in the next slice needs these routes. Covers P1-A04, P1-A05, P1-A06, and P1-A07.
 
@@ -298,7 +298,7 @@ Tooling note: Nest CLI 11 pins Webpack 5.106.2, while its current transitive sch
 
 ## 6. P1-C04 — Home page and room shell
 
-**Status:** planned\
+**Status:** implemented (A08/A09 unverified)\
 **Proposed commit message:** `feat(web): create a room and open its shell`\
 **Actual commit:**
 
@@ -321,11 +321,12 @@ Tooling note: Nest CLI 11 pins Webpack 5.106.2, while its current transitive sch
 - `apps/web/src/pages/RoomPage.tsx`
 - `apps/web/src/vite-env.d.ts`
 - `README.md`
+- `pnpm-lock.yaml`
 - Delete `apps/web/src/index.ts` when the Vite entry replaces it.
 
 **Implementation:**
 
-1. Add React 19, Vite, React Router, TanStack Query, Zustand, and the current Tailwind release that supports this Vite version. Follow that Tailwind release's Vite setup. `vite.config.ts` sets `envDir` to the repo root.
+1. Add React 19, Vite, React Router, TanStack Query, Zustand, and the current Tailwind release that supports this Vite version. Follow that Tailwind release's Vite setup. `vite.config.ts` sets `envDir` to the repo root and prebundles the linked CommonJS shared package with `optimizeDeps.include`. Use port 5173 with `strictPort` so CORS remains consistent. Include the Vite config in web typecheck and lint.
 2. `session.ts` is the Zustand store for `{ token, userId, displayName }`. It reads and writes `sessionStorage` key `stageflow.session`. Corrupt JSON clears the key.
 3. `api.ts` reads `import.meta.env.VITE_API_BASE_URL`. It exposes `createGuest`, `createRoom`, and `getRoom`. It sends the bearer token for the room calls. It does not read `VITE_WS_URL`.
 4. Build the home page and room page to the behavior in phase Section 5.5. Use the shared parsers before sending. Always mint a new guest on submit. Navigate only after create or a successful join fetch.
@@ -358,6 +359,10 @@ Repeat the A07 search. It still prints nothing.
 **Done when:** P1-A01 through P1-A09 are verified. The README can take a clean checkout through compose, migration, and the two dev servers.
 
 **Handoff:** Phase 2 can attach presence to `POST /api/sessions/guest`, `GET /api/rooms/:slug`, and `/r/:slug` without changing their Phase 1 meanings. Do not start that phase in this commit.
+
+**Implementation verification (2026-10-31 / 2026-11-01):** React 19.3.1, Vite 8.3.5, React Router 8.5.1, TanStack Query 5.105.0, Zustand 5.0.16, and Tailwind 4.3.3 are installed and locked. Vite uses the React and Tailwind plugins, the root environment directory, port 5173 with `strictPort`, and explicit prebundling for the linked CommonJS shared package. Web typecheck and lint include `vite.config.ts`. Root `pnpm install`, `pnpm typecheck`, `pnpm lint`, all 43 shared tests, and `pnpm --filter @stageflow/web build` passed. The build emitted a non-failing warning for its 523.97 kB JavaScript chunk (159.48 kB gzip). Compose reports both databases healthy, and migration execution reports no pending migrations. The existing API dev server was reused and the web dev command started successfully. HTTP checks confirmed delivery of the root, a room deep link, and a fallback URL; all app modules transformed successfully; the API module received the root `VITE_API_BASE_URL`. The A07 source search had no matches.
+
+**Browser acceptance:** A08 and A09 remain unverified. No browser or computer-use tool is available in this session. None of the seven browser steps above has been claimed as performed: HTTP document/module delivery and a production build do not establish interaction, reload/session behavior, focus, or visual correctness. The implementation can be committed with this gap recorded, but Phase 1 has not exited and Phase 2 must not start until those browser steps pass.
 
 ## 7. Phase exit
 
