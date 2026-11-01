@@ -29,4 +29,8 @@ export class LiveRepository {
     if (typeof result !== 'string') throw new Error('Invalid Redis stage result.');
     return JSON.parse(result) as LiveResult;
   }
+
+  async deleteRoom(prefix: string): Promise<void> {
+    await this.redis.del(...['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`));
+  }
 }

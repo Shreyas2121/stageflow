@@ -1,6 +1,6 @@
 # Phase 2 — Presence and green room
 
-**Status:** in progress. P2-C01 committed; P2-C02 verified; P2-C03 and P2-C04 planned.\
+**Status:** in progress. P2-C01 and P2-C02 committed; P2-C03 verified; P2-C04 planned.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 5.2, 5.3, 7, 8, 9.5, and 16 (Phase 2).\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns P2-C01 through P2-C04. This file owns the rules those commits must satisfy.\
@@ -188,7 +188,7 @@ Keep the existing dark page, labels, and visible focus. Error text includes the 
 | --- | --- | --- | --- |
 | P2-A01 | The pure transition cases in Section 5.2 pass | `pnpm --filter @stageflow/shared test` | verified |
 | P2-A02 | The same cases through the Lua scripts match the pure function. Redis must be up | API integration test | verified |
-| P2-A03 | API startup pings Redis and deletes `sf:room:*` without ending PostgreSQL rooms | Restart the API, then fetch the room | planned |
+| P2-A03 | API startup pings Redis and deletes `sf:room:*` without ending PostgreSQL rooms | Restart the API, then fetch the room | verified |
 | P2-A04 | Two browsers show the host and one meeting speaker. One leave updates the other roster. Local tracks stop on leave | Browser | planned |
 | P2-A05 | The fifth meeting join does not write. A webinar guest is an attendee and is not prompted for a camera | Integration test and browser | planned |
 | P2-A06 | An attendee hand appears on the host roster. The server assigns the roles | Browser | planned |

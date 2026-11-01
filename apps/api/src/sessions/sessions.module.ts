@@ -17,6 +17,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   ],
   controllers: [SessionsController],
   providers: [SessionsService, JwtAuthGuard],
-  exports: [JwtAuthGuard, JwtModule, TypeOrmModule],
+  exports: [SessionsService, JwtAuthGuard, JwtModule, TypeOrmModule],
 })
 export class SessionsModule {}

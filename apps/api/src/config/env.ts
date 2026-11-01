@@ -14,4 +14,8 @@ export const env = {
   DATABASE_URL: process.env.DATABASE_URL!,
   REDIS_URL: process.env.REDIS_URL!,
   CORS_ORIGIN: process.env.CORS_ORIGIN!,
+  STUN_URL: process.env.STUN_URL?.trim() ?? '',
+  TURN_URL: process.env.TURN_URL?.trim() ?? '',
+  TURN_USERNAME: process.env.TURN_USERNAME?.trim() ?? '',
+  TURN_CREDENTIAL: process.env.TURN_CREDENTIAL?.trim() ?? '',
 };

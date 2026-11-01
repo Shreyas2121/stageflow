@@ -1,6 +1,6 @@
 # Guide 2 — Phase 2, commit by commit
 
-**Status:** in progress. P2-C01 committed; P2-C02 verified; P2-C03 and P2-C04 are not implemented.\
+**Status:** in progress. P2-C01 and P2-C02 committed; P2-C03 verified; P2-C04 planned.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -90,9 +90,9 @@ pnpm lint
 
 ## 3. P2-C02 — Lua scripts and the Redis integration test
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-redis): apply stage changes with Lua scripts`\
-**Actual commit:**
+**Actual commit:** `a0a097e387f172e21968ac703018c5b4c38ba89d`
 
 **Why:** Two Node requests must not lose a mute or admit a fifth speaker. Covers P2-A02.
 
@@ -134,7 +134,7 @@ pnpm lint
 
 ## 4. P2-C03 — Socket.IO presence
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-signaling): publish presence snapshots on Socket.IO`\
 **Actual commit:**
 
@@ -187,6 +187,8 @@ Join as the host over Socket.IO, then join a second guest. Confirm the second sn
 Stop Redis and start the API. The process exits before it listens, and the error names Redis.
 
 **Done when:** P2-A03 passes, host leave persists `ENDED`, and the slice is committed.
+
+**Verification result (2026-11-01):** All 56 shared tests and 19 Redis integration tests passed; workspace typecheck, lint, and API build passed. A temporary native Socket.IO/HTTP harness verified guest/create/fetch response compatibility, unchanged HTTP 401, bad/missing/expired/wrong-algorithm tokens, malformed UUID subjects and absent users, host-first meeting joins, server-assigned roles, duplicate user/socket rejection, invalid payloads, media updates, speaker leave, host disconnect, persisted `ENDED`/`endedAt`, ended join rejection, and Redis room-key deletion. Webinar guests joined before the host and raised/lowered hands in snapshots. Restart removed `sf:room:*`, preserved an `sf:itest:*` sentinel and unchanged PostgreSQL `LIVE` rows, and allowed a fresh join. Empty STUN returned no ICE servers; configured TURN returned its credentials. An unavailable Redis caused nonzero startup exit before listening. P2-A03 and the HTTP/server half of P2-A07 are verified. Initial verification attempts exposed incompatible Nest 12 socket packages (now pinned to the existing Nest 11 major) and a browser-only client's unavailable Node polling transport (temporary harness switched to native WebSocket). No application test harness or dependency was added for these manual checks.
 
 **Handoff:** The web app still shows the Phase 1 shell. `iceServers` are returned and unused.
 

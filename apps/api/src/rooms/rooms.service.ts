@@ -11,6 +11,15 @@ import { Room } from './room.entity';
 export class RoomsService {
   constructor(@InjectRepository(Room) private readonly rooms: Repository<Room>) {}
 
+  async getById(id: string): Promise<Room | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+    return this.rooms.findOneBy({ id });
+  }
+
+  async end(roomId: string): Promise<void> {
+    await this.rooms.update({ id: roomId, status: 'LIVE' }, { status: 'ENDED', endedAt: new Date() });
+  }
+
   async create(host: User, body: unknown): Promise<RoomResponse> {
     const title = parseRoomTitle(typeof body === 'object' && body !== null && 'title' in body
       ? body.title : undefined);

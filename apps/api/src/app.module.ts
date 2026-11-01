@@ -6,6 +6,7 @@ import { databaseOptions } from './database/data-source';
 import { SessionsModule } from './sessions/sessions.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { HealthController } from './health/health.controller';
+import { LiveModule } from './live/live.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { HealthController } from './health/health.controller';
     TypeOrmModule.forRoot(databaseOptions),
     SessionsModule,
     RoomsModule,
+    LiveModule,
   ],
   controllers: [HealthController],
 })
