@@ -1,19 +1,15 @@
 import { Link, useParams } from 'react-router';
 import { useState } from 'react';
-import { skipToken, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
-import { getRoom } from '../api';
+import { roomQueryOptions } from '../features/rooms/query-options';
 import { LiveRoom } from '../features/live/components/live-room';
-import { useSessionStore } from '../session';
+import { useSessionStore } from '../features/session/session-store';
 
 export function RoomPage() {
   const { slug = '' } = useParams();
   const session = useSessionStore((state) => state.session);
-  const roomQuery = useQuery({
-    queryKey: ['room', slug, session?.token],
-    queryFn: session ? () => getRoom(slug, session.token) : skipToken,
-    retry: false,
-  });
+  const roomQuery = useQuery(roomQueryOptions(slug, session));
 
   if (!session) {
     return (

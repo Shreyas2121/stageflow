@@ -1,3 +1,4 @@
+import { signalingUrl } from '../../../config/env';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
@@ -37,13 +38,6 @@ type SignalingCallbacks = {
   onDescription: (payload: RelayedDescription) => void;
   onCandidate: (payload: RelayedIceCandidate) => void;
 };
-
-function signalingUrl(): string {
-  const url = import.meta.env.VITE_WS_URL;
-  if (!url)
-    throw new Error('The live room address is missing. Set VITE_WS_URL and restart the web app.');
-  return url;
-}
 
 export function openIndependentSignaling(
   token: string,

@@ -1,5 +1,5 @@
 import { demoPeerNames, type IceServer, type RoomSnapshot } from '@stageflow/shared';
-import { createGuest } from '../../../api';
+import { createGuest } from '../../session/api';
 import { PeerManager, type TrackSource } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 
@@ -20,6 +20,7 @@ export class DemoPeer implements TrackSource {
   private selfSocketId: string | null = null;
   private iceServers: IceServer[] = [];
   private stopped = false;
+  private readonly guestRequest = new AbortController();
   private started = false;
 
   constructor(
@@ -52,7 +53,7 @@ export class DemoPeer implements TrackSource {
       if (this.context.state !== 'running')
         throw new Error('Enable demo audio by clicking Spawn demo peer again.');
       this.createMedia();
-      const guest = await createGuest(this.name);
+      const guest = await createGuest(this.name, this.guestRequest.signal);
       if (this.stopped) throw new Error('Demo peer start was cancelled.');
       const connection = openIndependentSignaling(guest.token, roomId, {
         onJoined: (ack) => {
@@ -152,6 +153,7 @@ export class DemoPeer implements TrackSource {
   }
 
   stop(): void {
+    this.guestRequest.abort();
     if (this.stopped) return;
     this.stopped = true;
     const connection = this.connection;

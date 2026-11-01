@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mocked } from 'vitest';
-import { createGuest } from '../../../api';
+import { createGuest } from '../../session/api';
 import { PeerManager } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 import { DemoPeer } from './demo-peer';
 
-vi.mock('../../../api', () => ({ createGuest: vi.fn() }));
+vi.mock('../../session/api', () => ({ createGuest: vi.fn() }));
 vi.mock('./signaling', () => ({ openIndependentSignaling: vi.fn() }));
 vi.mock('./peer-manager', () => ({
   PeerManager: vi.fn(
@@ -149,7 +149,9 @@ describe('DemoPeer cleanup', () => {
     );
     const peer = new DemoPeer('Demo Peer 1', context);
     const start = peer.start('room');
+    const signal = vi.mocked(createGuest).mock.calls.at(-1)?.[1];
     peer.stop();
+    expect(signal?.aborted).toBe(true);
     finish({ token: 'token', userId: 'user', displayName: 'Demo Peer 1' });
     await expect(start).rejects.toThrow('cancelled');
     expect(openIndependentSignaling).not.toHaveBeenCalled();

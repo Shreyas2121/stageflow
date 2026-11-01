@@ -1,11 +1,12 @@
 import { isRoomSlug } from '@stageflow/shared';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { parseDisplayName, parseRoomMode, parseRoomTitle } from '@stageflow/shared';
 import type { RoomMode } from '@stageflow/shared';
-import { createGuest, createRoom, getRoom } from '../api';
-import { useSessionStore } from '../session';
+import { createGuest } from '../features/session/api';
+import { createRoom, getRoom } from '../features/rooms/api';
+import { useSessionStore } from '../features/session/session-store';
 
 export function HomePage() {
   const session = useSessionStore((state) => state.session);
@@ -14,26 +15,35 @@ export function HomePage() {
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
   const navigate = useNavigate();
+  const pendingRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => pendingRequest.current?.abort(), []);
   const submit = useMutation({
     mutationFn: async (action: RoomMode | 'join') => {
+      pendingRequest.current?.abort();
+      const controller = new AbortController();
+      pendingRequest.current = controller;
       const name = parseDisplayName(displayName);
       if (!name.ok) throw new Error(name.message);
       if (action === 'join') {
         if (!isRoomSlug(slug)) throw new Error('Enter the 12 character room slug.');
-        const guest = await createGuest(name.value);
+        const guest = await createGuest(name.value, controller.signal);
         setSession(guest);
-        return getRoom(slug, guest.token);
+        return getRoom(slug, guest.token, controller.signal);
       }
       const parsedTitle = parseRoomTitle(title);
       if (!parsedTitle.ok) throw new Error(parsedTitle.message);
       const mode = parseRoomMode(action);
       if (!mode.ok) throw new Error(mode.message);
-      const guest = await createGuest(name.value);
+      const guest = await createGuest(name.value, controller.signal);
       setSession(guest);
-      return createRoom({ title: parsedTitle.value, mode: mode.value }, guest.token);
+      return createRoom(
+        { title: parsedTitle.value, mode: mode.value },
+        guest.token,
+        controller.signal,
+      );
     },
     onSuccess: (room) => {
-      void navigate(`/r/${room.slug}`);
+      if (!pendingRequest.current?.signal.aborted) void navigate(`/r/${room.slug}`);
     },
   });
 

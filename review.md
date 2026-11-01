@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C09 are recorded below; C10 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C10 are recorded below; C11 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -704,8 +704,8 @@ Web tests (41), web lint, and web typecheck passed. Share and leave cleanup test
 
 ### C09 — `refactor(web-live): separate room orchestration from route components`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `706dfbcf692c8ef49711604667c340dae5d565ca`
 
 **Depends on:** C08 and C01 ownership decision. **Addresses:** F07.
 
@@ -723,6 +723,9 @@ Headless Chrome 156, using a fake camera, microphone, and media prompt, kept Joi
 
 ### C10 — `fix(web-api): preserve request errors cancellation and session recovery`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C09. **Addresses:** F16/F17 web config.
 
 **Files:** replace `apps/web/src/api.ts` with `lib/http/client.ts`/`api-error.ts`; move session to `features/session/session-store.ts` and API to `features/session/api.ts`; create `features/rooms/api.ts`, `query-options.ts`, `config/env.ts`; update `pages/HomePage.tsx`, `pages/RoomPage.tsx`, `apps/web/src/features/live/services/demo-peer.ts`, `vite-env.d.ts`; add focused HTTP/session tests.
@@ -730,6 +733,12 @@ Headless Chrome 156, using a fake camera, microphone, and media prompt, kept Joi
 Preserve status/error codes; consume AbortSignal and bound timeout; parse success envelopes; make storage writes resilient and provide clear/expiry handling. Use identity-aware query keys and clear old private caches. Preserve the contracted fresh guest on each home submission; do not add registered accounts.
 
 **Verify/done:** aborted requests do not become false network errors; 401 recovery returns to a usable name flow; denied storage still permits an in-memory session; API/web checks/tests/build and create/join smoke pass.
+
+**Implementation/verification record (2026-11-01):** Replaced the asserted-generic API helper with a typed HTTP boundary that retains status, error code, and message; guest and room success payloads are parsed at runtime. Fetch receives caller cancellation and a 10-second timeout, including body reading. Home submissions and stopped demo peers cancel pending HTTP work. API and signaling URL getters validate absolute HTTP(S) addresses without throwing at module import; both Vite variables are declared. Guest sessions moved under the session feature, tolerate denied storage in memory, support explicit clearing, discard stored expired sessions, and schedule clearing when a token supplies an expiry. No new guest lifetime or account model was added. Room 401s clear only the matching current token; stale requests cannot discard a newer guest. Private room query keys contain the user ID instead of the token, consume Query's signal, and private caches are cancelled and removed when a session is replaced or cleared. Each home submission still creates a fresh guest.
+
+Shared prerequisite build, web tests (81, 12 files), web typecheck/lint/build, and API typecheck/lint/tests (41, 5 files)/build passed. The web production build retains the existing large-chunk warning (637.53 kB JavaScript, Vite estimated gzip 192.16 kB). Focused regressions cover HTTP status/code fallbacks, invalid success payloads, network failure, pre-abort and in-flight/body cancellation, timeout, corrupt/expired session restoration, denied storage, expiry, stale 401 protection, credential-free private keys, private cache cancellation/removal, and create/join requests.
+
+A headless Chrome smoke against the compiled API and a disposable Redis 7 container passed meeting creation, host and second fresh guest live joins with synthetic camera/microphone, real 401 clearing followed by a usable fresh-name submission and room reopening, and room creation/navigation with sessionStorage access denied. Both final smoke rooms ended through host leave. The initial browser assertion expected mixed-case heading text; CSS renders that heading uppercase, so the harness was corrected and rerun successfully. Developer Redis was not restarted or cleared. Physical media acceptance remains pending. C10 carries C09's post-commit hash. Record C10's actual hash after commit for the next requested slice.
 
 ### C11 — `refactor(web-ui): define Tailwind tokens and reusable form primitives`
 
