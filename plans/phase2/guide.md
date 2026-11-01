@@ -1,6 +1,6 @@
 # Guide 2 — Phase 2, commit by commit
 
-**Status:** P2-C01 through P2-C03 committed; P2-C04 verified. P2-A01 through P2-A08 verified.\
+**Status:** complete. P2-C01 through P2-C04 committed; P2-A01 through P2-A08 verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -194,9 +194,9 @@ Stop Redis and start the API. The process exits before it listens, and the error
 
 ## 5. P2-C04 — Green room and roster
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-lobby): join from the green room and show the roster`\
-**Actual commit:**
+**Actual commit:** `626722d9334aa157fa40559e5cd0fdeb3bddd49a`
 
 **Why:** This is the phase a person can see: devices, a shared roster, hands, and leave. Covers P2-A04 through P2-A08.
 

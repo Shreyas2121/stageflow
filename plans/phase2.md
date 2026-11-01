@@ -1,6 +1,6 @@
 # Phase 2 — Presence and green room
 
-**Status:** verified. P2-A01 through P2-A08 passed; P2-C01 through P2-C03 committed, P2-C04 awaiting commit.\
+**Status:** complete. P2-C01 through P2-C04 committed; P2-A01 through P2-A08 verified on 2026-11-01.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 5.2, 5.3, 7, 8, 9.5, and 16 (Phase 2).\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns P2-C01 through P2-C04. This file owns the rules those commits must satisfy.\
