@@ -36,6 +36,7 @@ export type StageIceCandidate = {
   candidate: string;
   sdpMid: string | null;
   sdpMLineIndex: number | null;
+  usernameFragment?: string;
 };
 export type DescriptionRequest = { toSocketId: string; description: StageDescription };
 export type IceCandidateRequest = { toSocketId: string; candidate: StageIceCandidate | null };

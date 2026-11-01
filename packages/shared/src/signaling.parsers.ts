@@ -7,6 +7,7 @@ import {
   SOCKET_ID_MAX_LENGTH,
   SDP_MID_MAX_LENGTH,
   SDP_MLINE_INDEX_MAX,
+  ICE_UFRAG_MAX_LENGTH,
 } from './limits';
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -43,7 +44,7 @@ export function parseIceCandidateRequest(value: unknown): IceCandidateRequest | 
   if (!record(value) || !socketId(value.toSocketId)) return null;
   if (value.candidate === null) return { toSocketId: value.toSocketId, candidate: null };
   if (!record(value.candidate)) return null;
-  const { candidate, sdpMid, sdpMLineIndex } = value.candidate;
+  const { candidate, sdpMid, sdpMLineIndex, usernameFragment } = value.candidate;
   if (
     !bounded(candidate, ICE_CANDIDATE_MAX_LENGTH) ||
     (sdpMid !== null && !bounded(sdpMid, SDP_MID_MAX_LENGTH)) ||
@@ -51,11 +52,23 @@ export function parseIceCandidateRequest(value: unknown): IceCandidateRequest | 
       (typeof sdpMLineIndex !== 'number' ||
         !Number.isInteger(sdpMLineIndex) ||
         sdpMLineIndex < 0 ||
-        sdpMLineIndex > SDP_MLINE_INDEX_MAX))
+        sdpMLineIndex > SDP_MLINE_INDEX_MAX)) ||
+    (usernameFragment != null &&
+      (typeof usernameFragment !== 'string' ||
+        usernameFragment.length === 0 ||
+        usernameFragment.length > ICE_UFRAG_MAX_LENGTH))
   )
     return null;
   if (candidate !== '' && sdpMid === null && sdpMLineIndex === null) return null;
-  return { toSocketId: value.toSocketId, candidate: { candidate, sdpMid, sdpMLineIndex } };
+  return {
+    toSocketId: value.toSocketId,
+    candidate: {
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+      ...(typeof usernameFragment === 'string' ? { usernameFragment } : {}),
+    },
+  };
 }
 export function parseMediaPatch(value: unknown): MediaPatch | null {
   if (

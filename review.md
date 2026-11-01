@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C06 are recorded below; C07 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C07 are recorded below; C08 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -647,8 +647,8 @@ Shared tests (118), web tests (23), and API tests (34: 20 real Redis cases plus 
 
 ### C06 — `fix(api-live): expose Redis readiness and reset failed live sessions`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `fb87f0a494a4f1567760cc8d635c5d284583bf96`
 
 **Depends on:** C05. **Addresses:** F04/F10 runtime failure.
 
@@ -664,6 +664,9 @@ The outage smoke used an injected Redis client. No API server was started, no sh
 
 ### C07 — `fix(webrtc): bind queued ICE candidates to accepted descriptions`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C03. **Addresses:** F02.
 
 **Files:** `apps/web/src/live/peer-manager.ts`, `peer-manager.test.ts`, `signaling.ts`, `signaling.test.ts`; `packages/shared/src/signaling.ts`, `signaling.parsers.ts` and tests; `apps/api/src/live/signaling.gateway.ts` parser/relay mapping as needed.
@@ -671,6 +674,14 @@ The outage smoke used an injected Redis client. No API server was started, no sh
 Add manager-level regression cases first: candidates queued before ignore, candidates arriving during ignore, and a rejection partway through draining. Use a real SDP/ICE browser fixture to establish which candidates remain valid before expanding the wire protocol. Preserve usernameFragment when needed/available, but do not assume each description has a distinct ICE generation. Bound both per-peer candidate queues and pre-join `pending` callbacks by count/size, with timeout/close cleanup and an explicit overflow outcome. Handle candidate failures without losing unrelated valid work or hiding malformed input. Preserve valid pre-description ordering and null/empty-string end markers, including the both-null identifier exception for the empty string. Cover late events after close and failed remote descriptions. Do not rewrite the reducer or add ICE restart.
 
 **Verify/done:** a fixture with genuinely incompatible ICE credentials cannot poison the accepted description; accepted early candidates flush in order and a failed candidate does not silently discard the remaining valid batch. Buffer overflow, timeout, and close release queued work. Shared/consumer tests/checks pass; repeat two/four-member browser mesh and share checks with no added share offer. Do not declare success merely because a fake's labeled candidate was dropped.
+
+**Implementation/verification record (2026-11-01):** A headless Chrome rollback fixture showed that an abandoned offer mints a new `a=ice-ufrag`, that candidates gathered for it carry the old username fragment, and that `addIceCandidate` still installs those candidates on the accepted description. The manager now keeps candidates that arrive before a remote description, including candidates the reducer marks `drop-candidate` while an offer is ignored. It applies a candidate when the candidate has no username fragment, or when that fragment appears in the accepted remote SDP. Matching candidates stay in arrival order. The negotiation reducer is unchanged. There is no ICE restart. A polite peer still does not create an offer before a remote description.
+
+`usernameFragment` is optional on the candidate wire and limited to 256 characters. A null or omitted fragment is left off the payload. The null end marker and the empty-string end marker with both identifiers null still pass. A non-empty candidate with both identifiers null is still rejected before relay.
+
+The queue is snapshotted before it is drained. Each candidate is applied on its own: a `TypeError` or another rejection is reported, and later candidates in the batch are still applied. An accepted offer is still answered after a candidate failure. A failed `setRemoteDescription` leaves the queue in place for a later successful description. Each peer holds at most 32 candidates and 64KB for 8 seconds. Overflow, expiry, and close release that queue and the first two report an explicit error. A candidate after close is ignored. Pre-join signaling holds at most 32 events or 256KB for 8 seconds. Overflow or expiry rejects the in-flight join and drops the buffer. Close drops events that were waiting and events that arrive afterward.
+
+Shared tests (119), web tests (33), and API tests (41) passed. Shared, web, and API lint and typecheck passed, and the API production build passed. Headless Chrome, using a fake camera and microphone, joined a meeting, connected a two-member mesh, and then shared the screen without a further `setLocalDescription`. The two later demo peers brought the room to four members and all 12 peer connections reached `connected`. Leave ended the catalog row. Redis had no `sf:room:*` keys before this single API process started, and none remained after leave. No second API was started. Physical cameras and speakers were not used. C07 carries C06's post-commit hash. Record C07's actual hash after commit for the next requested slice.
 
 ### C08 — `fix(web-media): release lobby analysis without stopping call tracks`
 

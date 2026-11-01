@@ -9,6 +9,7 @@ import {
 import {
   SDP_MAX_LENGTH,
   ICE_CANDIDATE_MAX_LENGTH,
+  ICE_UFRAG_MAX_LENGTH,
   SOCKET_ID_MAX_LENGTH,
   SDP_MID_MAX_LENGTH,
 } from './limits';
@@ -104,6 +105,31 @@ it('bounds candidate strings, identifiers and mid', () => {
     expect(parseIceCandidateRequest({ toSocketId: 'peer', candidate })).toBeNull();
   expect(parseIceCandidateRequest({ toSocketId: '', candidate: ice })).toBeNull();
   expect(parseIceCandidateRequest({ toSocketId: 'peer' })).toBeNull();
+});
+it('preserves an ICE username fragment without requiring one', () => {
+  expect(
+    parseIceCandidateRequest({
+      toSocketId: 'peer',
+      candidate: { ...ice, usernameFragment: 'answer-ufrag' },
+    }),
+  ).toEqual({
+    toSocketId: 'peer',
+    candidate: { ...ice, usernameFragment: 'answer-ufrag' },
+  });
+  expect(
+    parseIceCandidateRequest({ toSocketId: 'peer', candidate: ice })?.candidate,
+  ).not.toHaveProperty('usernameFragment');
+  expect(
+    parseIceCandidateRequest({
+      toSocketId: 'peer',
+      candidate: { ...ice, usernameFragment: null },
+    })?.candidate,
+  ).not.toHaveProperty('usernameFragment');
+  for (const usernameFragment of ['', 'x'.repeat(ICE_UFRAG_MAX_LENGTH + 1), 1, {}]) {
+    expect(
+      parseIceCandidateRequest({ toSocketId: 'peer', candidate: { ...ice, usernameFragment } }),
+    ).toBeNull();
+  }
 });
 it('keeps partial and empty media patches idempotent and rejects unknown policy fields', () => {
   expect(parseMediaPatch({})).toEqual({});

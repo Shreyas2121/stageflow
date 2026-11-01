@@ -16,6 +16,10 @@ import type {
   RelayedIceCandidate,
 } from '@stageflow/shared';
 
+const PENDING_EVENT_LIMIT = 32;
+const PENDING_BYTE_LIMIT = 256 * 1024;
+const PENDING_TIMEOUT_MS = 8_000;
+
 export type RoomConnection = {
   description: (payload: DescriptionRequest) => Promise<CommandAck>;
   candidate: (payload: IceCandidateRequest) => Promise<CommandAck>;
@@ -59,8 +63,44 @@ export function openIndependentSignaling(
   });
   let closed = false;
   let joined = false;
+  let joinSettled = false;
+  let pendingBytes = 0;
+  let pendingFailed = false;
   const pending: (() => void)[] = [];
+  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
   let cancelConnect: (() => void) | undefined;
+  let rejectJoin: ((error: Error) => void) | undefined;
+  const releasePending = () => {
+    pending.length = 0;
+    pendingBytes = 0;
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pendingTimer = undefined;
+    }
+  };
+  const failPending = (message: string) => {
+    pendingFailed = true;
+    releasePending();
+    if (joined || joinSettled) return;
+    joinSettled = true;
+    rejectJoin?.(new Error(message));
+  };
+  const queuePending = (payload: unknown, deliver: () => void) => {
+    if (closed || pendingFailed) return;
+    const bytes = JSON.stringify(payload).length;
+    if (pending.length + 1 > PENDING_EVENT_LIMIT || pendingBytes + bytes > PENDING_BYTE_LIMIT) {
+      failPending('Live signaling overflowed before join.');
+      return;
+    }
+    pending.push(deliver);
+    pendingBytes += bytes;
+    if (pendingTimer) return;
+    pendingTimer = setTimeout(() => {
+      pendingTimer = undefined;
+      if (pending.length === 0) return;
+      failPending('Live signaling expired before join.');
+    }, PENDING_TIMEOUT_MS);
+  };
   const connection: RoomConnection = {
     async join(payload) {
       await new Promise<void>((resolve, reject) => {
@@ -82,12 +122,41 @@ export function openIndependentSignaling(
         socket.once('connect_error', failed);
         socket.connect();
       });
-      const result = await socket.timeout(8000).emitWithAck('room:join', payload);
+      const result = await new Promise<JoinAck>((resolve, reject) => {
+        rejectJoin = reject;
+        socket
+          .timeout(8000)
+          .emitWithAck('room:join', payload)
+          .then(
+            (ack: JoinAck) => {
+              if (joinSettled) return;
+              if (pendingFailed) {
+                joinSettled = true;
+                reject(new Error('Live signaling overflowed before join.'));
+                return;
+              }
+              joinSettled = true;
+              resolve(ack);
+            },
+            (error: unknown) => {
+              if (joinSettled) return;
+              joinSettled = true;
+              releasePending();
+              reject(error instanceof Error ? error : new Error('Unable to join this room.'));
+            },
+          );
+      });
       if (result.ok && !closed) {
-        callbacks.onJoined(result);
         joined = true;
-        for (const deliver of pending.splice(0)) deliver();
-      }
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          pendingTimer = undefined;
+        }
+        callbacks.onJoined(result);
+        const queued = pending.splice(0);
+        pendingBytes = 0;
+        for (const deliver of queued) deliver();
+      } else releasePending();
       return result;
     },
     media: (patch) => socket.timeout(8000).emitWithAck('media:state', patch),
@@ -98,7 +167,7 @@ export function openIndependentSignaling(
     close() {
       if (closed) return;
       closed = true;
-      pending.length = 0;
+      releasePending();
       cancelConnect?.();
       socket.removeAllListeners();
       socket.disconnect();
@@ -108,12 +177,12 @@ export function openIndependentSignaling(
   socket.on('webrtc:description', (payload) => {
     if (closed) return;
     if (joined) callbacks.onDescription(payload);
-    else pending.push(() => callbacks.onDescription(payload));
+    else queuePending(payload, () => callbacks.onDescription(payload));
   });
   socket.on('webrtc:ice-candidate', (payload) => {
     if (closed) return;
     if (joined) callbacks.onCandidate(payload);
-    else pending.push(() => callbacks.onCandidate(payload));
+    else queuePending(payload, () => callbacks.onCandidate(payload));
   });
   socket.on('room:state', (snapshot) => {
     if (!closed && snapshot.roomId === roomId) callbacks.onState(snapshot);

@@ -11,6 +11,10 @@ import {
 } from '@stageflow/shared';
 import type { RoomConnection } from './signaling';
 
+const CANDIDATE_QUEUE_LIMIT = 32;
+const CANDIDATE_QUEUE_BYTES = 64 * 1024;
+const CANDIDATE_QUEUE_MS = 8_000;
+
 export type TrackSource = {
   microphoneTrack: () => MediaStreamTrack | null;
   cameraTrack: () => MediaStreamTrack | null;
@@ -22,8 +26,44 @@ type Peer = {
   stream: MediaStream;
   flags: NegotiationFlags;
   candidates: (StageIceCandidate | null)[];
+  queuedBytes: number;
+  queueTimer: ReturnType<typeof setTimeout> | undefined;
   work: Promise<void>;
 };
+
+function candidateBytes(candidate: StageIceCandidate | null): number {
+  if (!candidate) return 1;
+  return (
+    candidate.candidate.length +
+    (candidate.sdpMid?.length ?? 0) +
+    (candidate.usernameFragment?.length ?? 0)
+  );
+}
+
+function remoteUfrags(sdp: string): Set<string> {
+  const ufrags = new Set<string>();
+  for (const line of sdp.split('\n')) {
+    const trimmed = line.endsWith('\r') ? line.slice(0, -1) : line;
+    const prefix = 'a=ice-ufrag:';
+    if (trimmed.startsWith(prefix)) ufrags.add(trimmed.slice(prefix.length));
+  }
+  return ufrags;
+}
+
+function candidateMatches(sdp: string | undefined, candidate: StageIceCandidate | null): boolean {
+  if (!candidate?.usernameFragment) return true;
+  if (!sdp) return false;
+  return remoteUfrags(sdp).has(candidate.usernameFragment);
+}
+
+function toInit(candidate: StageIceCandidate): RTCIceCandidateInit {
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    ...(candidate.usernameFragment ? { usernameFragment: candidate.usernameFragment } : {}),
+  };
+}
 export type RemoteStreams = ReadonlyMap<string, MediaStream>;
 export type PeerStatsSource = {
   readonly socketId: string;
@@ -100,6 +140,8 @@ export class PeerManager {
         pc,
         stream: new MediaStream(),
         candidates: [],
+        queuedBytes: 0,
+        queueTimer: undefined,
         work: Promise.resolve(),
         flags: {
           polite: selfSocketId < id,
@@ -149,6 +191,9 @@ export class PeerManager {
                   candidate: candidate.candidate,
                   sdpMid: candidate.sdpMid,
                   sdpMLineIndex: candidate.sdpMLineIndex,
+                  ...(candidate.usernameFragment
+                    ? { usernameFragment: candidate.usernameFragment }
+                    : {}),
                 }
               : null,
           }),
@@ -198,10 +243,8 @@ export class PeerManager {
         peer.flags.isSettingRemoteAnswerPending = false;
       }
       if (!this.alive(id, peer)) return;
-      for (const candidate of peer.candidates.splice(0)) {
-        await peer.pc.addIceCandidate(candidate ?? undefined);
-        if (!this.alive(id, peer)) return;
-      }
+      await this.flushCandidates(id, peer);
+      if (!this.alive(id, peer)) return;
       if (action === 'accept-offer') {
         await peer.pc.setLocalDescription();
         if (this.alive(id, peer)) await this.sendDescription(id, peer);
@@ -214,9 +257,71 @@ export class PeerManager {
     if (!peer) return;
     this.enqueue(id, peer, async () => {
       const action = this.decide(peer, { type: 'candidate' });
-      if (action === 'queue-candidate') peer.candidates.push(candidate);
-      else if (action === 'add-candidate') await peer.pc.addIceCandidate(candidate ?? undefined);
+      if (action === 'add-candidate') await this.applyCandidate(id, peer, candidate);
+      else if (action === 'queue-candidate' || action === 'drop-candidate')
+        this.retainCandidate(id, peer, candidate);
     });
+  }
+
+  private releaseQueue(peer: Peer): void {
+    peer.candidates.length = 0;
+    peer.queuedBytes = 0;
+    if (peer.queueTimer) {
+      clearTimeout(peer.queueTimer);
+      peer.queueTimer = undefined;
+    }
+  }
+
+  private retainCandidate(id: string, peer: Peer, candidate: StageIceCandidate | null): void {
+    const bytes = candidateBytes(candidate);
+    if (
+      peer.candidates.length + 1 > CANDIDATE_QUEUE_LIMIT ||
+      peer.queuedBytes + bytes > CANDIDATE_QUEUE_BYTES
+    ) {
+      this.releaseQueue(peer);
+      this.onError('Stage media candidates overflowed. Leave and join again to retry.');
+      return;
+    }
+    peer.candidates.push(candidate);
+    peer.queuedBytes += bytes;
+    if (peer.queueTimer) return;
+    peer.queueTimer = setTimeout(() => {
+      peer.queueTimer = undefined;
+      if (!this.alive(id, peer) || peer.candidates.length === 0) return;
+      this.releaseQueue(peer);
+      this.onError(
+        'Stage media candidates expired before the connection was ready. Leave and join again to retry.',
+      );
+    }, CANDIDATE_QUEUE_MS);
+  }
+
+  private async applyCandidate(
+    id: string,
+    peer: Peer,
+    candidate: StageIceCandidate | null,
+  ): Promise<void> {
+    if (!candidateMatches(peer.pc.remoteDescription?.sdp, candidate)) return;
+    try {
+      await peer.pc.addIceCandidate(candidate ? toInit(candidate) : undefined);
+    } catch (error) {
+      if (!this.alive(id, peer)) return;
+      this.onError(
+        error instanceof TypeError
+          ? 'A stage media candidate was invalid. Later candidates will still be applied.'
+          : 'A stage media candidate was rejected. Later candidates will still be applied.',
+      );
+    }
+  }
+
+  private async flushCandidates(id: string, peer: Peer): Promise<void> {
+    const batch = peer.candidates.slice();
+    const sdp = peer.pc.remoteDescription?.sdp;
+    this.releaseQueue(peer);
+    for (const candidate of batch) {
+      if (!this.alive(id, peer)) return;
+      if (!candidateMatches(sdp, candidate)) continue;
+      await this.applyCandidate(id, peer, candidate);
+    }
   }
 
   attach(element: HTMLVideoElement): () => void {
@@ -246,7 +351,7 @@ export class PeerManager {
     peer.pc.ontrack = null;
     peer.pc.onconnectionstatechange = null;
     peer.pc.close();
-    peer.candidates.length = 0;
+    this.releaseQueue(peer);
     for (const element of this.elements) {
       if (element.srcObject === peer.stream) element.srcObject = null;
     }

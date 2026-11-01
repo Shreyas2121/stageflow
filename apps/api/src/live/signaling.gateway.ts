@@ -161,6 +161,9 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
                 candidate: request.candidate.candidate,
                 sdpMid: request.candidate.sdpMid,
                 sdpMLineIndex: request.candidate.sdpMLineIndex,
+                ...(request.candidate.usernameFragment
+                  ? { usernameFragment: request.candidate.usernameFragment }
+                  : {}),
               },
       });
     });

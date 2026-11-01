@@ -149,4 +149,83 @@ describe('signaling connection ownership', () => {
     expect(own.onEnded).toHaveBeenCalledOnce();
     expect(sockets[0]!.disconnect).toHaveBeenCalledOnce();
   });
+
+  it('rejects the join and drops queued events when pre-join signaling overflows', async () => {
+    const own = callbacks();
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    sockets[0]!.beforeAck = () => {
+      for (let index = 0; index < 33; index += 1) {
+        sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+      }
+    };
+    await expect(peer.join(joinRequest)).rejects.toThrow('Live signaling overflowed before join.');
+    expect(own.onCandidate).not.toHaveBeenCalled();
+    expect(own.onJoined).not.toHaveBeenCalled();
+  });
+
+  it('rejects the join when one pre-join event exceeds the byte budget', async () => {
+    const own = callbacks();
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    sockets[0]!.beforeAck = () => {
+      sockets[0]!.emit('webrtc:description', {
+        description: { type: 'offer', sdp: 'x'.repeat(300_000) },
+      });
+    };
+    await expect(peer.join(joinRequest)).rejects.toThrow('Live signaling overflowed before join.');
+    expect(own.onDescription).not.toHaveBeenCalled();
+  });
+
+  it('rejects the join when pre-join signaling expires', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const own = callbacks();
+      const peer = openIndependentSignaling('token', 'room', own);
+      connections.push(peer);
+      sockets[0]!.emitWithAck = vi.fn((event: string) => {
+        if (event === 'room:join') {
+          sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+          return new Promise(() => undefined);
+        }
+        return Promise.resolve({ ok: true });
+      });
+      const joining = peer.join(joinRequest);
+      const expired = expect(joining).rejects.toThrow('Live signaling expired before join.');
+      for (let step = 0; step < 10; step += 1) await Promise.resolve();
+      expect(sockets[0]!.emitWithAck).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(8_000);
+      await expired;
+      expect(own.onCandidate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not deliver events after close, including ones queued before the join ack', async () => {
+    const own = callbacks();
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    let finish: (ack: { ok: true; selfSocketId: string; iceServers: [] }) => void = () => undefined;
+    sockets[0]!.emitWithAck = vi.fn((event: string) => {
+      if (event === 'room:join') {
+        sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+    const joining = peer.join(joinRequest);
+    for (let step = 0; step < 10; step += 1) await Promise.resolve();
+    peer.close();
+    finish({ ok: true, selfSocketId: 'socket-0', iceServers: [] });
+    await joining;
+    expect(own.onCandidate).not.toHaveBeenCalled();
+    expect(own.onJoined).not.toHaveBeenCalled();
+    sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+    sockets[0]!.emit('webrtc:description', { description: { type: 'offer', sdp: 'late' } });
+    expect(own.onCandidate).not.toHaveBeenCalled();
+    expect(own.onDescription).not.toHaveBeenCalled();
+  });
 });
