@@ -1,6 +1,6 @@
 # Phase 3 — Meeting mesh
 
-**Status:** implementation verified with automated test media. P3-C01 through P3-C04 are committed; P3-C05 is verified. Phase exit remains pending physical-device and native picker observations.\
+**Status:** implementation verified with automated test media. P3-C01 through P3-C05 are committed. Phase exit remains pending physical-device and native picker observations.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 8.3, 9, and 16 (Phase 3).\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns P3-C01 through P3-C05. This file owns the rules those commits must satisfy.\

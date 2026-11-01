@@ -1,6 +1,6 @@
 # Guide 3 — Phase 3, commit by commit
 
-**Status:** implementation verified with test media. P3-C01 through P3-C04 are committed; P3-C05 is verified. Physical-device and native picker observations remain unverified; the phase exit is pending those observations.\
+**Status:** implementation verified with test media. P3-C01 through P3-C05 are committed. Physical-device and native picker observations remain unverified; the phase exit is pending those observations.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
@@ -226,9 +226,9 @@ In the two-window meeting, speak into one microphone and confirm that tile gains
 
 ## 6. P3-C05 — Screen share
 
-**Status:** verified with browser screen fixture; native picker observation unverified\
+**Status:** committed with browser screen-fixture verification; native picker observation unverified\
 **Proposed commit message:** `feat(web-stage): share the screen by replacing the video track`\
-**Actual commit:**
+**Actual commit:** `b5a4efdc908362262189c6fcc091c473ade69b85`
 
 **Why:** A stage member can show a screen and return to the camera without a new offer. Covers P3-A05 and the screen-track part of RTC-05.
 

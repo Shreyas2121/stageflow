@@ -10,7 +10,7 @@ Each verified slice is one local git commit before the next slice starts. The ru
 | --- | --- | --- | --- |
 | 1 | [phase1.md](phase1.md) | [phase1/guide.md](phase1/guide.md) | Complete. All implementation slices committed; A01–A09 verified. |
 | 2 | [phase2.md](phase2.md) | [phase2/guide.md](phase2/guide.md) | Complete. All implementation slices committed; P2-A01–P2-A08 verified. |
-| 3 | [phase3.md](phase3.md) | [phase3/guide.md](phase3/guide.md) | All five slices implemented and verified with test media; phase exit pending physical-device and native picker observations. |
+| 3 | [phase3.md](phase3.md) | [phase3/guide.md](phase3/guide.md) | All five slices committed and verified with test media; phase exit pending physical-device and native picker observations. |
 | 4 | `plans/phase4.md` | `plans/phase4/guide.md` | Not written. |
 | 5 | `plans/phase5.md` | `plans/phase5/guide.md` | Not written. |
 | 6 | `plans/phase6.md` | `plans/phase6/guide.md` | Not written. |
