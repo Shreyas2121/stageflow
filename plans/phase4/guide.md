@@ -1,6 +1,6 @@
 # Guide 4 — Phase 4, commit by commit
 
-**Status:** in progress. P4-C01 through P4-C03 are committed; P4-C04 is verified.\
+**Status:** complete. P4-C01 through P4-C04 are committed; P4-A01 through P4-A06 are verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
@@ -169,9 +169,9 @@ Confirm by reading the host factory that spawning is not wired yet and that `ope
 
 ## 5. P4-C04 — Spawn and remove
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-bots): spawn and remove up to three demo peers`\
-**Actual commit:**
+**Actual commit:** `1af2d2687ddd0167c11936c83c8cfc5a4edef92b`
 
 **Why:** A reviewer can run the four-tile meeting alone. Covers P4-A03 through P4-A06.
 

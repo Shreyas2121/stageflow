@@ -1,6 +1,6 @@
 # Phase 4 — Demo peers and stats
 
-**Status:** verified. P4-A01 through P4-A06 pass; P4-C04 is ready to commit.\
+**Status:** complete. All four slices are committed; P4-A01 through P4-A06 are verified.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4).\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
