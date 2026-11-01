@@ -10,7 +10,7 @@ export function App() {
           <span className="brand-mark" aria-hidden="true">s<span>f</span></span>
           StageFlow
         </Link>
-        <span className="build-label">Foundation build <span className="build-number">01</span></span>
+        <span className="build-label">Presence build <span className="build-number">02</span></span>
       </header>
       <main id="main-content">
         <Routes>
@@ -26,8 +26,8 @@ export function App() {
         </Routes>
       </main>
       <footer className="site-footer">
-        <span>StageFlow / Foundation</span>
-        <span>Guest sessions · Rooms</span>
+        <span>StageFlow / Presence</span>
+        <span>Guest sessions · Green room · Roster</span>
       </footer>
     </div>
   );

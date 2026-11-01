@@ -79,7 +79,7 @@ export function HomePage() {
       {submit.isError && <p className="error-message" role="alert">Error: {submit.error.message}</p>}
       <aside className="foundation-note">
         <span className="note-marker" aria-hidden="true">i</span>
-        <div><h2>A foundation, for now.</h2><p>Foundation build. The green room and video arrive in a later phase.</p></div>
+        <div><h2>A shared roster, for now.</h2><p>Check your devices in the green room, then join the roster. Video between people arrives in a later phase.</p></div>
       </aside>
     </section>
   );

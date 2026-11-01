@@ -3,9 +3,9 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phase 1 complete. All four implementation slices are committed and A01–A09 are verified; browser verification completed on 2026-11-01.\
+**Status:** Phase 2 verified. Phase 1 is complete; Phase 2 P2-A01–P2-A08 are verified, with its final slice awaiting commit.\
 **Plan version:** `1.0.1`\
-**Last revised:** 2026-10-31
+**Last revised:** 2026-11-01
 
 ## 1. How agents must use this document
 

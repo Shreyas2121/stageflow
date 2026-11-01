@@ -1,6 +1,6 @@
 # Guide 2 — Phase 2, commit by commit
 
-**Status:** in progress. P2-C01 and P2-C02 committed; P2-C03 verified; P2-C04 planned.\
+**Status:** P2-C01 through P2-C03 committed; P2-C04 verified. P2-A01 through P2-A08 verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -84,7 +84,7 @@ pnpm lint
 
 **Done when:** P2-A01 passes and the slice is committed.
 
-**Verification result (2026-11-01):** Shared tests passed (56 tests, including 14 stage cases); workspace typecheck and lint passed. P2-A01 verified.
+**Verification result (2026-11-01):** Shared tests passed (56 tests, including 13 stage cases); workspace typecheck and lint passed. P2-A01 verified.
 
 **Handoff:** Redis does not exist yet. The tests are the oracle for the Lua scripts.
 
@@ -134,9 +134,9 @@ pnpm lint
 
 ## 4. P2-C03 — Socket.IO presence
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-signaling): publish presence snapshots on Socket.IO`\
-**Actual commit:**
+**Actual commit:** `9ed55691b815a2d331d5ddc1da865e03355ca470`
 
 **Why:** Two browsers need one server-owned snapshot. Covers P2-A03 and the server half of P2-A07.
 
@@ -194,7 +194,7 @@ Stop Redis and start the API. The process exits before it listens, and the error
 
 ## 5. P2-C04 — Green room and roster
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-lobby): join from the green room and show the roster`\
 **Actual commit:**
 
@@ -210,7 +210,9 @@ Stop Redis and start the API. The process exits before it listens, and the error
 - `apps/web/src/live/local-media.ts`
 - `apps/web/src/pages/RoomPage.tsx`
 - `apps/web/src/index.css`
+- `apps/web/src/App.tsx` and `pages/HomePage.tsx` to replace obsolete Phase 1 copy
 - `README.md`
+- `pnpm-lock.yaml`
 
 **Implementation:**
 
@@ -248,6 +250,21 @@ With the API, web, Postgres, and Redis running, use two browser windows:
 Record what happened, including a failed step. A screenshot without these actions does not verify A04–A07. If no browser is available, leave those IDs unverified.
 
 **Done when:** P2-A01 through P2-A08 are verified and the slice is committed.
+
+**Verification result (2026-11-01):** Workspace typecheck and lint, all 56 shared tests, all 19 API Redis integration tests, and API/web production builds passed. The source exclusion search printed no matches. The web bundle retains a non-failing size warning (about 589 kB before gzip). No migration, remote video, peer connection, moderation event, or broadcast handler was added.
+
+**Browser acceptance (2026-11-01):** Verified in installed headless Chrome `156.0.8078.74` on Windows through native Chrome DevTools Protocol, using independent browser contexts and Chrome's fake camera/microphone. No Playwright suite or application test dependency was added. Native media calls, track states, AudioContext states, and meter cancellation were observed through delegating instrumentation. Permissions were granted/denied with DevTools; a physical camera indicator and physical speaker routing could not be observed.
+
+1. Ava created a meeting from the home form. Join was disabled until both camera and microphone succeeded. A real preview frame and a nonzero microphone-meter value were observed. Changing the selected microphone acquired the requested device and ended the previous tracks. Camera/microphone lists were populated. A keyboard Tab reached the next device field with the existing solid 3px focus outline. Green-room and roster screenshots were inspected.
+2. Sam opened the slug independently and prepared devices. An attempted join before Ava was rejected with `host_not_present` and kept Sam's live preview. After Ava joined, both pages showed Ava `HOST`, Sam `SPEAKER`, and their own `(You)` marker.
+3. Sam turned camera and microphone off. Ava's roster showed `Video off` and `Muted`. Sam's corresponding tracks remained `live` with `enabled: false`. Injecting equal/older revisions into the actual room store left the existing snapshot unchanged.
+4. Sam left. Ava's roster dropped Sam. Every owned Sam track became `ended`, all owned AudioContexts became `closed`, the preview was cleared, and the meter frame was cancelled. Three other browser participants filled the four stage slots with Ava. A fifth participant received `stage_full`, retained its live preview, and left the existing roster unchanged. Navigating away stopped that rejected joiner's tracks. Leaving the other participants and navigating Ava home also released their media.
+5. Ava created/joined a webinar. Sam joined without a media control, video element, or additional `getUserMedia` call and appeared as `ATTENDEE`. Raise/lower hand changed Ava's roster. There were no promote, demote, lock, or share controls.
+6. Ava left. Both pages showed `This room has ended.` Ava's media stopped. HTTP fetch returned `ENDED` with `endedAt`; reloading Sam's page showed ended without a join button.
+7. Ava joined a new meeting, then the API process was terminated and restarted. The page displayed exactly `The live room reset. Join again.`, cleared its roster, and stopped tracks/context/meter. The fetched catalog room stayed unchanged and `LIVE`. No automatic rejoin occurred; explicit device preparation and join succeeded after restart.
+8. A denied camera and a denied microphone each produced a device-specific `Error` and kept join disabled. A microphone rejection also stopped the camera acquired before it. A browser context with `setSinkId` unavailable showed the default-output note and allowed setup/join readiness. A sessionless direct room URL requested neither room data nor media. The final full run recorded zero uncaught browser exceptions.
+
+Initial attempts and corrections: Calling `setSinkId` redundantly for the already-selected default output caused Chrome to abort setup; the helper now avoids that unnecessary call. A temporary browser assertion initially read local track flags before React's snapshot effect ran; it now waits for the observable flag update. The first permission-denial check used Chrome's automatic fake-permission flag, which overrides denials; the final run removed that flag and used DevTools permission grants/denials. All eight groups passed on the final run. P2-A04 through P2-A08 are verified; the hardware limits above remain explicit.
 
 **Handoff:** Phase 3 can attach a peer connection to each other stage socket. The green room, the snapshot, and track cleanup stay in place.
 

@@ -1,6 +1,6 @@
 # Phase 2 — Presence and green room
 
-**Status:** in progress. P2-C01 and P2-C02 committed; P2-C03 verified; P2-C04 planned.\
+**Status:** verified. P2-A01 through P2-A08 passed; P2-C01 through P2-C03 committed, P2-C04 awaiting commit.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.1`, Sections 1.4, 5.2, 5.3, 7, 8, 9.5, and 16 (Phase 2).\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns P2-C01 through P2-C04. This file owns the rules those commits must satisfy.\
@@ -189,13 +189,15 @@ Keep the existing dark page, labels, and visible focus. Error text includes the 
 | P2-A01 | The pure transition cases in Section 5.2 pass | `pnpm --filter @stageflow/shared test` | verified |
 | P2-A02 | The same cases through the Lua scripts match the pure function. Redis must be up | API integration test | verified |
 | P2-A03 | API startup pings Redis and deletes `sf:room:*` without ending PostgreSQL rooms | Restart the API, then fetch the room | verified |
-| P2-A04 | Two browsers show the host and one meeting speaker. One leave updates the other roster. Local tracks stop on leave | Browser | planned |
-| P2-A05 | The fifth meeting join does not write. A webinar guest is an attendee and is not prompted for a camera | Integration test and browser | planned |
-| P2-A06 | An attendee hand appears on the host roster. The server assigns the roles | Browser | planned |
-| P2-A07 | The host leaving ends the room for the other browser, and `GET` returns `ENDED` | Browser and HTTP | planned |
-| P2-A08 | Web source does not construct a peer connection or call `getDisplayMedia` | Search | planned |
+| P2-A04 | Two browsers show the host and one meeting speaker. One leave updates the other roster. Local tracks stop on leave | Browser | verified |
+| P2-A05 | The fifth meeting join does not write. A webinar guest is an attendee and is not prompted for a camera | Integration test and browser | verified |
+| P2-A06 | An attendee hand appears on the host roster. The server assigns the roles | Browser | verified |
+| P2-A07 | The host leaving ends the room for the other browser, and `GET` returns `ENDED` | Browser and HTTP | verified |
+| P2-A08 | Web source does not construct a peer connection or call `getDisplayMedia` | Search | verified |
 
 ROOM-01 is A01, A02, A04, and A06. ROOM-02 is A01 and A05. ROOM-03 in this phase is A03 only. ROOM-04 for assignment is A01 and A06. LOBBY-01 is A04.
+
+Verification on 2026-11-01 used Compose PostgreSQL/Redis, live HTTP/Socket.IO checks, and independent headless Chrome 156 contexts with fake camera/microphone and explicit permission grants/denials. All automated checks and browser actions passed. Physical hardware indicators and physical speaker routing were unavailable; track termination, context closure, preview removal, and meter cancellation were observed directly. See the guide's C03/C04 verification records for actions, initial failures, corrections, and limitations.
 
 ## 7. Verification commands
 
