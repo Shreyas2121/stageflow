@@ -23,12 +23,12 @@ Do not add Socket.IO, `ioredis`, WebRTC, `hls.js`, FFmpeg, BullMQ, email, or pas
 
 ### 1.1 Commit index
 
-| Order | ID | Proposed message | Acceptance |
-| --- | --- | --- | --- |
-| 1 | P1-C01 | `chore(workspace): initialize the pnpm workspace and local databases` | A01, A02 |
-| 2 | P1-C02 | `feat(shared): add session and room input contracts` | A03 |
-| 3 | P1-C03 | `feat(api): issue guest sessions and persist rooms` | A04, A05, A06, A07 |
-| 4 | P1-C04 | `feat(web): create a room and open its shell` | A08, A09 |
+| Order | ID     | Proposed message                                                      | Acceptance         |
+| ----- | ------ | --------------------------------------------------------------------- | ------------------ |
+| 1     | P1-C01 | `chore(workspace): initialize the pnpm workspace and local databases` | A01, A02           |
+| 2     | P1-C02 | `feat(shared): add session and room input contracts`                  | A03                |
+| 3     | P1-C03 | `feat(api): issue guest sessions and persist rooms`                   | A04, A05, A06, A07 |
+| 4     | P1-C04 | `feat(web): create a room and open its shell`                         | A08, A09           |
 
 ## 2. Environment
 
@@ -130,8 +130,8 @@ docker compose ps
 3. Implement the parsers and slug function in `contracts.ts`. Messages and codes match the phase contract exactly.
 
 ```ts
-export type RoomMode = "MEETING" | "WEBINAR";
-export type RoomStatus = "LIVE" | "ENDED";
+export type RoomMode = 'MEETING' | 'WEBINAR';
+export type RoomStatus = 'LIVE' | 'ENDED';
 
 export type GuestSessionResponse = {
   token: string;
@@ -159,18 +159,17 @@ export type RoomResponse = {
 export type ApiErrorBody = {
   statusCode: number;
   error:
-    | "invalid_display_name"
-    | "invalid_title"
-    | "invalid_mode"
-    | "unauthorized"
-    | "room_not_found"
-    | "slug_exhausted";
+    | 'invalid_display_name'
+    | 'invalid_title'
+    | 'invalid_mode'
+    | 'unauthorized'
+    | 'room_not_found'
+    | 'slug_exhausted';
   message: string;
 };
 
 export type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: ApiErrorBody["error"]; message: string };
+  { ok: true; value: T } | { ok: false; error: ApiErrorBody['error']; message: string };
 ```
 
 `parseDisplayName(input: unknown)` accepts only a string, trims it, and applies the phase length and control-character rules. `parseRoomTitle` does the same for 1–80. `parseRoomMode` accepts only `MEETING` and `WEBINAR`.

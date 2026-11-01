@@ -15,7 +15,11 @@ export class SessionsService {
   ) {}
 
   async verifyToken(token: unknown): Promise<User> {
-    const unauthorized = new ApiException(401, 'unauthorized', 'Sign in as a guest before calling this route.');
+    const unauthorized = new ApiException(
+      401,
+      'unauthorized',
+      'Sign in as a guest before calling this route.',
+    );
     if (typeof token !== 'string' || !token) throw unauthorized;
     let payload: unknown;
     try {
@@ -23,8 +27,13 @@ export class SessionsService {
     } catch {
       throw unauthorized;
     }
-    if (typeof payload !== 'object' || payload === null || !('sub' in payload) || typeof payload.sub !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.sub)) {
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      !('sub' in payload) ||
+      typeof payload.sub !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.sub)
+    ) {
       throw unauthorized;
     }
     const user = await this.users.findOneBy({ id: payload.sub });
@@ -35,7 +44,9 @@ export class SessionsService {
   async createGuest(input: unknown): Promise<GuestSessionResponse> {
     const parsed = parseDisplayName(input);
     if (!parsed.ok) throw new ApiException(400, parsed.error, parsed.message);
-    const user = await this.users.save(this.users.create({ displayName: parsed.value, isGuest: true }));
+    const user = await this.users.save(
+      this.users.create({ displayName: parsed.value, isGuest: true }),
+    );
     const token = await this.jwt.signAsync({ sub: user.id });
     return { token, userId: user.id, displayName: user.displayName };
   }

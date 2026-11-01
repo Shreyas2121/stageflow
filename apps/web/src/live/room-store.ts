@@ -16,9 +16,12 @@ const initial = { roomId: null, snapshot: null, selfSocketId: null, iceServers: 
 export const useRoomStore = create<RoomStore>((set) => ({
   ...initial,
   begin: (roomId) => set({ ...initial, roomId }),
-  receive: (snapshot) => set((current) =>
-    snapshot.roomId === current.roomId && snapshot.revision > (current.snapshot?.revision ?? -1)
-      ? { snapshot } : current),
+  receive: (snapshot) =>
+    set((current) =>
+      snapshot.roomId === current.roomId && snapshot.revision > (current.snapshot?.revision ?? -1)
+        ? { snapshot }
+        : current,
+    ),
   joined: (selfSocketId, iceServers) => set({ selfSocketId, iceServers }),
   clear: () => set(initial),
 }));

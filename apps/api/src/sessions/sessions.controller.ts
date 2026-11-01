@@ -8,8 +8,10 @@ export class SessionsController {
 
   @Post('guest')
   createGuest(@Body() body: unknown): Promise<GuestSessionResponse> {
-    const displayName = typeof body === 'object' && body !== null && 'displayName' in body
-      ? body.displayName : undefined;
+    const displayName =
+      typeof body === 'object' && body !== null && 'displayName' in body
+        ? body.displayName
+        : undefined;
     return this.sessions.createGuest(displayName);
   }
 }

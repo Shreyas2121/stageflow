@@ -4,7 +4,7 @@ StageFlow is a bounded stage you can demo alone, with the negotiation, the stats
 
 Phase 3 connects people on stage with a WebRTC mesh. Two browsers can see and hear each other, share a screen, return to the camera, and leave. Meeting participants and webinar hosts choose devices in the green room before joining. A meeting has at most four stage members, counting the host. Webinar attendees join without device prompts, can raise a hand, and have no peer connection or stage video. Broadcast is not implemented yet.
 
-Use Node 22 (`.nvmrc`), pnpm, and Docker Desktop with Linux containers. Postgres 16 uses port 5432, database/user/password `stageflow`, and a named data volume. Redis 7 uses port 6379. Both Compose services have health checks.
+Use Node 22.22.1 or newer (`.nvmrc` selects Node 22), pnpm, and Docker Desktop with Linux containers. Postgres 16 uses port 5432, database/user/password `stageflow`, and a named data volume. Redis 7 uses port 6379. Both Compose services have health checks.
 
 From the workspace root in PowerShell:
 
@@ -22,6 +22,8 @@ pnpm --filter @stageflow/api test
 ```
 
 Copy the example only on first setup; keep any existing `.env` values. Keep `.env` out of version control. The root typecheck builds shared output and declarations before checking all three packages. API integration tests load the root `.env`, execute the real Lua scripts against Redis under unique `sf:itest:*` prefixes, and clean up those keys. Missing or unreachable Redis fails the tests.
+
+`pnpm install` installs the Husky pre-commit hook through the root `prepare` script. Each commit runs lint-staged to format staged files with Prettier and restage the results; formatting failures block the commit. Unstaged edits are preserved; if they conflict with formatting, the commit fails and lint-staged restores the original changes. Run `pnpm format` to format the repository or `pnpm format:check` to check it without writing changes. Generated output, the lockfile, local API data, and environment files are excluded. Files use LF line endings on every platform.
 
 Start the API and web app in separate PowerShell terminals at the workspace root:
 

@@ -23,12 +23,12 @@ Do not construct `RTCPeerConnection`, call `getDisplayMedia`, or register promot
 
 ### 1.1 Commit index
 
-| Order | ID | Proposed message | Acceptance |
-| --- | --- | --- | --- |
-| 1 | P2-C01 | `feat(shared): add stage join and moderation rules` | A01 |
-| 2 | P2-C02 | `feat(api-redis): apply stage changes with Lua scripts` | A02 |
-| 3 | P2-C03 | `feat(api-signaling): publish presence snapshots on Socket.IO` | A03, A07 for the HTTP ended state |
-| 4 | P2-C04 | `feat(web-lobby): join from the green room and show the roster` | A04, A05, A06, A07, A08 |
+| Order | ID     | Proposed message                                                | Acceptance                        |
+| ----- | ------ | --------------------------------------------------------------- | --------------------------------- |
+| 1     | P2-C01 | `feat(shared): add stage join and moderation rules`             | A01                               |
+| 2     | P2-C02 | `feat(api-redis): apply stage changes with Lua scripts`         | A02                               |
+| 3     | P2-C03 | `feat(api-signaling): publish presence snapshots on Socket.IO`  | A03, A07 for the HTTP ended state |
+| 4     | P2-C04 | `feat(web-lobby): join from the green room and show the roster` | A04, A05, A06, A07, A08           |
 
 ### 1.2 Files to inspect before editing
 

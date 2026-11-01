@@ -8,10 +8,19 @@ function readStoredSession(): GuestSessionResponse | null {
     const raw = sessionStorage.getItem(storageKey);
     if (raw === null) return null;
     const value: unknown = JSON.parse(raw);
-    if (typeof value === 'object' && value !== null &&
-      'token' in value && typeof value.token === 'string' && value.token.length > 0 &&
-      'userId' in value && typeof value.userId === 'string' && value.userId.length > 0 &&
-      'displayName' in value && typeof value.displayName === 'string' && value.displayName.length > 0) {
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      'token' in value &&
+      typeof value.token === 'string' &&
+      value.token.length > 0 &&
+      'userId' in value &&
+      typeof value.userId === 'string' &&
+      value.userId.length > 0 &&
+      'displayName' in value &&
+      typeof value.displayName === 'string' &&
+      value.displayName.length > 0
+    ) {
       return { token: value.token, userId: value.userId, displayName: value.displayName };
     }
   } catch {

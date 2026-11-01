@@ -68,11 +68,11 @@ V1 is a portfolio system with an honest scale ceiling. It is a finished vertical
 
 ### 2.1 Who it is for
 
-| Person | What they can do in V1 |
-| --- | --- |
-| Reviewer | Create a meeting, spawn three demo peers, watch the mesh and the stats, then leave and see the camera release |
-| Host | Create a meeting or a webinar, moderate the stage, start and stop the broadcast |
-| Speaker | Send and receive stage audio, camera, and one screen share. At most four people are on stage, including the host |
+| Person   | What they can do in V1                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Reviewer | Create a meeting, spawn three demo peers, watch the mesh and the stats, then leave and see the camera release                          |
+| Host     | Create a meeting or a webinar, moderate the stage, start and stop the broadcast                                                        |
+| Speaker  | Send and receive stage audio, camera, and one screen share. At most four people are on stage, including the host                       |
 | Attendee | Join a webinar with no camera, raise a hand, and watch the live HLS broadcast or the replay. An attendee has no WebRTC peer connection |
 
 ### 2.2 Demo script the finished product must support
@@ -91,22 +91,22 @@ Steps 1–5 are the Phase 4 demo gate. Steps 6–7 are the V1 gate. Both must wo
 
 ### 3.1 Included ceilings
 
-| Area | V1 limit |
-| --- | --- |
-| Stage | Host plus speakers, 4 people maximum, counted together |
-| Meeting | Every accepted joiner is a speaker. The fifth joiner is rejected |
-| Webinar | Host starts on stage. Everyone else joins as an attendee with zero peer connections |
-| Mesh | Full-mesh `sendrecv` audio and video among current stage members only |
-| Screen share | One video track per peer, swapped with `replaceTrack` |
-| Demo peers | At most 3, created in the host's browser, each with its own socket and guest session |
-| Broadcast | One active broadcast per room, host only, single 720p HLS rendition |
-| Replay | The same playlist after FFmpeg exits successfully |
-| Accounts | One-click guest session. Display name plus a JWT |
-| Rooms | Created live. Join by unguessable slug |
-| Presence | Redis. A process restart drops live presence on purpose |
-| Catalog | PostgreSQL for users, rooms, and broadcast rows |
-| Browsers | Current Chrome or Edge on Windows desktop |
-| Deployment proof | Local Docker for PostgreSQL and Redis, API and web on the host, FFmpeg on `PATH` |
+| Area             | V1 limit                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| Stage            | Host plus speakers, 4 people maximum, counted together                               |
+| Meeting          | Every accepted joiner is a speaker. The fifth joiner is rejected                     |
+| Webinar          | Host starts on stage. Everyone else joins as an attendee with zero peer connections  |
+| Mesh             | Full-mesh `sendrecv` audio and video among current stage members only                |
+| Screen share     | One video track per peer, swapped with `replaceTrack`                                |
+| Demo peers       | At most 3, created in the host's browser, each with its own socket and guest session |
+| Broadcast        | One active broadcast per room, host only, single 720p HLS rendition                  |
+| Replay           | The same playlist after FFmpeg exits successfully                                    |
+| Accounts         | One-click guest session. Display name plus a JWT                                     |
+| Rooms            | Created live. Join by unguessable slug                                               |
+| Presence         | Redis. A process restart drops live presence on purpose                              |
+| Catalog          | PostgreSQL for users, rooms, and broadcast rows                                      |
+| Browsers         | Current Chrome or Edge on Windows desktop                                            |
+| Deployment proof | Local Docker for PostgreSQL and Redis, API and web on the host, FFmpeg on `PATH`     |
 
 These are ceilings. Do not add a fifth stage slot, a second video encoding, chat, or an SFU while implementing a phase.
 
@@ -128,45 +128,45 @@ These are ceilings. Do not add a fifth stage slot, a second video encoding, chat
 
 ### 3.3 Changes from `idea.md`
 
-| Sketch | V1 contract |
-| --- | --- |
-| Speakers send WebRTC to every attendee | Attendees have zero peer connections. They watch HLS |
-| Record to disk, then transcode to a VOD ladder | One live FFmpeg process reads the WebM stream and writes a single 720p event playlist. That playlist is the replay |
-| 720p and 360p, thumbnail required for success | 720p only. Thumbnail failure does not fail the broadcast |
-| Upload the ladder to Cloudflare R2 | The API serves HLS files from local disk |
-| Guest accounts and email/password accounts | Guest sessions only |
-| Chat events | No chat |
-| Redis hash updates described as atomic | Mutations go through Lua scripts. A JSON blob read-modify-write from Node is forbidden |
-| `SADD` plus `SCARD` for the 4-slot cap | One Lua script decides and writes the stage set |
-| WebM chunks appended as they arrive | Sequence numbers, in-order accept, duplicate detection |
+| Sketch                                                 | V1 contract                                                                                                                       |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Speakers send WebRTC to every attendee                 | Attendees have zero peer connections. They watch HLS                                                                              |
+| Record to disk, then transcode to a VOD ladder         | One live FFmpeg process reads the WebM stream and writes a single 720p event playlist. That playlist is the replay                |
+| 720p and 360p, thumbnail required for success          | 720p only. Thumbnail failure does not fail the broadcast                                                                          |
+| Upload the ladder to Cloudflare R2                     | The API serves HLS files from local disk                                                                                          |
+| Guest accounts and email/password accounts             | Guest sessions only                                                                                                               |
+| Chat events                                            | No chat                                                                                                                           |
+| Redis hash updates described as atomic                 | Mutations go through Lua scripts. A JSON blob read-modify-write from Node is forbidden                                            |
+| `SADD` plus `SCARD` for the 4-slot cap                 | One Lua script decides and writes the stage set                                                                                   |
+| WebM chunks appended as they arrive                    | Sequence numbers, in-order accept, duplicate detection                                                                            |
 | Camera indicator must go off when video is toggled off | The indicator must go off after **leave**, because leave calls `track.stop()`. Video-off during a call may leave the indicator on |
-| Free TURN is part of the happy path | The demo is specified for STUN and local loopback |
+| Free TURN is part of the happy path                    | The demo is specified for STUN and local loopback                                                                                 |
 
 ## 4. Requirement register
 
 An acceptance statement here is mandatory for V1. The phase column is the primary owner.
 
-| ID | Acceptance statement | Phase |
-| --- | --- | --- |
-| FOUND-01 | `pnpm` install, typecheck, and lint run from a clean checkout. PostgreSQL and Redis come up from `docker compose`. Shared types compile in both apps | 1 |
-| FOUND-02 | A guest can mint a session and create a meeting or a webinar. The room is fetchable by slug. No password path exists | 1 |
-| ROOM-01 | Join, leave, mute, video-off, and hand state survive only in Redis and are readable as one revisioned snapshot | 2 |
-| ROOM-02 | Meeting join beyond 4 stage members is rejected and changes nothing. Webinar joiners after the host are attendees | 2, 5 |
-| ROOM-03 | API process start deletes live room keys and marks in-flight broadcasts failed. PostgreSQL room rows remain | 2, 6 |
-| ROOM-04 | The server, not the client, decides role, stage membership, host mute lock, and broadcast state | 2, 5, 6 |
-| LOBBY-01 | Before join, the user can pick camera, microphone, and speaker, see local preview, and see a live microphone level | 2 |
-| RTC-01 | Two peers that offer at the same time converge. The impolite peer ignores the colliding offer. The polite peer accepts it | 3 |
-| RTC-02 | An ICE candidate that arrives before the remote description is applied in order afterward, and discarded when its offer was ignored | 3 |
-| RTC-03 | Stage members form a full mesh of `sendrecv` audio and video. A non-stage socket never receives a forwarded description or candidate | 3, 5 |
-| RTC-04 | Screen share replaces the current video track and restores the camera track when the share ends, without a new offer | 3 |
-| RTC-05 | Leaving stops local camera, microphone, and screen tracks, closes every peer connection, and stops meters, recorders, and animation loops | 3, 4, 6 |
-| DEMO-01 | Three demo peers on one page negotiate real peer connections and appear in Redis as stage or attendee members under the same caps as humans | 4 |
-| DEMO-02 | The drawer shows, per peer, outbound and inbound bitrate, packet loss, jitter, round-trip time, frame rate, and nominated ICE type | 4 |
-| CAST-01 | Only the host starts a broadcast. A second start is rejected. Chunks apply in sequence or are refused | 6 |
-| CAST-02 | While the broadcast is live, an attendee plays HLS and still has no peer connection. Stage members keep the mesh if FFmpeg fails to start | 6 |
-| CAST-03 | Stopping a healthy broadcast yields a replayable playlist. A failed FFmpeg run yields `FAILED` and a visible error | 6 |
-| QA-01 | Pure tests cover negotiation, stage transitions, chunk acceptance, stats deltas, and the FFmpeg argument list | 2–6 |
-| SHIP-01 | The README states the demo script, the mesh ceiling, the HLS delay, the restart policy, and the supported browser | 6 |
+| ID       | Acceptance statement                                                                                                                                 | Phase   |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| FOUND-01 | `pnpm` install, typecheck, and lint run from a clean checkout. PostgreSQL and Redis come up from `docker compose`. Shared types compile in both apps | 1       |
+| FOUND-02 | A guest can mint a session and create a meeting or a webinar. The room is fetchable by slug. No password path exists                                 | 1       |
+| ROOM-01  | Join, leave, mute, video-off, and hand state survive only in Redis and are readable as one revisioned snapshot                                       | 2       |
+| ROOM-02  | Meeting join beyond 4 stage members is rejected and changes nothing. Webinar joiners after the host are attendees                                    | 2, 5    |
+| ROOM-03  | API process start deletes live room keys and marks in-flight broadcasts failed. PostgreSQL room rows remain                                          | 2, 6    |
+| ROOM-04  | The server, not the client, decides role, stage membership, host mute lock, and broadcast state                                                      | 2, 5, 6 |
+| LOBBY-01 | Before join, the user can pick camera, microphone, and speaker, see local preview, and see a live microphone level                                   | 2       |
+| RTC-01   | Two peers that offer at the same time converge. The impolite peer ignores the colliding offer. The polite peer accepts it                            | 3       |
+| RTC-02   | An ICE candidate that arrives before the remote description is applied in order afterward, and discarded when its offer was ignored                  | 3       |
+| RTC-03   | Stage members form a full mesh of `sendrecv` audio and video. A non-stage socket never receives a forwarded description or candidate                 | 3, 5    |
+| RTC-04   | Screen share replaces the current video track and restores the camera track when the share ends, without a new offer                                 | 3       |
+| RTC-05   | Leaving stops local camera, microphone, and screen tracks, closes every peer connection, and stops meters, recorders, and animation loops            | 3, 4, 6 |
+| DEMO-01  | Three demo peers on one page negotiate real peer connections and appear in Redis as stage or attendee members under the same caps as humans          | 4       |
+| DEMO-02  | The drawer shows, per peer, outbound and inbound bitrate, packet loss, jitter, round-trip time, frame rate, and nominated ICE type                   | 4       |
+| CAST-01  | Only the host starts a broadcast. A second start is rejected. Chunks apply in sequence or are refused                                                | 6       |
+| CAST-02  | While the broadcast is live, an attendee plays HLS and still has no peer connection. Stage members keep the mesh if FFmpeg fails to start            | 6       |
+| CAST-03  | Stopping a healthy broadcast yields a replayable playlist. A failed FFmpeg run yields `FAILED` and a visible error                                   | 6       |
+| QA-01    | Pure tests cover negotiation, stage transitions, chunk acceptance, stats deltas, and the FFmpeg argument list                                        | 2–6     |
+| SHIP-01  | The README states the demo script, the mesh ceiling, the HLS delay, the restart policy, and the supported browser                                    | 6       |
 
 ## 5. Roles, modes, and the two media paths
 
@@ -180,14 +180,14 @@ The mode is chosen at creation and never changes.
 
 ### 5.2 Role rules
 
-| Action | Allowed actor | Result |
-| --- | --- | --- |
-| Raise or lower hand | Attendee | Sorted set updated. Speakers and the host are rejected |
-| Promote | Host | Attendee becomes `SPEAKER` if the stage has fewer than 4 members. Otherwise `stage_full` and no write |
-| Demote | Host | `SPEAKER` becomes `ATTENDEE` and leaves the stage. Demoting the host is rejected |
-| Force mute audio or video | Host | Sets a host lock on that participant. The target's own unmute is rejected until the host clears the lock |
-| Leave | Any participant | Removed from participants, stage, and hands. Host leave ends the room |
-| Start or stop broadcast | Host, webinar only | See Section 11 |
+| Action                    | Allowed actor      | Result                                                                                                   |
+| ------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
+| Raise or lower hand       | Attendee           | Sorted set updated. Speakers and the host are rejected                                                   |
+| Promote                   | Host               | Attendee becomes `SPEAKER` if the stage has fewer than 4 members. Otherwise `stage_full` and no write    |
+| Demote                    | Host               | `SPEAKER` becomes `ATTENDEE` and leaves the stage. Demoting the host is rejected                         |
+| Force mute audio or video | Host               | Sets a host lock on that participant. The target's own unmute is rejected until the host clears the lock |
+| Leave                     | Any participant    | Removed from participants, stage, and hands. Host leave ends the room                                    |
+| Start or stop broadcast   | Host, webinar only | See Section 11                                                                                           |
 
 Promotion removes that socket from the hand queue. Demotion does not raise the hand.
 
@@ -239,14 +239,14 @@ A stage of 4 is six peer-connection pairs. An attendee adds none. That ceiling i
 
 One row per broadcast attempt:
 
-| Field | Rule |
-| --- | --- |
-| `id` | Server UUID |
-| `roomId` | The webinar |
-| `status` | `STARTING`, `LIVE`, `STOPPING`, `READY`, or `FAILED` |
-| `playlistPath` | Relative path under the broadcast data root, or null |
-| `errorMessage` | Null unless `FAILED` |
-| `startedAt`, `endedAt` | Set by the server |
+| Field                  | Rule                                                 |
+| ---------------------- | ---------------------------------------------------- |
+| `id`                   | Server UUID                                          |
+| `roomId`               | The webinar                                          |
+| `status`               | `STARTING`, `LIVE`, `STOPPING`, `READY`, or `FAILED` |
+| `playlistPath`         | Relative path under the broadcast data root, or null |
+| `errorMessage`         | Null unless `FAILED`                                 |
+| `startedAt`, `endedAt` | Set by the server                                    |
 
 `GET /api/rooms/:slug/broadcasts` lists rows for the replay UI. `GET /api/broadcasts/:id` returns one row. Media bytes are not stored in PostgreSQL.
 
@@ -269,13 +269,13 @@ Redis is the live room. PostgreSQL is the catalog. Losing Redis empties presence
 
 Key prefix `sf:`. Every successful mutation refreshes a 24-hour TTL on that room's keys.
 
-| Key | Type | Meaning |
-| --- | --- | --- |
-| `sf:room:{roomId}:rev` | integer | Monotonic revision |
-| `sf:room:{roomId}:participants` | hash `socketId → JSON` | Presence |
-| `sf:room:{roomId}:stage` | set of socket ids | Current stage |
-| `sf:room:{roomId}:hands` | sorted set, score = server timestamp ms | Raised hands |
-| `sf:room:{roomId}:broadcast` | string broadcast id | Present only while `STARTING`, `LIVE`, or `STOPPING` |
+| Key                             | Type                                    | Meaning                                              |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------- |
+| `sf:room:{roomId}:rev`          | integer                                 | Monotonic revision                                   |
+| `sf:room:{roomId}:participants` | hash `socketId → JSON`                  | Presence                                             |
+| `sf:room:{roomId}:stage`        | set of socket ids                       | Current stage                                        |
+| `sf:room:{roomId}:hands`        | sorted set, score = server timestamp ms | Raised hands                                         |
+| `sf:room:{roomId}:broadcast`    | string broadcast id                     | Present only while `STARTING`, `LIVE`, or `STOPPING` |
 
 `ParticipantState` fields: `socketId`, `userId`, `displayName`, `role`, `isAudioMuted`, `isVideoOff`, `isScreenSharing`, `isHandRaised`, `isSyntheticBot`, `hostAudioLocked`, `hostVideoLocked`, `joinedAt`.
 
@@ -287,17 +287,17 @@ Each script increments `rev` on success and returns `{ ok, revision, error? }`. 
 
 Required scripts:
 
-| Script | Success writes | Rejects |
-| --- | --- | --- |
-| `join` | Participant, and stage membership when the mode and cap allow it | `stage_full`, `room_ended`, `already_joined` |
-| `leave` | Removes participant, stage, and hand | Unknown socket is a no-op success |
-| `patchMedia` | Mute, video, and screen flags | A locked unmute, unknown socket |
-| `setHand` | Add or remove a hand | Non-attendee |
-| `promote` | Role and stage | `stage_full`, target missing, target not attendee, caller is not host |
-| `demote` | Role and stage | Target is host or not a speaker |
-| `setHostLock` | Lock flags | Caller is not host |
-| `tryBeginBroadcast` | Sets the broadcast key if absent | Key already set |
-| `clearBroadcast` | Deletes the broadcast key | — |
+| Script              | Success writes                                                   | Rejects                                                               |
+| ------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `join`              | Participant, and stage membership when the mode and cap allow it | `stage_full`, `room_ended`, `already_joined`                          |
+| `leave`             | Removes participant, stage, and hand                             | Unknown socket is a no-op success                                     |
+| `patchMedia`        | Mute, video, and screen flags                                    | A locked unmute, unknown socket                                       |
+| `setHand`           | Add or remove a hand                                             | Non-attendee                                                          |
+| `promote`           | Role and stage                                                   | `stage_full`, target missing, target not attendee, caller is not host |
+| `demote`            | Role and stage                                                   | Target is host or not a speaker                                       |
+| `setHostLock`       | Lock flags                                                       | Caller is not host                                                    |
+| `tryBeginBroadcast` | Sets the broadcast key if absent                                 | Key already set                                                       |
+| `clearBroadcast`    | Deletes the broadcast key                                        | —                                                                     |
 
 The stage-cap decision is a pure TypeScript function with the same cases as the Lua script. Tests hit the TypeScript function. One Redis integration test runs the real `join` and `promote` scripts when `REDIS_URL` is reachable. If Redis is down, that test fails in the phase that owns it. It is not a permanent skip.
 
@@ -309,14 +309,14 @@ After every successful mutation the server emits `room:state` to the room:
 type RoomSnapshot = {
   revision: number;
   roomId: string;
-  mode: "MEETING" | "WEBINAR";
-  status: "LIVE" | "ENDED";
+  mode: 'MEETING' | 'WEBINAR';
+  status: 'LIVE' | 'ENDED';
   participants: ParticipantState[];
   stageSocketIds: string[];
   handSocketIds: string[]; // ascending raise time
   broadcast: {
     id: string;
-    status: "STARTING" | "LIVE" | "STOPPING" | "READY" | "FAILED";
+    status: 'STARTING' | 'LIVE' | 'STOPPING' | 'READY' | 'FAILED';
     playlistUrl: string | null;
     errorMessage: string | null;
   } | null;
@@ -333,31 +333,31 @@ Socket.IO with the shared `ClientToServerEvents` and `ServerToClientEvents` maps
 
 ### 8.1 Client → server
 
-| Event | Payload | Server rule |
-| --- | --- | --- |
-| `room:join` | `{ roomId, isAudioMuted, isVideoOff, isSyntheticBot }` plus an ack | Ack `{ ok, error?, selfSocketId?, iceServers? }` |
-| `room:leave` | none | Same as disconnect |
-| `media:state` | `{ isAudioMuted?, isVideoOff?, isScreenSharing? }` | `patchMedia` |
-| `webrtc:description` | `{ toSocketId, description }` | Relay only if both sockets are current stage members of this room |
-| `webrtc:ice-candidate` | `{ toSocketId, candidate }` | Same relay rule |
-| `stage:raise-hand` | `{ raised: boolean }` | `setHand` |
-| `stage:promote` | `{ targetSocketId }` | `promote` |
-| `stage:demote` | `{ targetSocketId }` | `demote` |
-| `stage:set-lock` | `{ targetSocketId, kind: "audio" \| "video", locked: boolean }` | `setHostLock` |
-| `broadcast:start` | none | Section 11 |
-| `broadcast:stop` | none | Section 11 |
+| Event                  | Payload                                                            | Server rule                                                       |
+| ---------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `room:join`            | `{ roomId, isAudioMuted, isVideoOff, isSyntheticBot }` plus an ack | Ack `{ ok, error?, selfSocketId?, iceServers? }`                  |
+| `room:leave`           | none                                                               | Same as disconnect                                                |
+| `media:state`          | `{ isAudioMuted?, isVideoOff?, isScreenSharing? }`                 | `patchMedia`                                                      |
+| `webrtc:description`   | `{ toSocketId, description }`                                      | Relay only if both sockets are current stage members of this room |
+| `webrtc:ice-candidate` | `{ toSocketId, candidate }`                                        | Same relay rule                                                   |
+| `stage:raise-hand`     | `{ raised: boolean }`                                              | `setHand`                                                         |
+| `stage:promote`        | `{ targetSocketId }`                                               | `promote`                                                         |
+| `stage:demote`         | `{ targetSocketId }`                                               | `demote`                                                          |
+| `stage:set-lock`       | `{ targetSocketId, kind: "audio" \| "video", locked: boolean }`    | `setHostLock`                                                     |
+| `broadcast:start`      | none                                                               | Section 11                                                        |
+| `broadcast:stop`       | none                                                               | Section 11                                                        |
 
 Ack and `room:state` are the result. Do not add a parallel error event for a command that already has an ack, except for server-driven `room:ended`.
 
 ### 8.2 Server → client
 
-| Event | When |
-| --- | --- |
-| `room:state` | After join and after every successful mutation |
-| `room:ended` | Host left or the room was ended. Payload `{ roomId }` |
-| `webrtc:description` | Relayed. Payload adds `fromSocketId` |
-| `webrtc:ice-candidate` | Relayed. Payload adds `fromSocketId` |
-| `stage:force-mute` | After a lock is applied. Payload `{ kind: "audio" \| "video", locked: boolean }` to the target socket |
+| Event                  | When                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| `room:state`           | After join and after every successful mutation                                                        |
+| `room:ended`           | Host left or the room was ended. Payload `{ roomId }`                                                 |
+| `webrtc:description`   | Relayed. Payload adds `fromSocketId`                                                                  |
+| `webrtc:ice-candidate` | Relayed. Payload adds `fromSocketId`                                                                  |
+| `stage:force-mute`     | After a lock is applied. Payload `{ kind: "audio" \| "video", locked: boolean }` to the target socket |
 
 `iceServers` in the join ack is the server's configured list. The client does not hardcode a STUN host. An empty TURN URL means the list contains only STUN.
 
@@ -486,11 +486,11 @@ The broadcast is the attendee media path. It is also the replay. There is no sec
 
 An offscreen canvas, 1280×720, draws the current stage video elements at 24 fps.
 
-| Stage count | Layout |
-| --- | --- |
-| 1 | Full frame |
-| 2 | Two columns |
-| 3 or 4 | 2×2, empty cells stay the background color |
+| Stage count                                 | Layout                                                        |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| 1                                           | Full frame                                                    |
+| 2                                           | Two columns                                                   |
+| 3 or 4                                      | 2×2, empty cells stay the background color                    |
 | Any, while a stage member is screen sharing | That frame fills the canvas. Other stage videos are not drawn |
 
 Audio: one `AudioContext` mixes current unmuted stage tracks, local and remote, into a `MediaStreamAudioDestination`. Rebuild the graph when the stage set or mute flags change. Disconnect old nodes on rebuild.
@@ -501,16 +501,16 @@ Audio: one `AudioContext` mixes current unmuted stage tracks, local and remote, 
 
 `POST /api/broadcasts/:id/chunks` with raw body, header `x-chunk-sequence` as a non-negative integer, and `content-type: application/octet-stream`.
 
-| Rule | Behavior |
-| --- | --- |
-| Caller | The host user of that broadcast |
-| Maximum body | 2_000_000 bytes |
-| Accept | `sequence === nextExpected`. Write those bytes to the FFmpeg stdin. Increment `nextExpected` |
-| Duplicate | Same sequence, same SHA-256 already accepted → `204` and write nothing |
-| Conflict | Same sequence, different hash → `409` |
-| Future sequence | `409`. V1 does not reorder a window |
-| Client pipeline | Send sequence `n+1` only after `n` returns `204` |
-| Client buffer | Hold at most 8 unsent blobs. Beyond that, stop locally and call broadcast stop with failure |
+| Rule            | Behavior                                                                                     |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| Caller          | The host user of that broadcast                                                              |
+| Maximum body    | 2_000_000 bytes                                                                              |
+| Accept          | `sequence === nextExpected`. Write those bytes to the FFmpeg stdin. Increment `nextExpected` |
+| Duplicate       | Same sequence, same SHA-256 already accepted → `204` and write nothing                       |
+| Conflict        | Same sequence, different hash → `409`                                                        |
+| Future sequence | `409`. V1 does not reorder a window                                                          |
+| Client pipeline | Send sequence `n+1` only after `n` returns `204`                                             |
+| Client buffer   | Hold at most 8 unsent blobs. Beyond that, stop locally and call broadcast stop with failure  |
 
 The accept decision is the pure function tested under QA-01. The controller uses it.
 
@@ -582,13 +582,13 @@ The tree above is the target. A phase may add files only inside its scope. Absen
 
 Resolve current stable versions when the package is introduced, then commit the lockfile. Do not copy version numbers out of `idea.md`.
 
-| Piece | Choice |
-| --- | --- |
-| Workspace | pnpm |
-| Web | React 19, Vite, TypeScript, Tailwind, Zustand, TanStack Query, React Router, Socket.IO client, hls.js |
-| API | NestJS 11, TypeORM, PostgreSQL, ioredis, Socket.IO |
-| Shared | TypeScript types and pure functions with no React and no Nest imports |
-| Node | Current 22 LTS, recorded in the Phase 1 README |
+| Piece     | Choice                                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------------- |
+| Workspace | pnpm                                                                                                  |
+| Web       | React 19, Vite, TypeScript, Tailwind, Zustand, TanStack Query, React Router, Socket.IO client, hls.js |
+| API       | NestJS 11, TypeORM, PostgreSQL, ioredis, Socket.IO                                                    |
+| Shared    | TypeScript types and pure functions with no React and no Nest imports                                 |
+| Node      | Current 22 LTS, recorded in the Phase 1 README                                                        |
 
 BullMQ is not used. One broadcast is one child process supervised by the API. A queue would imply a second worker and a retry story V1 has rejected.
 
@@ -615,24 +615,24 @@ Empty `TURN_URL` is valid. Missing `JWT_SECRET`, `DATABASE_URL`, or `REDIS_URL` 
 
 Exact filenames are fixed when the phase guide is written against the repo. The ownership is fixed now:
 
-| Area | Owns |
-| --- | --- |
-| `useSessionStore` | Token, user id, display name |
-| `useMediaStore` | Selected device ids, local stream, local mute intentions |
-| `useRoomStore` | Last applied snapshot |
-| `signalingClient` | One typed socket for the human user |
-| `webrtcPeerManager` | Peer map, negotiation, ICE queue, replaceTrack |
-| `statsCollector` | Poll loop and `deltaStats` |
-| `syntheticBotEngine` | Extra sockets, canvases, tones |
-| `stageRecorder` | Compositor, mix, `MediaRecorder`, ordered upload |
+| Area                 | Owns                                                     |
+| -------------------- | -------------------------------------------------------- |
+| `useSessionStore`    | Token, user id, display name                             |
+| `useMediaStore`      | Selected device ids, local stream, local mute intentions |
+| `useRoomStore`       | Last applied snapshot                                    |
+| `signalingClient`    | One typed socket for the human user                      |
+| `webrtcPeerManager`  | Peer map, negotiation, ICE queue, replaceTrack           |
+| `statsCollector`     | Poll loop and `deltaStats`                               |
+| `syntheticBotEngine` | Extra sockets, canvases, tones                           |
+| `stageRecorder`      | Compositor, mix, `MediaRecorder`, ordered upload         |
 
 ## 13. UX map
 
-| Route | Behavior |
-| --- | --- |
-| `/` | Display name, create meeting, create webinar, join by slug |
-| `/r/:slug` | Green room, then the room. Attendees and stage members share this route and render different bodies |
-| `/replay/:broadcastId` | VOD player for a `READY` broadcast. Other statuses show the status and the error |
+| Route                  | Behavior                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `/`                    | Display name, create meeting, create webinar, join by slug                                          |
+| `/r/:slug`             | Green room, then the room. Attendees and stage members share this route and render different bodies |
+| `/replay/:broadcastId` | VOD player for a `READY` broadcast. Other statuses show the status and the error                    |
 
 Room body for a stage member: tile grid, controls (mute, camera, share, leave), participant list, and the stats drawer closed by default. Hosts also see promote, demote, lock, and broadcast controls when the mode allows them.
 
@@ -650,13 +650,13 @@ From the repo root, the phase guide names the exact commands. The minimum bar is
 
 ### 14.2 Pure tests worth writing
 
-| Function | Fixtures must include |
-| --- | --- |
+| Function            | Fixtures must include                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Negotiation reducer | Simultaneous offers, polite accept, impolite ignore, candidate queued before description, candidate dropped while ignoring |
-| Stage transitions | Meeting fifth join, webinar attendee join, promote into the last slot, promote when full, demote host, unmute while locked |
-| Chunk acceptor | Next sequence, duplicate hash, conflicting hash, future sequence, oversize |
-| `deltaStats` | Normal interval, zero interval, zero packets |
-| `buildHlsArgs` | The locked codecs, sizes, and playlist flags. No argument slot is taken from a request body |
+| Stage transitions   | Meeting fifth join, webinar attendee join, promote into the last slot, promote when full, demote host, unmute while locked |
+| Chunk acceptor      | Next sequence, duplicate hash, conflicting hash, future sequence, oversize                                                 |
+| `deltaStats`        | Normal interval, zero interval, zero packets                                                                               |
+| `buildHlsArgs`      | The locked codecs, sizes, and playlist flags. No argument slot is taken from a request body                                |
 
 Do not test component markup.
 
@@ -820,16 +820,16 @@ V1 is done when all of the following are true:
 
 ## 19. Risks
 
-| Risk | Contract that contains it |
-| --- | --- |
-| The project becomes another Nest CRUD app with a video tag | Phase 4 is a demo gate. Do not start the broadcast until the bots and the drawer work |
-| Attendees are added to the mesh "temporarily" | RTC-03 and Section 5.3. A stage member's peer count equals other stage members |
-| Redis updates lose a mute or a role | Section 7.1. Lua is the only writer |
-| Chunk uploads corrupt the WebM stream | Section 11.3. One in-flight chunk, sequence checked again on the server |
-| FFmpeg becomes a second product (ladder, R2, queue, retries) | Section 11. One process, one rendition, fail instead of retry |
-| The camera light stays on after leave | RTC-05 requires `track.stop()` on leave |
-| Agents write all six guides up front and then follow stale paths | Section 1.1 |
-| Scope returns through the sketch | This file overrides `idea.md` |
+| Risk                                                             | Contract that contains it                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| The project becomes another Nest CRUD app with a video tag       | Phase 4 is a demo gate. Do not start the broadcast until the bots and the drawer work |
+| Attendees are added to the mesh "temporarily"                    | RTC-03 and Section 5.3. A stage member's peer count equals other stage members        |
+| Redis updates lose a mute or a role                              | Section 7.1. Lua is the only writer                                                   |
+| Chunk uploads corrupt the WebM stream                            | Section 11.3. One in-flight chunk, sequence checked again on the server               |
+| FFmpeg becomes a second product (ladder, R2, queue, retries)     | Section 11. One process, one rendition, fail instead of retry                         |
+| The camera light stays on after leave                            | RTC-05 requires `track.stop()` on leave                                               |
+| Agents write all six guides up front and then follow stale paths | Section 1.1                                                                           |
+| Scope returns through the sketch                                 | This file overrides `idea.md`                                                         |
 
 ## 20. Resolved decisions
 

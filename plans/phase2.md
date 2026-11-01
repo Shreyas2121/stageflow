@@ -48,13 +48,13 @@ Do not add these in this phase:
 
 ## 4. Requirement mapping
 
-| ID | Meaning in this phase | What remains later |
-| --- | --- | --- |
-| ROOM-01 | Join, leave, mute, video-off, and hand state are a Redis snapshot with a revision | Peer connections and broadcast status |
-| ROOM-02 | A fifth meeting joiner is rejected and changes nothing. A webinar guest joins as `ATTENDEE` | Promote and demote, which Phase 5 exposes in the UI |
-| ROOM-03 | Process start deletes `sf:room:*`. Catalog rows stay | Failing in-flight broadcasts, which needs the broadcast table in Phase 6 |
-| ROOM-04 | The server assigns `HOST`, `SPEAKER`, or `ATTENDEE` | Host mute locks in the UI |
-| LOBBY-01 | Camera, microphone, speaker, preview, and a live level meter before join | In-call device changes, which V1 does not add |
+| ID       | Meaning in this phase                                                                       | What remains later                                                       |
+| -------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| ROOM-01  | Join, leave, mute, video-off, and hand state are a Redis snapshot with a revision           | Peer connections and broadcast status                                    |
+| ROOM-02  | A fifth meeting joiner is rejected and changes nothing. A webinar guest joins as `ATTENDEE` | Promote and demote, which Phase 5 exposes in the UI                      |
+| ROOM-03  | Process start deletes `sf:room:*`. Catalog rows stay                                        | Failing in-flight broadcasts, which needs the broadcast table in Phase 6 |
+| ROOM-04  | The server assigns `HOST`, `SPEAKER`, or `ATTENDEE`                                         | Host mute locks in the UI                                                |
+| LOBBY-01 | Camera, microphone, speaker, preview, and a live level meter before join                    | In-call device changes, which V1 does not add                            |
 
 ## 5. System contracts
 
@@ -62,16 +62,16 @@ Do not add these in this phase:
 
 The catalog `hostId` is the host. The client does not send a role.
 
-| Room | Joiner | Result |
-| --- | --- | --- |
-| Any ended room | Anyone | `room_ended`. No Redis write |
-| Any | Same `userId` already present | `already_joined`. No write |
-| Meeting | The host | `HOST` on stage, unless the stage already has 4 |
-| Meeting | Anyone else, before the host is present | `host_not_present`. No write |
-| Meeting | Anyone else, after the host, while the stage has fewer than 4 | `SPEAKER` on stage |
-| Meeting | Anyone else, when the stage has 4 | `stage_full`. No write |
-| Webinar | The host | `HOST` on stage |
-| Webinar | Anyone else | `ATTENDEE`, not on stage, even if the host's socket is not connected yet |
+| Room           | Joiner                                                        | Result                                                                   |
+| -------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Any ended room | Anyone                                                        | `room_ended`. No Redis write                                             |
+| Any            | Same `userId` already present                                 | `already_joined`. No write                                               |
+| Meeting        | The host                                                      | `HOST` on stage, unless the stage already has 4                          |
+| Meeting        | Anyone else, before the host is present                       | `host_not_present`. No write                                             |
+| Meeting        | Anyone else, after the host, while the stage has fewer than 4 | `SPEAKER` on stage                                                       |
+| Meeting        | Anyone else, when the stage has 4                             | `stage_full`. No write                                                   |
+| Webinar        | The host                                                      | `HOST` on stage                                                          |
+| Webinar        | Anyone else                                                   | `ATTENDEE`, not on stage, even if the host's socket is not connected yet |
 
 `host_not_present` is the rule that keeps the creator's stage slot from being taken before they arrive. Display name, user id, and host identity come from the verified guest and the room row. `isSyntheticBot` is stored from the join payload and grants nothing. Phase 2 has no button that sets it.
 
@@ -85,15 +85,15 @@ Successful commands that change state ask the caller to increment the revision. 
 
 Commands and the failures that must not write:
 
-| Command | Rejects |
-| --- | --- |
-| `join` | `room_ended`, `already_joined`, `host_not_present`, `stage_full` |
-| `leave` | Unknown socket is an empty success |
-| `patchMedia` | Unknown socket. Turning audio on while `hostAudioLocked` is `audio_locked`. Turning video on while `hostVideoLocked` is `video_locked` |
-| `setHand` | A participant who is not an `ATTENDEE` gets `not_attendee` |
-| `promote` | Actor is not host (`not_host`), target missing, target is not an attendee, stage already has 4 (`stage_full`) |
-| `demote` | Actor is not host, target missing, target is the host (`cannot_demote_host`), target is not a speaker |
-| `setHostLock` | Actor is not host, target missing |
+| Command       | Rejects                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `join`        | `room_ended`, `already_joined`, `host_not_present`, `stage_full`                                                                       |
+| `leave`       | Unknown socket is an empty success                                                                                                     |
+| `patchMedia`  | Unknown socket. Turning audio on while `hostAudioLocked` is `audio_locked`. Turning video on while `hostVideoLocked` is `video_locked` |
+| `setHand`     | A participant who is not an `ATTENDEE` gets `not_attendee`                                                                             |
+| `promote`     | Actor is not host (`not_host`), target missing, target is not an attendee, stage already has 4 (`stage_full`)                          |
+| `demote`      | Actor is not host, target missing, target is the host (`cannot_demote_host`), target is not a speaker                                  |
+| `setHostLock` | Actor is not host, target missing                                                                                                      |
 
 Promote removes that socket from the hands. Demote does not raise a hand. A lock forces the matching mute or video-off flag on. Clearing a lock does not turn the device back on. `patchMedia` may set `isScreenSharing`, and the Phase 2 client never sends that field.
 
@@ -105,13 +105,13 @@ Lua is the only writer. Node passes a command and reads back a snapshot. It does
 
 Keys, with a 24-hour TTL refreshed on every successful change:
 
-| Key | Type |
-| --- | --- |
-| `sf:room:{roomId}:rev` | integer |
-| `sf:room:{roomId}:participants` | hash of socket id to JSON |
-| `sf:room:{roomId}:stage` | set of socket ids |
-| `sf:room:{roomId}:hands` | sorted set, score = server timestamp |
-| `sf:room:{roomId}:broadcast` | unused in this phase and left absent |
+| Key                             | Type                                 |
+| ------------------------------- | ------------------------------------ |
+| `sf:room:{roomId}:rev`          | integer                              |
+| `sf:room:{roomId}:participants` | hash of socket id to JSON            |
+| `sf:room:{roomId}:stage`        | set of socket ids                    |
+| `sf:room:{roomId}:hands`        | sorted set, score = server timestamp |
+| `sf:room:{roomId}:broadcast`    | unused in this phase and left absent |
 
 Scripts live under `apps/api/src/live/scripts/` and receive the key prefix as `KEYS[1]`, so tests can use `sf:itest:{runId}` without touching `sf:room:*`. Redis 7 `cjson` encodes the participant JSON.
 
@@ -127,19 +127,19 @@ Socket.IO attaches to the existing HTTP server. The handshake carries the guest 
 
 Client to server this phase:
 
-| Event | Behavior |
-| --- | --- |
-| `room:join` | Payload `{ roomId, isAudioMuted, isVideoOff, isSyntheticBot }`. Ack `{ ok: true, selfSocketId, iceServers }` or `{ ok: false, error, message }` |
-| `room:leave` | Same path as disconnect |
-| `media:state` | `{ isAudioMuted?, isVideoOff?, isScreenSharing? }`. The client waits for the next snapshot |
-| `stage:raise-hand` | `{ raised: boolean }` |
+| Event              | Behavior                                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `room:join`        | Payload `{ roomId, isAudioMuted, isVideoOff, isSyntheticBot }`. Ack `{ ok: true, selfSocketId, iceServers }` or `{ ok: false, error, message }` |
+| `room:leave`       | Same path as disconnect                                                                                                                         |
+| `media:state`      | `{ isAudioMuted?, isVideoOff?, isScreenSharing? }`. The client waits for the next snapshot                                                      |
+| `stage:raise-hand` | `{ raised: boolean }`                                                                                                                           |
 
 Server to client:
 
-| Event | Behavior |
-| --- | --- |
+| Event        | Behavior                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------- |
 | `room:state` | Full snapshot after every successful change. Clients apply it only when `revision` is greater |
-| `room:ended` | `{ roomId }` after the host leaves |
+| `room:ended` | `{ roomId }` after the host leaves                                                            |
 
 Do not register WebRTC, promote, demote, lock, or broadcast handlers. `iceServers` is built from `STUN_URL` and, when `TURN_URL` is non-empty, the TURN username and credential. An empty TURN URL means the list contains only STUN. The client stores the list and does not construct a peer connection.
 
@@ -149,16 +149,16 @@ Join looks up the room by its UUID. An unknown id or a slug-shaped id is `room_n
 
 Ack messages:
 
-| Error | Message |
-| --- | --- |
-| `room_ended` | This room has ended. |
-| `already_joined` | This guest is already in the room. |
+| Error              | Message                                               |
+| ------------------ | ----------------------------------------------------- |
+| `room_ended`       | This room has ended.                                  |
+| `already_joined`   | This guest is already in the room.                    |
 | `host_not_present` | The host has to join this meeting before anyone else. |
-| `stage_full` | This meeting already has 4 people on stage. |
-| `room_not_found` | No room exists for that slug. |
-| `not_attendee` | Only attendees can raise a hand. |
-| `audio_locked` | The host has muted your microphone. |
-| `video_locked` | The host has turned off your camera. |
+| `stage_full`       | This meeting already has 4 people on stage.           |
+| `room_not_found`   | No room exists for that slug.                         |
+| `not_attendee`     | Only attendees can raise a hand.                      |
+| `audio_locked`     | The host has muted your microphone.                   |
+| `video_locked`     | The host has turned off your camera.                  |
 
 ### 5.5 Green room and roster
 
@@ -166,11 +166,11 @@ Ack messages:
 
 Before join:
 
-| Person | Devices |
-| --- | --- |
+| Person                             | Devices                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Meeting joiner, including the host | Camera and microphone are required. A denied permission names which one failed and disables join |
-| Webinar host | Same as a meeting joiner |
-| Webinar guest | No `getUserMedia`. The page says they will join as an attendee |
+| Webinar host                       | Same as a meeting joiner                                                                         |
+| Webinar guest                      | No `getUserMedia`. The page says they will join as an attendee                                   |
 
 The device form lists cameras, microphones, and speakers after permission is granted. The preview uses the selected camera. The meter uses an `AnalyserNode` on the selected microphone and a `requestAnimationFrame` loop. Speaker output uses `setSinkId` when the element has that method. If it does not, show the default output and still allow join.
 
@@ -184,16 +184,16 @@ Keep the existing dark page, labels, and visible focus. Error text includes the 
 
 ## 6. Acceptance matrix
 
-| ID | Observable result | Method | Status |
-| --- | --- | --- | --- |
-| P2-A01 | The pure transition cases in Section 5.2 pass | `pnpm --filter @stageflow/shared test` | verified |
-| P2-A02 | The same cases through the Lua scripts match the pure function. Redis must be up | API integration test | verified |
-| P2-A03 | API startup pings Redis and deletes `sf:room:*` without ending PostgreSQL rooms | Restart the API, then fetch the room | verified |
-| P2-A04 | Two browsers show the host and one meeting speaker. One leave updates the other roster. Local tracks stop on leave | Browser | verified |
-| P2-A05 | The fifth meeting join does not write. A webinar guest is an attendee and is not prompted for a camera | Integration test and browser | verified |
-| P2-A06 | An attendee hand appears on the host roster. The server assigns the roles | Browser | verified |
-| P2-A07 | The host leaving ends the room for the other browser, and `GET` returns `ENDED` | Browser and HTTP | verified |
-| P2-A08 | Web source does not construct a peer connection or call `getDisplayMedia` | Search | verified |
+| ID     | Observable result                                                                                                  | Method                                 | Status   |
+| ------ | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------- | -------- |
+| P2-A01 | The pure transition cases in Section 5.2 pass                                                                      | `pnpm --filter @stageflow/shared test` | verified |
+| P2-A02 | The same cases through the Lua scripts match the pure function. Redis must be up                                   | API integration test                   | verified |
+| P2-A03 | API startup pings Redis and deletes `sf:room:*` without ending PostgreSQL rooms                                    | Restart the API, then fetch the room   | verified |
+| P2-A04 | Two browsers show the host and one meeting speaker. One leave updates the other roster. Local tracks stop on leave | Browser                                | verified |
+| P2-A05 | The fifth meeting join does not write. A webinar guest is an attendee and is not prompted for a camera             | Integration test and browser           | verified |
+| P2-A06 | An attendee hand appears on the host roster. The server assigns the roles                                          | Browser                                | verified |
+| P2-A07 | The host leaving ends the room for the other browser, and `GET` returns `ENDED`                                    | Browser and HTTP                       | verified |
+| P2-A08 | Web source does not construct a peer connection or call `getDisplayMedia`                                          | Search                                 | verified |
 
 ROOM-01 is A01, A02, A04, and A06. ROOM-02 is A01 and A05. ROOM-03 in this phase is A03 only. ROOM-04 for assignment is A01 and A06. LOBBY-01 is A04.
 
@@ -225,14 +225,14 @@ No matches is the pass. `getUserMedia` in the web app is expected.
 
 ## 8. Risks
 
-| Risk | What to do |
-| --- | --- |
-| The roster is painted from client-chosen roles | Role is assigned only in `applyStageCommand` and Lua |
-| Node updates a participant hash outside Lua | The integration test is the check. A manual `hset` in the gateway fails review |
-| Promote buttons appear because the script exists | No promote, demote, or lock event is registered |
-| The preview starts a peer connection "so the next phase is easier" | P2-A08. Store `iceServers` and stop |
-| API startup deletes the integration-test keys | Startup scans `sf:room:*` only |
-| Host leave deletes the catalog row | Set `ENDED` and `endedAt`. The row remains fetchable |
+| Risk                                                               | What to do                                                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| The roster is painted from client-chosen roles                     | Role is assigned only in `applyStageCommand` and Lua                           |
+| Node updates a participant hash outside Lua                        | The integration test is the check. A manual `hset` in the gateway fails review |
+| Promote buttons appear because the script exists                   | No promote, demote, or lock event is registered                                |
+| The preview starts a peer connection "so the next phase is easier" | P2-A08. Store `iceServers` and stop                                            |
+| API startup deletes the integration-test keys                      | Startup scans `sf:room:*` only                                                 |
+| Host leave deletes the catalog row                                 | Set `ENDED` and `endedAt`. The row remains fetchable                           |
 
 ## 9. Exit and handoff
 

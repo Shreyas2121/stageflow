@@ -23,13 +23,13 @@ Do not add demo peers, `getStats`, promote buttons, FFmpeg, or a migration.
 
 ### 1.1 Commit index
 
-| Order | ID | Proposed message | Acceptance |
-| --- | --- | --- | --- |
-| 1 | P3-C01 | `feat(shared): decide glare, candidate order, and stage relay` | A01 |
-| 2 | P3-C02 | `feat(api-signaling): relay stage descriptions and ICE candidates` | A02 |
-| 3 | P3-C03 | `feat(web-stage): show meeting peers on a mesh` | A03, A04, A06, A07 |
-| 4 | P3-C04 | `feat(web-audio): highlight the active speaker` | A03 |
-| 5 | P3-C05 | `feat(web-stage): share the screen by replacing the video track` | A05 |
+| Order | ID     | Proposed message                                                   | Acceptance         |
+| ----- | ------ | ------------------------------------------------------------------ | ------------------ |
+| 1     | P3-C01 | `feat(shared): decide glare, candidate order, and stage relay`     | A01                |
+| 2     | P3-C02 | `feat(api-signaling): relay stage descriptions and ICE candidates` | A02                |
+| 3     | P3-C03 | `feat(web-stage): show meeting peers on a mesh`                    | A03, A04, A06, A07 |
+| 4     | P3-C04 | `feat(web-audio): highlight the active speaker`                    | A03                |
+| 5     | P3-C05 | `feat(web-stage): share the screen by replacing the video track`   | A05                |
 
 ### 1.2 Files to inspect before editing
 

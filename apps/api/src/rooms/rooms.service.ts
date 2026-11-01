@@ -17,15 +17,20 @@ export class RoomsService {
   }
 
   async end(roomId: string): Promise<void> {
-    await this.rooms.update({ id: roomId, status: 'LIVE' }, { status: 'ENDED', endedAt: new Date() });
+    await this.rooms.update(
+      { id: roomId, status: 'LIVE' },
+      { status: 'ENDED', endedAt: new Date() },
+    );
   }
 
   async create(host: User, body: unknown): Promise<RoomResponse> {
-    const title = parseRoomTitle(typeof body === 'object' && body !== null && 'title' in body
-      ? body.title : undefined);
+    const title = parseRoomTitle(
+      typeof body === 'object' && body !== null && 'title' in body ? body.title : undefined,
+    );
     if (!title.ok) throw new ApiException(400, title.error, title.message);
-    const mode = parseRoomMode(typeof body === 'object' && body !== null && 'mode' in body
-      ? body.mode : undefined);
+    const mode = parseRoomMode(
+      typeof body === 'object' && body !== null && 'mode' in body ? body.mode : undefined,
+    );
     if (!mode.ok) throw new ApiException(400, mode.error, mode.message);
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -51,7 +56,12 @@ export class RoomsService {
           endedAt: null,
         };
       } catch (error: unknown) {
-        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === '23505')) {
+        if (!(
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === '23505'
+        )) {
           throw error;
         }
       }

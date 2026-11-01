@@ -51,20 +51,20 @@ Do not add these, even though later phases or `idea.md` mention them:
 
 ## 4. Requirement mapping
 
-| ID | Meaning in this phase | Later work this does not claim |
-| --- | --- | --- |
-| FOUND-01 | Install, typecheck, and lint succeed. Compose reports Postgres and Redis healthy. Both apps import `@stageflow/shared` | Sockets, media, and FFmpeg |
-| FOUND-02 | Guest session, create meeting, create webinar, fetch by slug. No password column and no login route | Joining the live stage, which is Phase 2 |
+| ID       | Meaning in this phase                                                                                                  | Later work this does not claim           |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| FOUND-01 | Install, typecheck, and lint succeed. Compose reports Postgres and Redis healthy. Both apps import `@stageflow/shared` | Sockets, media, and FFmpeg               |
+| FOUND-02 | Guest session, create meeting, create webinar, fetch by slug. No password column and no login route                    | Joining the live stage, which is Phase 2 |
 
 ## 5. System contracts
 
 ### 5.1 Workspace
 
-| Package | Name | Role in this phase |
-| --- | --- | --- |
+| Package           | Name                | Role in this phase                                          |
+| ----------------- | ------------------- | ----------------------------------------------------------- |
 | `packages/shared` | `@stageflow/shared` | Types, parsers, slug function. No React and no Nest imports |
-| `apps/api` | `@stageflow/api` | NestJS 11 HTTP API |
-| `apps/web` | `@stageflow/web` | Vite, React 19, the two routes |
+| `apps/api`        | `@stageflow/api`    | NestJS 11 HTTP API                                          |
+| `apps/web`        | `@stageflow/web`    | Vite, React 19, the two routes                              |
 
 Shared and the API compile as CommonJS so Nest can load the package. The web app is the Vite ESM default. Shared publishes `dist`. Root `typecheck` builds shared before the packages typecheck. Resolve current stable releases at install time and commit `pnpm-lock.yaml`. Do not copy versions from `idea.md`.
 
@@ -93,7 +93,11 @@ Master Sections 6.1 and 6.2, narrowed as follows.
 The display name is trimmed. It must then be 1–40 characters and must not contain ASCII control characters (`U+0000`–`U+001F` or `U+007F`). Failure is HTTP 400:
 
 ```json
-{ "statusCode": 400, "error": "invalid_display_name", "message": "Enter a display name from 1 to 40 characters." }
+{
+  "statusCode": 400,
+  "error": "invalid_display_name",
+  "message": "Enter a display name from 1 to 40 characters."
+}
 ```
 
 Success creates a user and returns the trimmed name:
@@ -119,7 +123,11 @@ The JWT is HS256, `sub` is the user id, and it expires in 12 hours. There is no 
 A missing or invalid token on a protected route:
 
 ```json
-{ "statusCode": 401, "error": "unauthorized", "message": "Sign in as a guest before calling this route." }
+{
+  "statusCode": 401,
+  "error": "unauthorized",
+  "message": "Sign in as a guest before calling this route."
+}
 ```
 
 The created room is `LIVE`, `endedAt` is null, and `hostId` is the caller. The slug is 12 characters from `A–Z`, `a–z`, and `0–9`, produced by `createRoomSlug`. Bytes `248–255` are rejected and another byte is drawn, so the alphabet is uniform. Thirty-two consecutive rejects throw. On a unique-slug collision, the service tries a new slug up to five times, then responds 500 with `error: "slug_exhausted"`.
@@ -160,27 +168,27 @@ One migration. No `synchronize`.
 
 `users`
 
-| Column | Type |
-| --- | --- |
-| `id` | uuid primary key, default `gen_random_uuid()` |
-| `display_name` | `varchar(40)` not null |
-| `is_guest` | boolean not null, default `true` |
-| `created_at` | `timestamptz` not null, default `now()` |
+| Column         | Type                                          |
+| -------------- | --------------------------------------------- |
+| `id`           | uuid primary key, default `gen_random_uuid()` |
+| `display_name` | `varchar(40)` not null                        |
+| `is_guest`     | boolean not null, default `true`              |
+| `created_at`   | `timestamptz` not null, default `now()`       |
 
 Every insert sets `is_guest` true. There is no email column and no password column.
 
 `rooms`
 
-| Column | Type |
-| --- | --- |
-| `id` | uuid primary key, default `gen_random_uuid()` |
-| `slug` | `varchar(12)` not null, unique |
-| `title` | `varchar(80)` not null |
-| `mode` | text not null, check `MEETING` or `WEBINAR` |
-| `status` | text not null, check `LIVE` or `ENDED` |
-| `host_id` | uuid not null, references `users(id)` |
-| `created_at` | `timestamptz` not null, default `now()` |
-| `ended_at` | `timestamptz` null |
+| Column       | Type                                          |
+| ------------ | --------------------------------------------- |
+| `id`         | uuid primary key, default `gen_random_uuid()` |
+| `slug`       | `varchar(12)` not null, unique                |
+| `title`      | `varchar(80)` not null                        |
+| `mode`       | text not null, check `MEETING` or `WEBINAR`   |
+| `status`     | text not null, check `LIVE` or `ENDED`        |
+| `host_id`    | uuid not null, references `users(id)`         |
+| `created_at` | `timestamptz` not null, default `now()`       |
+| `ended_at`   | `timestamptz` null                            |
 
 Use text plus check constraints, not PostgreSQL enum types. Entity properties stay camelCase and map to these column names.
 
@@ -188,11 +196,11 @@ At the user's request, both entities inherit the identical `id` and `createdAt` 
 
 ### 5.5 Web
 
-| Route | Behavior |
-| --- | --- |
-| `/` | Display name, title, slug, buttons for create meeting, create webinar, and join |
-| `/r/:slug` | Room shell, or a named error |
-| Any other path | A short not-found line and a link to `/` |
+| Route          | Behavior                                                                        |
+| -------------- | ------------------------------------------------------------------------------- |
+| `/`            | Display name, title, slug, buttons for create meeting, create webinar, and join |
+| `/r/:slug`     | Room shell, or a named error                                                    |
+| Any other path | A short not-found line and a link to `/`                                        |
 
 Submitting the home form always mints a new guest session from the display name in the field, stores `{ token, userId, displayName }` under `sessionStorage` key `stageflow.session`, then creates or fetches. A reload of the tab keeps the session. A new tab does not. Replacing the session replaces the stored guest.
 
@@ -206,17 +214,17 @@ The page is dark, with light text, visible keyboard focus, and labels tied to in
 
 ## 6. Acceptance matrix
 
-| ID | Observable result | Method | Status |
-| --- | --- | --- | --- |
-| P1-A01 | `pnpm install`, root typecheck, and root lint exit 0 | Commands | verified |
-| P1-A02 | Compose Postgres and Redis are healthy | `docker compose ps` | verified |
-| P1-A03 | Parser and slug tests pass | `pnpm --filter @stageflow/shared test` | verified |
-| P1-A04 | Guest session, meeting create, and fetch return the contracts in Section 5.3 | HTTP | verified |
-| P1-A05 | Webinar create returns `mode: "WEBINAR"` | HTTP | verified |
-| P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors | HTTP | verified |
-| P1-A07 | App source has no password column, login route, socket, Redis client, WebRTC, or FFmpeg import | Search | verified |
-| P1-A08 | The browser can create a meeting and the shell shows its title, mode, slug, host, and the foundation sentence | Browser | verified |
-| P1-A09 | The browser can open that slug from home, and an unknown slug shows `room_not_found` without leaving home | Browser | verified |
+| ID     | Observable result                                                                                             | Method                                 | Status   |
+| ------ | ------------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------- |
+| P1-A01 | `pnpm install`, root typecheck, and root lint exit 0                                                          | Commands                               | verified |
+| P1-A02 | Compose Postgres and Redis are healthy                                                                        | `docker compose ps`                    | verified |
+| P1-A03 | Parser and slug tests pass                                                                                    | `pnpm --filter @stageflow/shared test` | verified |
+| P1-A04 | Guest session, meeting create, and fetch return the contracts in Section 5.3                                  | HTTP                                   | verified |
+| P1-A05 | Webinar create returns `mode: "WEBINAR"`                                                                      | HTTP                                   | verified |
+| P1-A06 | Blank name, bad mode, missing token, and unknown slug return the named errors                                 | HTTP                                   | verified |
+| P1-A07 | App source has no password column, login route, socket, Redis client, WebRTC, or FFmpeg import                | Search                                 | verified |
+| P1-A08 | The browser can create a meeting and the shell shows its title, mode, slug, host, and the foundation sentence | Browser                                | verified |
+| P1-A09 | The browser can open that slug from home, and an unknown slug shows `room_not_found` without leaving home     | Browser                                | verified |
 
 FOUND-01 is A01–A03. FOUND-02 is A04–A07, demonstrated in the browser by A08–A09. Do not mark an ID verified because the file exists.
 
@@ -258,14 +266,14 @@ No matches is the pass. Planning documents are allowed to mention those words.
 
 ## 8. Risks
 
-| Risk | What to do |
-| --- | --- |
-| `idea.md` still describes email, password, chat, and Socket.IO | Follow this file. Do not port those entities |
-| Redis is required in the environment, so a client gets added "while we're here" | Validate the string. Do not import `ioredis` |
-| `synchronize: true` hides a missing migration | Leave it false. The migration is hand-written |
-| Shared ESM output cannot be loaded by Nest | CommonJS shared package, as Section 5.1 |
-| The room page fakes a video tile so the route looks finished | The foundation sentence is the UI. No media element |
-| A health route or a catalog route leaks the database or the slug list | Health returns only `ok`. There is no collection route |
+| Risk                                                                            | What to do                                             |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `idea.md` still describes email, password, chat, and Socket.IO                  | Follow this file. Do not port those entities           |
+| Redis is required in the environment, so a client gets added "while we're here" | Validate the string. Do not import `ioredis`           |
+| `synchronize: true` hides a missing migration                                   | Leave it false. The migration is hand-written          |
+| Shared ESM output cannot be loaded by Nest                                      | CommonJS shared package, as Section 5.1                |
+| The room page fakes a video tile so the route looks finished                    | The foundation sentence is the UI. No media element    |
+| A health route or a catalog route leaks the database or the slug list           | Health returns only `ok`. There is no collection route |
 
 ## 9. Exit and handoff
 

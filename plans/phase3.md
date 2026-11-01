@@ -45,12 +45,12 @@ Recheck at execution. Do not change join caps, role assignment, or the green-roo
 
 ## 4. Requirement mapping
 
-| ID | Meaning in this phase |
-| --- | --- |
-| RTC-01 | An impolite peer ignores a colliding offer. A polite peer accepts it |
-| RTC-02 | Candidates that arrive before the remote description are applied in order afterward. Candidates are dropped while an offer is being ignored |
-| RTC-03 | Each stage member connects to each other stage member. An attendee is not a relay endpoint |
-| RTC-04 | Screen share replaces the video track and restores the camera track when the share ends, without a new offer |
+| ID     | Meaning in this phase                                                                                                                          |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| RTC-01 | An impolite peer ignores a colliding offer. A polite peer accepts it                                                                           |
+| RTC-02 | Candidates that arrive before the remote description are applied in order afterward. Candidates are dropped while an offer is being ignored    |
+| RTC-03 | Each stage member connects to each other stage member. An attendee is not a relay endpoint                                                     |
+| RTC-04 | Screen share replaces the video track and restores the camera track when the share ends, without a new offer                                   |
 | RTC-05 | Leave, room end, and unmount stop the camera, microphone, and screen tracks, close every peer connection, and stop the meter and speaker loops |
 
 ## 5. System contracts
@@ -93,11 +93,11 @@ Shared types stay free of DOM interfaces. A description is `{ type: "offer" | "a
 
 Client events `webrtc:description` and `webrtc:ice-candidate` carry `toSocketId` plus that payload, and they ack. The server adds `fromSocketId` and emits the matching server event to the target socket. Failures:
 
-| Error | When |
-| --- | --- |
-| `not_on_stage` | `canRelay` is false |
+| Error              | When                                            |
+| ------------------ | ----------------------------------------------- |
+| `not_on_stage`     | `canRelay` is false                             |
 | `peer_unavailable` | The target socket is not connected in this room |
-| `invalid_payload` | The description or candidate shape is wrong |
+| `invalid_payload`  | The description or candidate shape is wrong     |
 
 `not_on_stage` message: `Only people on stage can exchange media.` `peer_unavailable` message: `That person is no longer on stage.`
 
@@ -121,15 +121,15 @@ Leave, `room:ended`, an unexpected disconnect, and unmount close every peer conn
 
 ## 6. Acceptance matrix
 
-| ID | Observable result | Method | Status |
-| --- | --- | --- | --- |
-| P3-A01 | Glare, candidate order, candidate drop, and the empty mesh for an attendee pass | `pnpm --filter @stageflow/shared test` | verified (2026-11-01; 72 tests passed) |
-| P3-A02 | A description between two stage sockets is delivered to the target only. An attendee send is `not_on_stage` | Gateway check with two sockets, plus the `canRelay` tests | verified (2026-11-01; live relay and attendee rejection passed) |
-| P3-A03 | Two meeting browsers show each other's camera and play remote audio | Browser | automated test media and speaker changes verified (2026-11-01); physical microphone and human audible output unverified |
-| P3-A04 | Mute and camera-off do not send a new offer. The other tile stays up, and the roster flag changes | Browser | verified (2026-11-01; Chromium test media) |
-| P3-A05 | Screen share replaces the remote picture and restores the camera when sharing stops | Browser | automated screen-fixture pixels, restoration and no new offers verified (2026-11-01); native picker and browser stop UI unverified |
-| P3-A06 | Leave closes the remote tile, ends local tracks, and turns the camera indicator off when it can be seen | Browser | automated camera/microphone/screen and peer cleanup verified on leave, navigation and room end (2026-11-01); physical camera indicator unverified |
-| P3-A07 | A webinar guest has no remote tile and no peer connection | Browser | verified (2026-11-01; zero capture calls and connections) |
+| ID     | Observable result                                                                                           | Method                                                    | Status                                                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P3-A01 | Glare, candidate order, candidate drop, and the empty mesh for an attendee pass                             | `pnpm --filter @stageflow/shared test`                    | verified (2026-11-01; 72 tests passed)                                                                                                            |
+| P3-A02 | A description between two stage sockets is delivered to the target only. An attendee send is `not_on_stage` | Gateway check with two sockets, plus the `canRelay` tests | verified (2026-11-01; live relay and attendee rejection passed)                                                                                   |
+| P3-A03 | Two meeting browsers show each other's camera and play remote audio                                         | Browser                                                   | automated test media and speaker changes verified (2026-11-01); physical microphone and human audible output unverified                           |
+| P3-A04 | Mute and camera-off do not send a new offer. The other tile stays up, and the roster flag changes           | Browser                                                   | verified (2026-11-01; Chromium test media)                                                                                                        |
+| P3-A05 | Screen share replaces the remote picture and restores the camera when sharing stops                         | Browser                                                   | automated screen-fixture pixels, restoration and no new offers verified (2026-11-01); native picker and browser stop UI unverified                |
+| P3-A06 | Leave closes the remote tile, ends local tracks, and turns the camera indicator off when it can be seen     | Browser                                                   | automated camera/microphone/screen and peer cleanup verified on leave, navigation and room end (2026-11-01); physical camera indicator unverified |
+| P3-A07 | A webinar guest has no remote tile and no peer connection                                                   | Browser                                                   | verified (2026-11-01; zero capture calls and connections)                                                                                         |
 
 RTC-01 and RTC-02 are A01. RTC-03 is A01, A02, A03, and A07. RTC-04 is A05. RTC-05 is A06.
 
@@ -154,13 +154,13 @@ No matches is the pass. `RTCPeerConnection` in `apps/web/src/live` is expected. 
 
 ## 8. Risks
 
-| Risk | What to do |
-| --- | --- |
-| The manager copies the glare test instead of calling the reducer | One function owns the condition. Tests import that function |
-| An attendee receives an offer because the handler emits to the room | Emit to the target socket after `canRelay` |
-| Screen share calls `addTrack` and renegotiates | `replaceTrack` only. The camera track is the one captured before join |
-| Leave stops the socket and leaves the peer connection open | Close the peer map in the same path as `LocalMedia.stop()` |
-| Shared types import `RTCSessionDescriptionInit` and the API stops compiling | Use the structural payload in Section 5.3 |
+| Risk                                                                        | What to do                                                            |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| The manager copies the glare test instead of calling the reducer            | One function owns the condition. Tests import that function           |
+| An attendee receives an offer because the handler emits to the room         | Emit to the target socket after `canRelay`                            |
+| Screen share calls `addTrack` and renegotiates                              | `replaceTrack` only. The camera track is the one captured before join |
+| Leave stops the socket and leaves the peer connection open                  | Close the peer map in the same path as `LocalMedia.stop()`            |
+| Shared types import `RTCSessionDescriptionInit` and the API stops compiling | Use the structural payload in Section 5.3                             |
 
 ## 9. Exit and handoff
 

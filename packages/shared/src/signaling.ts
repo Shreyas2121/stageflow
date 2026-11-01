@@ -13,10 +13,17 @@ export type RoomSnapshot = {
 };
 
 export type IceServer = { urls: string | string[]; username?: string; credential?: string };
-export type SignalingError = StageError | 'room_not_found' | 'invalid_payload' | 'not_joined' | 'server_error'
-  | 'not_on_stage' | 'peer_unavailable';
+export type SignalingError =
+  | StageError
+  | 'room_not_found'
+  | 'invalid_payload'
+  | 'not_joined'
+  | 'server_error'
+  | 'not_on_stage'
+  | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
-export type JoinAck = { ok: true; selfSocketId: string; iceServers: IceServer[] } | Extract<CommandAck, { ok: false }>;
+export type JoinAck =
+  { ok: true; selfSocketId: string; iceServers: IceServer[] } | Extract<CommandAck, { ok: false }>;
 export type JoinRoomRequest = {
   roomId: string;
   isAudioMuted: boolean;
@@ -25,7 +32,11 @@ export type JoinRoomRequest = {
 };
 
 export type StageDescription = { type: 'offer' | 'answer'; sdp: string };
-export type StageIceCandidate = { candidate: string; sdpMid: string | null; sdpMLineIndex: number | null };
+export type StageIceCandidate = {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+};
 export type DescriptionRequest = { toSocketId: string; description: StageDescription };
 export type IceCandidateRequest = { toSocketId: string; candidate: StageIceCandidate | null };
 export type RelayedDescription = DescriptionRequest & { fromSocketId: string };

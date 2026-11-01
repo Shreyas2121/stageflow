@@ -1,5 +1,9 @@
-type AudioInput = { track: MediaStreamTrack; source: MediaStreamAudioSourceNode;
-  analyser: AnalyserNode; samples: Float32Array<ArrayBuffer> };
+type AudioInput = {
+  track: MediaStreamTrack;
+  source: MediaStreamAudioSourceNode;
+  analyser: AnalyserNode;
+  samples: Float32Array<ArrayBuffer>;
+};
 
 export class ActiveSpeaker {
   private context: AudioContext | null = null;
@@ -31,7 +35,10 @@ export class ActiveSpeaker {
     }
     if (this.active && !this.inputs.has(this.active)) this.highlight(null);
     if (this.pending && !this.inputs.has(this.pending)) this.pending = null;
-    if (!this.inputs.size) { this.close(); return; }
+    if (!this.inputs.size) {
+      this.close();
+      return;
+    }
     void this.context?.resume().catch(() => undefined);
     if (this.frame === null) this.frame = requestAnimationFrame(this.sample);
   }
@@ -48,8 +55,13 @@ export class ActiveSpeaker {
     for (const [id, input] of this.inputs) {
       if (!input.track.enabled || input.track.readyState !== 'live') continue;
       input.analyser.getFloatTimeDomainData(input.samples);
-      const level = Math.sqrt(input.samples.reduce((sum, value) => sum + value * value, 0) / input.samples.length);
-      if (level >= 0.08 && (leader === null || level > highest || (level === highest && id === this.active))) {
+      const level = Math.sqrt(
+        input.samples.reduce((sum, value) => sum + value * value, 0) / input.samples.length,
+      );
+      if (
+        level >= 0.08 &&
+        (leader === null || level > highest || (level === highest && id === this.active))
+      ) {
         leader = id;
         highest = level;
       }

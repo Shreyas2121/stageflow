@@ -9,7 +9,10 @@ import { SignalingGateway } from './signaling.gateway';
 @Injectable()
 export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   readonly redis = new Redis(env.REDIS_URL, {
-    lazyConnect: true, connectTimeout: 3000, maxRetriesPerRequest: 0, retryStrategy: () => null,
+    lazyConnect: true,
+    connectTimeout: 3000,
+    maxRetriesPerRequest: 0,
+    retryStrategy: () => null,
   });
   private readonly logger = new Logger(LiveConnection.name);
 
@@ -42,7 +45,11 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   imports: [SessionsModule, RoomsModule],
   providers: [
     LiveConnection,
-    { provide: LiveRepository, inject: [LiveConnection], useFactory: (connection: LiveConnection) => new LiveRepository(connection.redis) },
+    {
+      provide: LiveRepository,
+      inject: [LiveConnection],
+      useFactory: (connection: LiveConnection) => new LiveRepository(connection.redis),
+    },
     SignalingGateway,
   ],
 })

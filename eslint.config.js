@@ -8,7 +8,7 @@ export default defineConfig([
     files: ['apps/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'error'
-    }
-  }
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
 ]);

@@ -3,7 +3,8 @@ import type { CreateRoomRequest, GuestSessionResponse, RoomResponse } from '@sta
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '');
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  if (!apiBaseUrl) throw new Error('The API address is missing. Set VITE_API_BASE_URL and restart the web app.');
+  if (!apiBaseUrl)
+    throw new Error('The API address is missing. Set VITE_API_BASE_URL and restart the web app.');
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl}${path}`, options);
@@ -12,8 +13,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
-    const message = typeof body === 'object' && body !== null && 'message' in body && typeof body.message === 'string'
-      ? body.message : `The request failed (${response.status}). Please try again.`;
+    const message =
+      typeof body === 'object' &&
+      body !== null &&
+      'message' in body &&
+      typeof body.message === 'string'
+        ? body.message
+        : `The request failed (${response.status}). Please try again.`;
     throw new Error(message);
   }
   return response.json() as Promise<T>;

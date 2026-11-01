@@ -37,8 +37,7 @@ export type ApiErrorBody = {
 };
 
 export type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: ApiErrorBody['error']; message: string };
+  { ok: true; value: T } | { ok: false; error: ApiErrorBody['error']; message: string };
 
 function parseText(
   input: unknown,

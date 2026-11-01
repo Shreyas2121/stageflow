@@ -89,16 +89,18 @@ describe('createRoomSlug', () => {
 
   it('throws after 32 consecutive rejected bytes', () => {
     let draws = 0;
-    expect(() => createRoomSlug(() => {
-      draws += 1;
-      return 255;
-    })).toThrow('slug_source_exhausted');
+    expect(() =>
+      createRoomSlug(() => {
+        draws += 1;
+        return 255;
+      }),
+    ).toThrow('slug_source_exhausted');
     expect(draws).toBe(32);
   });
 
   it('resets the rejection limit after an accepted byte', () => {
     let draws = 0;
-    expect(createRoomSlug(() => ++draws % 32 === 0 ? 0 : 255)).toBe('A'.repeat(12));
+    expect(createRoomSlug(() => (++draws % 32 === 0 ? 0 : 255))).toBe('A'.repeat(12));
     expect(draws).toBe(384);
   });
 

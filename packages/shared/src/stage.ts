@@ -27,23 +27,46 @@ export type LiveState = {
   hands: { socketId: string; raisedAt: number }[];
 };
 
-export type MediaPatch = Partial<Pick<ParticipantState,
-  'isAudioMuted' | 'isVideoOff' | 'isScreenSharing'>>;
+export type MediaPatch = Partial<
+  Pick<ParticipantState, 'isAudioMuted' | 'isVideoOff' | 'isScreenSharing'>
+>;
 
 export type StageCommand =
-  | { type: 'join'; socketId: string; userId: string; displayName: string;
-      isAudioMuted: boolean; isVideoOff: boolean; isSyntheticBot: boolean; joinedAt: number }
+  | {
+      type: 'join';
+      socketId: string;
+      userId: string;
+      displayName: string;
+      isAudioMuted: boolean;
+      isVideoOff: boolean;
+      isSyntheticBot: boolean;
+      joinedAt: number;
+    }
   | { type: 'leave'; socketId: string }
   | { type: 'patchMedia'; socketId: string; patch: MediaPatch }
   | { type: 'setHand'; socketId: string; raised: boolean; raisedAt: number }
   | { type: 'promote'; actorSocketId: string; targetSocketId: string }
   | { type: 'demote'; actorSocketId: string; targetSocketId: string }
-  | { type: 'setHostLock'; actorSocketId: string; targetSocketId: string;
-      kind: 'audio' | 'video'; locked: boolean };
+  | {
+      type: 'setHostLock';
+      actorSocketId: string;
+      targetSocketId: string;
+      kind: 'audio' | 'video';
+      locked: boolean;
+    };
 
-export type StageError = 'room_ended' | 'already_joined' | 'host_not_present' | 'stage_full'
-  | 'participant_not_found' | 'audio_locked' | 'video_locked' | 'not_attendee'
-  | 'not_host' | 'cannot_demote_host' | 'not_speaker';
+export type StageError =
+  | 'room_ended'
+  | 'already_joined'
+  | 'host_not_present'
+  | 'stage_full'
+  | 'participant_not_found'
+  | 'audio_locked'
+  | 'video_locked'
+  | 'not_attendee'
+  | 'not_host'
+  | 'cannot_demote_host'
+  | 'not_speaker';
 
 export type StageResult =
   | { ok: true; state: LiveState; changed: boolean; roomEnded: boolean }
@@ -74,7 +97,9 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
 
   if (command.type === 'join') {
     if (state.status === 'ENDED') return fail('room_ended');
-    if (state.participants.some((p) => p.userId === command.userId || p.socketId === command.socketId)) {
+    if (
+      state.participants.some((p) => p.userId === command.userId || p.socketId === command.socketId)
+    ) {
       return fail('already_joined');
     }
     const isHost = command.userId === state.hostId;
@@ -84,11 +109,18 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     const onStage = isHost || state.mode === 'MEETING';
     if (onStage && state.stageSocketIds.length >= 4) return fail('stage_full');
     next.participants.push({
-      socketId: command.socketId, userId: command.userId, displayName: command.displayName,
+      socketId: command.socketId,
+      userId: command.userId,
+      displayName: command.displayName,
       role: isHost ? 'HOST' : onStage ? 'SPEAKER' : 'ATTENDEE',
-      isAudioMuted: command.isAudioMuted, isVideoOff: command.isVideoOff,
-      isScreenSharing: false, isHandRaised: false, isSyntheticBot: command.isSyntheticBot,
-      hostAudioLocked: false, hostVideoLocked: false, joinedAt: command.joinedAt,
+      isAudioMuted: command.isAudioMuted,
+      isVideoOff: command.isVideoOff,
+      isScreenSharing: false,
+      isHandRaised: false,
+      isSyntheticBot: command.isSyntheticBot,
+      hostAudioLocked: false,
+      hostVideoLocked: false,
+      joinedAt: command.joinedAt,
     });
     if (onStage) next.stageSocketIds.push(command.socketId);
     return success(true);
@@ -112,8 +144,10 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     }
     if (!participant) return fail('participant_not_found');
     if (command.type === 'patchMedia') {
-      if (command.patch.isAudioMuted === false && participant.hostAudioLocked) return fail('audio_locked');
-      if (command.patch.isVideoOff === false && participant.hostVideoLocked) return fail('video_locked');
+      if (command.patch.isAudioMuted === false && participant.hostAudioLocked)
+        return fail('audio_locked');
+      if (command.patch.isVideoOff === false && participant.hostVideoLocked)
+        return fail('video_locked');
       let changed = false;
       for (const key of ['isAudioMuted', 'isVideoOff', 'isScreenSharing'] as const) {
         const value = command.patch[key];

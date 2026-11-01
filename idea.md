@@ -1,6 +1,7 @@
 > **Superseded for execution.** `MASTER_PLAN.md` version 1.0.0 is the V1 contract. This file is the original sketch. Where they differ — attendee media, HLS, storage, accounts, chat, Redis writes — the master plan wins.
 
 # StageFlow (V1) — Master Architecture & Agent Execution Plan
+
 **Real-Time WebRTC Stage, Webinar Broadcast & Automated HLS VOD Engine**
 
 ---
@@ -10,6 +11,7 @@
 **StageFlow** is a full-stack real-time video conferencing, webinar stage, and automated VOD platform built from the ground up without high-level third-party media SDKs (no Agora, Daily, or LiveKit wrappers).
 
 ### Core Capabilities (V1 Scope)
+
 1. **Pre-Join Green Room:** Hardware enumeration (camera, microphone, speaker selection), live local video preview, real-time Web Audio microphone level meter, and graceful device permission handling.
 2. **Role-Based Room State Machine:** Explicit permission boundaries between **Host** (room creator, moderates stage, controls recording), **Speaker** (on-stage participant with active WebRTC P2P video/audio/screen tracks, max 4 simultaneous on-stage slots), and **Attendee** (view-only participant who can raise their hand and be promoted to Speaker by the Host in real time).
 3. **Native WebRTC Mesh Engine (Perfect Negotiation):** Up to 4 concurrent on-stage speakers connected via raw `RTCPeerConnection` mesh, implementing the W3C Perfect Negotiation pattern to eliminate SDP Offer collisions ("glare") and ICE candidate race conditions.
@@ -25,7 +27,9 @@
 All AI coding agents working on this repository MUST strictly follow these rules:
 
 ### 2.1 Plan & Guide Generation Workflow
+
 Implementation is divided into **6 Phases**. Before writing application code for Phase `N`, generate two files:
+
 1. `/plans/phase<N>.md`: High-level phase scope, exact file manifest (files to create/update), data/state contracts, and end-of-phase manual verification steps.
 2. `/plans/phase<N>/guide.md`: A **commit-by-commit implementation guide**. Each commit section (`Commit N.1`, `Commit N.2`, etc.) must be a small, atomic, verifiable unit of work containing:
    - **Commit Message:** Conventional commit format (e.g., `feat(signaling): implement redis room state repository`).
@@ -34,6 +38,7 @@ Implementation is divided into **6 Phases**. Before writing application code for
    - **Verification Step:** Fast command (`pnpm --filter api typecheck`, `pnpm test`, `curl`, or browser verification) to confirm the commit compiles cleanly before moving to the next commit.
 
 ### 2.2 Engineering & Code Quality Rules
+
 - **Strict TypeScript:** `strict: true` across all packages. **Zero `any` types.** Shared DTOs, WebSocket event maps, and domain enums must reside in `@stageflow/shared` so frontend and backend remain strictly synchronized.
 - **Explicit Hardware & Memory Cleanup:** Every `MediaStreamTrack`, `RTCPeerConnection`, `AudioContext`, `MediaRecorder`, `setInterval`, and `requestAnimationFrame` loop MUST have deterministic cleanup on component unmount, peer disconnect, or room leave. Leaving a user's webcam hardware indicator light active after leaving a room is a critical bug.
 - **Domain-Driven Modular Boundaries:** Keep NestJS Gateways and Controllers thin. Business rules and state transitions belong in domain services; Redis and PostgreSQL persistence belong in repositories.
@@ -311,10 +316,7 @@ export interface ServerToClientEvents {
     text: string;
     timestamp: number;
   }) => void;
-  'recording:status': (payload: {
-    isRecording: boolean;
-    recordingId: string | null;
-  }) => void;
+  'recording:status': (payload: { isRecording: boolean; recordingId: string | null }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -331,7 +333,7 @@ export interface ClientToServerEvents {
       error?: string;
       selfSocketId?: string;
       iceServers?: RTCIceServer[];
-    }) => void
+    }) => void,
   ) => void;
   'room:leave': () => void;
 
@@ -347,10 +349,7 @@ export interface ClientToServerEvents {
     toSocketId: string;
     description: RTCSessionDescriptionInit;
   }) => void;
-  'webrtc:ice-candidate': (payload: {
-    toSocketId: string;
-    candidate: RTCIceCandidateInit;
-  }) => void;
+  'webrtc:ice-candidate': (payload: { toSocketId: string; candidate: RTCIceCandidateInit }) => void;
 
   // Webinar Hand-Raise & Host Stage Moderation
   'stage:raise-hand': (payload: { raised: boolean }) => void;
@@ -368,6 +367,7 @@ export interface ClientToServerEvents {
 ## 5. Core Technical Specifications (The "Hard Parts")
 
 ### 5.1 WebRTC Mesh & The W3C "Perfect Negotiation" Pattern
+
 Naive WebRTC code breaks when two peers send an SDP Offer at the same time ("glare") or when an ICE candidate arrives before `setRemoteDescription` completes. `webrtcPeerManager.ts` MUST implement:
 
 1. **Deterministic Polite / Impolite Role Assignment:**
@@ -375,8 +375,7 @@ Naive WebRTC code breaks when two peers send an SDP Offer at the same time ("gla
 2. **Glare / Offer Collision Resolution:**
    ```typescript
    const offerCollision =
-     description.type === 'offer' &&
-     (peer.makingOffer || peer.pc.signalingState !== 'stable');
+     description.type === 'offer' && (peer.makingOffer || peer.pc.signalingState !== 'stable');
 
    peer.ignoreOffer = !peer.isPolite && offerCollision;
    if (peer.ignoreOffer) {
@@ -392,6 +391,7 @@ Naive WebRTC code breaks when two peers send an SDP Offer at the same time ("gla
    - When an `ATTENDEE` is promoted to `SPEAKER` via `stage:role-changed`, the promoted client attaches its local camera/mic tracks to its peer connections, triggering `onnegotiationneeded` seamlessly.
 
 ### 5.2 Solo Recruiter "Demo Bot" Engine (`syntheticBotEngine.ts`)
+
 To guarantee that any recruiter or engineer inspecting the live deployment can test a multi-speaker webinar, active speaker detection, stage promotion, and live WebRTC telemetry completely solo:
 
 1. Clicking **"Spawn Demo Peer"** in the room toolbar creates an offscreen `<canvas width="640" height="360">`.
@@ -401,6 +401,7 @@ To guarantee that any recruiter or engineer inspecting the live deployment can t
 5. The engine opens an independent secondary Socket.IO connection (`isSyntheticBot: true`) and creates real `RTCPeerConnection` instances that negotiate with the host's primary `RTCPeerConnection` over local WebRTC loopback—producing real RTP packet flow, real jitter/bitrate curves in `getStats()`, and real Redis stage entries.
 
 ### 5.3 Live Recording -> FFmpeg Multi-Bitrate HLS Pipeline
+
 1. **Stage Compositor (`stageRecorder.ts`):** When the Host clicks **Start Recording**, an offscreen `<canvas width="1280" height="720">` draws up to 4 active stage `<video>` elements in a clean $2 \times 2$ or spotlight layout at 24fps, while an `AudioContext` mixes local and remote stage audio tracks into a single `MediaStreamAudioDestinationNode`.
 2. **Binary Chunk Ingestion:** `MediaRecorder` (`video/webm;codecs=vp8,opus`, `videoBitsPerSecond: 2_500_000`) fires `ondataavailable` every `3000ms`. Each binary chunk is uploaded via `POST /api/recordings/:recordingId/chunks` and appended sequentially to `/tmp/stageflow-recordings/{recordingId}.webm`.
 3. **BullMQ FFmpeg Worker (`vod.processor.ts`):** When the Host stops recording, `POST /api/recordings/:recordingId/finalize` enqueues a BullMQ job that spawns `ffmpeg` to generate:
@@ -417,6 +418,7 @@ To guarantee that any recruiter or engineer inspecting the live deployment can t
 Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.md`.
 
 ### Phase 1: Monorepo Foundation, Shared Contracts, Auth & Room CRUD
+
 - **Plan Files:** `/plans/phase1.md` and `/plans/phase1/guide.md`
 - **Commits:**
   - `Commit 1.1` — `chore(workspace): initialize pnpm monorepo, docker-compose (postgres + redis), and base tsconfig`
@@ -426,6 +428,7 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
   - `Commit 1.5` — `feat(web-shell): scaffold Vite React 19 app, Tailwind dark theme, Auth store, and Dashboard room creation UI`
 
 ### Phase 2: Redis Room State Machine, Signaling Gateway & Pre-Join Green Room
+
 - **Plan Files:** `/plans/phase2.md` and `/plans/phase2/guide.md`
 - **Commits:**
   - `Commit 2.1` — `feat(api-redis): implement RedisRoomRepository for atomic participant state, 4-slot stage set, and hand-raise ZSET with unit tests`
@@ -435,6 +438,7 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
   - `Commit 2.5` — `feat(web-room-state): wire Socket.IO client singleton, room state synchronization store, and live participant/hand-raise sidebar`
 
 ### Phase 3: Native WebRTC Mesh Engine, Perfect Negotiation & Stage UI
+
 - **Plan Files:** `/plans/phase3.md` and `/plans/phase3/guide.md`
 - **Commits:**
   - `Commit 3.1` — `feat(webrtc): implement WebRtcPeerManager with W3C Perfect Negotiation, glare resolution, ICE candidate queue, and unit tests`
@@ -444,6 +448,7 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
   - `Commit 3.5` — `feat(web-controls): wire Host stage moderation actions (1-click promote attendee to live WebRTC stage, remote mute, end room)`
 
 ### Phase 4: WebRTC Internals Telemetry HUD & Solo Recruiter "Demo Bot" Engine
+
 - **Plan Files:** `/plans/phase4.md` and `/plans/phase4/guide.md`
 - **Commits:**
   - `Commit 4.1` — `feat(telemetry): build RTCPeerConnection.getStats() polling service with delta bitrate, packet loss, jitter, and RTT calculation + unit tests`
@@ -452,6 +457,7 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
   - `Commit 4.4` — `feat(demo-orchestrator): add 1-click "Spawn Demo Peer" toolbar action with full loopback WebRTC negotiation and simulated hand-raising`
 
 ### Phase 5: Live Stage Recording, BullMQ Worker & FFmpeg HLS Pipeline
+
 - **Plan Files:** `/plans/phase5.md` and `/plans/phase5/guide.md`
 - **Commits:**
   - `Commit 5.1` — `feat(api-recording): create VodRecording entity, RecordingController binary chunk append endpoint, and Redis recording state lock`
@@ -460,6 +466,7 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
   - `Commit 5.4` — `feat(api-r2): implement R2StorageService using @aws-sdk/client-s3 for concurrent HLS segment uploads and temp file cleanup`
 
 ### Phase 6: Adaptive HLS VOD Player, Replay Catalog & Production Docker Polish
+
 - **Plan Files:** `/plans/phase6.md` and `/plans/phase6/guide.md`
 - **Commits:**
   - `Commit 6.1` — `feat(web-vod-player): build custom HlsVideoPlayer component using hls.js with manual resolution switcher (Auto / 720p / 360p) and buffer indicators`
@@ -473,28 +480,37 @@ Each phase below corresponds to `/plans/phase<N>.md` and `/plans/phase<N>/guide.
 When prompted to generate **Phase `N`**, the AI agent MUST create `/plans/phase<N>.md` and `/plans/phase<N>/guide.md` following these templates:
 
 ### 7.1 Template for `/plans/phase<N>.md`
+
 ```markdown
 # Phase <N>: <Phase Title>
 
 ## 1. Objective
+
 <2-3 sentences summarizing what system capability becomes operational at the end of this phase.>
 
 ## 2. File Manifest
+
 ### Create
+
 - `path/to/file.ts` — <1-line responsibility>
+
 ### Modify
+
 - `path/to/existing.ts` — <1-line modification summary>
 
 ## 3. Architectural Invariants & Edge Cases
+
 - <Bullet list of strict rules for this phase, e.g., cleanup rules, Redis key TTLs, race condition guards>
 
 ## 4. End-of-Phase Verification Checklist
+
 - [ ] `pnpm -r typecheck` passes with 0 errors
 - [ ] <Specific manual or automated functional check>
 ```
 
 ### 7.2 Template for `/plans/phase<N>/guide.md`
-```markdown
+
+````markdown
 # Phase <N> Implementation Guide (Commit-by-Commit)
 
 ---
@@ -502,19 +518,26 @@ When prompted to generate **Phase `N`**, the AI agent MUST create `/plans/phase<
 ## Commit <N>.1: `<type>(<scope>): <commit message>`
 
 ### Files Touched
+
 - `path/to/fileA.ts` (Create)
 - `path/to/fileB.ts` (Modify)
 
 ### Implementation Steps
+
 1. <Step-by-step instructions and complete code blocks for the files>
 
 ### Verification
+
 Run:
+
 ```bash
 pnpm --filter <package> typecheck
 ```
+````
+
 Expected outcome: <Exact expected behavior>
-```
+
+````
 
 ---
 
@@ -545,9 +568,10 @@ R2_ACCESS_KEY_ID=your_r2_access_key
 R2_SECRET_ACCESS_KEY=your_r2_secret_key
 R2_BUCKET_NAME=stageflow-vod
 R2_PUBLIC_BASE_URL=https://pub-xxxxxxxx.r2.dev
-```
+````
 
 ### `.env.example` (Frontend `/apps/web`)
+
 ```ini
 VITE_API_BASE_URL=http://localhost:4000/api
 VITE_WS_URL=http://localhost:4000

@@ -1,0 +1,7 @@
+**/node_modules/
+**/dist/
+**/coverage/
+apps/api/data/
+.env*
+*.tsbuildinfo
+pnpm-lock.yaml

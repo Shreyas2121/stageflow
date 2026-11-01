@@ -10,7 +10,11 @@ export class LocalMedia {
   private screen: MediaStream | null = null;
   private screenGeneration = 0;
 
-  async prepare(video: HTMLVideoElement, choices: DeviceChoices, onLevel: (level: number) => void): Promise<boolean> {
+  async prepare(
+    video: HTMLVideoElement,
+    choices: DeviceChoices,
+    onLevel: (level: number) => void,
+  ): Promise<boolean> {
     this.stop();
     const generation = this.generation;
     this.preview = video;
@@ -20,11 +24,17 @@ export class LocalMedia {
         const constraints = id ? { deviceId: { exact: id } } : true;
         let stream: MediaStream;
         try {
-          if (!navigator.mediaDevices?.getUserMedia) throw new Error('Media devices are unavailable.');
-          stream = await navigator.mediaDevices.getUserMedia(kind === 'camera'
-            ? { video: constraints, audio: false } : { audio: constraints, video: false });
+          if (!navigator.mediaDevices?.getUserMedia)
+            throw new Error('Media devices are unavailable.');
+          stream = await navigator.mediaDevices.getUserMedia(
+            kind === 'camera'
+              ? { video: constraints, audio: false }
+              : { audio: constraints, video: false },
+          );
         } catch {
-          throw new Error(`Unable to use your ${kind}. Allow ${kind} permission and check the selected device, then try again.`);
+          throw new Error(
+            `Unable to use your ${kind}. Allow ${kind} permission and check the selected device, then try again.`,
+          );
         }
         // Permission prompts may finish after navigation or another device selection.
         if (generation !== this.generation) {
@@ -49,7 +59,9 @@ export class LocalMedia {
       const meter = () => {
         if (generation !== this.generation) return;
         analyser.getFloatTimeDomainData(samples);
-        const rms = Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
+        const rms = Math.sqrt(
+          samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length,
+        );
         onLevel(Math.min(1, rms * 4));
         this.frame = requestAnimationFrame(meter);
       };
@@ -64,26 +76,44 @@ export class LocalMedia {
 
   applyFlags(isAudioMuted: boolean, isVideoOff: boolean): void {
     for (const stream of this.streams) {
-      stream.getAudioTracks().forEach((track) => { track.enabled = !isAudioMuted; });
-      stream.getVideoTracks().forEach((track) => { track.enabled = !isVideoOff; });
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !isAudioMuted;
+      });
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !isVideoOff;
+      });
     }
   }
 
   get ready(): boolean {
-    return this.streams.length === 2 && this.streams.every((stream) =>
-      stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'live'));
+    return (
+      this.streams.length === 2 &&
+      this.streams.every(
+        (stream) =>
+          stream.getTracks().length > 0 &&
+          stream.getTracks().every((track) => track.readyState === 'live'),
+      )
+    );
   }
 
   cameraTrack(): MediaStreamTrack | null {
-    return this.streams.flatMap((stream) => stream.getVideoTracks()).find((track) => track.readyState === 'live') ?? null;
+    return (
+      this.streams
+        .flatMap((stream) => stream.getVideoTracks())
+        .find((track) => track.readyState === 'live') ?? null
+    );
   }
 
   microphoneTrack(): MediaStreamTrack | null {
-    return this.streams.flatMap((stream) => stream.getAudioTracks()).find((track) => track.readyState === 'live') ?? null;
+    return (
+      this.streams
+        .flatMap((stream) => stream.getAudioTracks())
+        .find((track) => track.readyState === 'live') ?? null
+    );
   }
 
   previewStream(): MediaStream | null {
-    return this.screenTrack()?.readyState === 'live' ? this.screen : this.streams[0] ?? null;
+    return this.screenTrack()?.readyState === 'live' ? this.screen : (this.streams[0] ?? null);
   }
 
   screenTrack(): MediaStreamTrack | null {
@@ -93,7 +123,8 @@ export class LocalMedia {
   async startScreenShare(): Promise<MediaStreamTrack> {
     this.stopScreenShare();
     const generation = this.screenGeneration;
-    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Screen sharing is unavailable in this browser.');
+    if (!navigator.mediaDevices?.getDisplayMedia)
+      throw new Error('Screen sharing is unavailable in this browser.');
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     const track = stream.getVideoTracks()[0];
     if (generation !== this.screenGeneration || !track || track.readyState !== 'live') {
@@ -113,7 +144,8 @@ export class LocalMedia {
   }
 
   async setSpeaker(deviceId: string): Promise<boolean> {
-    const preview = this.preview as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
+    const preview = this.preview as
+      (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
     if (!preview?.setSinkId) return false;
     if (preview.sinkId !== deviceId) await preview.setSinkId(deviceId);
     return true;

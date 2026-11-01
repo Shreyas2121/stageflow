@@ -2,13 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalMedia } from './local-media';
 
 function track(kind: 'audio' | 'video') {
-  const captured = { kind, enabled: true, readyState: 'live', onended: null,
-    stop: vi.fn(() => { captured.readyState = 'ended'; }) };
+  const captured = {
+    kind,
+    enabled: true,
+    readyState: 'live',
+    onended: null,
+    stop: vi.fn(() => {
+      captured.readyState = 'ended';
+    }),
+  };
   return captured as unknown as MediaStreamTrack;
 }
 function stream(tracks: MediaStreamTrack[]): MediaStream {
-  return { getTracks: () => tracks, getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
-    getAudioTracks: () => tracks.filter((t) => t.kind === 'audio') } as MediaStream;
+  return {
+    getTracks: () => tracks,
+    getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
+    getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
+  } as MediaStream;
 }
 const display = vi.fn<() => Promise<MediaStream>>();
 let camera: MediaStreamTrack;
@@ -20,21 +30,42 @@ beforeEach(() => {
   camera = track('video');
   microphone = track('audio');
   display.mockReset();
-  vi.stubGlobal('navigator', { mediaDevices: {
-    getUserMedia: vi.fn(async (constraints: MediaStreamConstraints) => stream([constraints.video ? camera : microphone])),
-    getDisplayMedia: display,
-  } });
-  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
-  vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  vi.stubGlobal('AudioContext', class {
-    createMediaStreamSource() { return { connect: vi.fn(), disconnect: vi.fn() }; }
-    createAnalyser() { return { fftSize: 256, getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0) }; }
-    resume() { return Promise.resolve(); }
-    close() { return Promise.resolve(); }
+  vi.stubGlobal('navigator', {
+    mediaDevices: {
+      getUserMedia: vi.fn(async (constraints: MediaStreamConstraints) =>
+        stream([constraints.video ? camera : microphone]),
+      ),
+      getDisplayMedia: display,
+    },
   });
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn(() => 1),
+  );
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  vi.stubGlobal(
+    'AudioContext',
+    class {
+      createMediaStreamSource() {
+        return { connect: vi.fn(), disconnect: vi.fn() };
+      }
+      createAnalyser() {
+        return { fftSize: 256, getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0) };
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        return Promise.resolve();
+      }
+    },
+  );
 });
 
-afterEach(() => { media.stop(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  media.stop();
+  vi.unstubAllGlobals();
+});
 
 async function prepare() {
   const video = { srcObject: null, play: async () => undefined } as unknown as HTMLVideoElement;
@@ -90,7 +121,11 @@ describe('LocalMedia screen sharing', () => {
 
   it('stops capture that resolves after leave instead of retaining a late screen', async () => {
     let finish!: (value: MediaStream) => void;
-    display.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    display.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
     const pending = media.startScreenShare();
     media.stop();
     const screen = track('video');
