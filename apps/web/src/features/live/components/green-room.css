@@ -1,0 +1,16 @@
+.microphone-meter::-webkit-meter-bar {
+  background: var(--color-meter-track);
+  border: 0;
+}
+.microphone-meter::-webkit-meter-optimum-value {
+  background: var(--color-accent);
+  transition: width 0.08s;
+}
+.microphone-meter::-moz-meter-bar {
+  background: var(--color-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .microphone-meter::-webkit-meter-optimum-value {
+    transition: none;
+  }
+}

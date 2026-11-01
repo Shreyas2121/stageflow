@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C11 are recorded below; C12 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C12 are recorded below; C13 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -742,8 +742,8 @@ A headless Chrome smoke against the compiled API and a disposable Redis 7 contai
 
 ### C11 — `refactor(web-ui): define Tailwind tokens and reusable form primitives`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `037da589dc3a26801c843999046eddbce2347cec`
 
 **Depends on:** C10. **Addresses:** styling debt and F20 UI text.
 
@@ -761,6 +761,9 @@ Headless Chrome keyboard checks passed first-Tab skip-link visibility and 3px fo
 
 ### C12 — `refactor(web-ui): migrate live-room styles to feature components`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C11. **Addresses:** remaining styling debt.
 
 **Files:** live components under `apps/web/src/features/live/components/`, `index.css`, `styles/theme.css`, feature CSS only where needed.
@@ -768,6 +771,12 @@ Headless Chrome keyboard checks passed first-Tab skip-link visibility and 3px fo
 Migrate lobby, roster, stage, stats, demo controls with complete static utility maps. Keep meter pseudo-element CSS. Remove unused selectors and duplicated breakpoint blocks, retain screen-share aspect ratio, local-camera mirroring, and unmirrored screen capture.
 
 **Verify/done:** web checks/build plus existing meeting/share/demo/browser acceptance; focus and video layout survive at supported widths, CSS ownership is clear. Do not change media behavior in the style migration.
+
+**Implementation/verification record (2026-11-01):** Migrated the green room, controls, roster, demo controls, stage tiles, and stats drawer to Tailwind utilities and the shared Button. Added a static danger button variant for leave. Stage column count, tile size, video fit, mirroring, and speaking borders use complete static utility maps; camera tiles retain 4:3, the selected screen spans the full grid at 16:9, local camera video is mirrored, and screen video is unmirrored. Tiles stack below 480px to keep narrow-screen captions readable; wider ordinary and sharing grids retain two and three columns respectively. Stats remain a native details/table with a keyboard-focusable scroll region. The room route's remaining styles also moved to utilities so the old room, button, stage, roster, stats, and breakpoint selectors could be removed together. Added theme colors for video, overlays, badges, live/ended states, meter track, and raised hands. index.css now contains only Tailwind/theme/base imports and source configuration. Meter browser pseudo-elements live in green-room.css beside their owning component, including reduced-motion support. No media service, hook, signaling, or polling behavior changed.
+
+Shared prerequisite build, web typecheck/lint, all 81 web tests in 12 files, production build, workspace format check, and whitespace checks passed. The final build reports 645.08 kB JavaScript (Vite estimated gzip 194.64 kB), 24.70 kB CSS (6.12 kB estimated gzip), and the existing large-chunk warning. No component snapshot tests or dependencies were added.
+
+Headless Chrome checked the lobby at 320/720/721/1280px, disabled join before capture, live mirrored preview, the meter, and meter removal after join. Three demo peers produced four decoded stage videos and twelve connected peer endpoints; demo video remained contained, active-speaker styling appeared, and three numeric stats rows scrolled inside their region at 320px without page overflow. Desktop and narrow screenshots were inspected for lobby, meeting, and sharing layouts. Screen sharing used an explicit synthetic canvas display source to exercise the browser's actual track-replacement path; the selected tile was full-width 16:9 with contain fit and no mirroring, and stopping share restored mirrored camera video. A second human guest then joined the meeting and decoded the remote screen at 1280x720 with unmirrored contain fit at 320px. Keyboard focus retained its 3px outline. Demo removal closed all twelve demo peer endpoints, host leave stopped tracked capture and contexts, and webinar checks retained an off-stage demo plus a no-capture/no-peer attendee with a working raise-hand control. Host end reached the attendee. The disposable Redis instance had no sf:room:* keys after the smoke; temporary API, Vite, and Redis were stopped. Developer Redis was not restarted or cleared. Native screen-picker/stop controls and physical devices remain unverified. C12 carries C11's post-commit hash. Record C12's actual hash after commit for the next requested slice.
 
 ### C13 — `perf(api-live): update only changed Redis records and cache Lua scripts`
 

@@ -1,3 +1,5 @@
+import './green-room.css';
+import { Button } from '../../../components/ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { DeviceChoices } from '../services/local-media';
 
@@ -17,10 +19,17 @@ function MicrophoneMeter({ media }: { media: LobbyMedia }) {
   }, [media]);
   return (
     <>
-      <label className="meter-label" htmlFor="microphone-level">
+      <label className="mt-4 mb-1.5 text-xs text-muted" htmlFor="microphone-level">
         Microphone level
       </label>
-      <meter id="microphone-level" min={0} max={1} value={level} aria-label="Microphone level" />
+      <meter
+        className="microphone-meter h-3 w-full accent-accent"
+        id="microphone-level"
+        min={0}
+        max={1}
+        value={level}
+        aria-label="Microphone level"
+      />
     </>
   );
 }
@@ -66,8 +75,8 @@ export function GreenRoom({
 
   if (attendee) {
     return (
-      <div className="device-panel">
-        <p className="muted">
+      <div className="min-w-0">
+        <p className="mt-0 mb-4.5 text-[13px] text-muted">
           You will join as an attendee. You can see the roster and raise your hand. No camera or
           microphone is needed.
         </p>
@@ -77,25 +86,34 @@ export function GreenRoom({
 
   return (
     <>
-      <div className="preview-panel">
-        <div className="preview-frame">
-          <video ref={preview} autoPlay muted playsInline aria-label="Your camera preview" />
+      <div className="min-w-0">
+        <div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-line bg-video">
+          <video
+            className="h-full w-full -scale-x-100 object-cover"
+            ref={preview}
+            autoPlay
+            muted
+            playsInline
+            aria-label="Your camera preview"
+          />
           {(!ready || cameraOff) && (
-            <p className="preview-placeholder">
+            <p className="absolute inset-0 m-0 grid place-items-center bg-video p-6 text-center text-[13px] text-muted">
               {ready ? 'Your camera is off' : 'Your preview will appear here'}
             </p>
           )}
-          <span className="preview-name">{displayName} · You</span>
+          <span className="absolute bottom-3 left-3 max-w-[calc(100%-24px)] rounded bg-overlay px-2 py-1 text-xs wrap-anywhere">
+            {displayName} · You
+          </span>
         </div>
         <MicrophoneMeter media={media} />
       </div>
-      <div className="device-panel">
-        <p className="muted">
+      <div className="min-w-0">
+        <p className="mt-0 mb-4.5 text-[13px] text-muted">
           Check your camera and microphone before joining. Both permissions are required.
         </p>
-        <button
+        <Button
+          type="button"
           id="enable-devices"
-          className="button button-secondary"
           disabled={enableDisabled}
           onClick={() => prepare(choices)}
         >
@@ -104,8 +122,11 @@ export function GreenRoom({
             : ready
               ? 'Check devices again'
               : 'Enable camera and microphone'}
-        </button>
-        <fieldset className="device-fields" disabled={devicesDisabled}>
+        </Button>
+        <fieldset
+          className="mt-5.5 min-w-0 border-0 p-0 [&>label]:mt-3.5 [&>label]:mb-1.75 [&>label:first-of-type]:mt-0"
+          disabled={devicesDisabled}
+        >
           <legend className="sr-only">Your devices</legend>
           <label htmlFor="camera-device">Camera</label>
           <select
@@ -155,10 +176,15 @@ export function GreenRoom({
                 ))}
           </select>
           {!sinkSupported && (
-            <p className="field-hint">This browser uses the default speaker output.</p>
+            <p className="mt-2 mb-0 text-xs text-hint">
+              This browser uses the default speaker output.
+            </p>
           )}
           {speakerError && (
-            <p className="error-message" role="alert">
+            <p
+              className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
+              role="alert"
+            >
               {speakerError}
             </p>
           )}

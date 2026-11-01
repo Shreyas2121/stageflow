@@ -24,18 +24,20 @@ export function StatsDrawer({
   }, [manager]);
 
   return (
-    <details className="stats-drawer">
-      <summary>Connection stats</summary>
+    <details className="group mb-7 min-w-0 rounded-lg border border-line bg-field">
+      <summary className="cursor-pointer p-4 text-[13px] font-semibold text-accent group-open:border-b group-open:border-line">
+        Connection stats
+      </summary>
       {stats.size === 0 ? (
-        <p className="muted stats-empty">The stage has no remote connections yet.</p>
+        <p className="m-0 p-4 text-sm text-muted">The stage has no remote connections yet.</p>
       ) : (
         <div
-          className="stats-table-scroll"
+          className="max-w-full overflow-x-auto"
           role="region"
           aria-label="Connection stats"
           tabIndex={0}
         >
-          <table className="stats-table">
+          <table className="w-full border-collapse text-left text-xs tabular-nums [&_th]:px-4 [&_th]:py-3.5 [&_td]:px-4 [&_td]:py-3.5 [&_td]:whitespace-nowrap [&_thead_th]:font-medium [&_thead_th]:whitespace-nowrap [&_thead_th]:text-muted [&_tbody_th]:min-w-30 [&_tbody_th]:max-w-55 [&_tbody_th]:font-medium [&_tbody_th]:wrap-anywhere [&_tbody_tr]:border-t [&_tbody_tr]:border-line">
             <caption className="sr-only">Live connection statistics, updated every second</caption>
             <thead>
               <tr>

@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 
 const variants = {
   primary: 'border-transparent bg-accent text-accent-ink enabled:hover:bg-accent-hover',
+  danger: 'border-danger-line bg-control text-danger enabled:hover:bg-control-hover',
   secondary:
     'border-input-line bg-control text-ink enabled:hover:border-hover-line enabled:hover:bg-control-hover',
 };

@@ -1,3 +1,4 @@
+import { Button } from '../../../components/ui/button';
 export function RoomControls({
   attendee,
   inRoom,
@@ -47,71 +48,75 @@ export function RoomControls({
     mediaPending || leaving || (!inRoom && !ready) || (needsCaptureConsent && !ready);
   return (
     <div
-      className="live-actions"
+      className="mt-6 flex flex-wrap gap-2.5 border-t border-line pt-6 [&>button]:flex-[1_1_140px] layout:[&>button]:flex-none"
       aria-busy={busy || joining || leaving || mediaPending || sharePending}
     >
       {!attendee && (
         <>
-          <button
+          <Button
+            type="button"
             id="toggle-audio"
-            className="button button-secondary"
             disabled={mediaLocked}
             aria-pressed={audioMuted}
             onClick={onToggleAudio}
           >
             {audioMuted ? 'Unmute microphone' : 'Mute microphone'}
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
             id="toggle-video"
-            className="button button-secondary"
             disabled={mediaLocked}
             aria-pressed={videoOff}
             onClick={onToggleVideo}
           >
             {videoOff ? 'Turn camera on' : 'Turn camera off'}
-          </button>
+          </Button>
         </>
       )}
       {showShare && (
-        <button
+        <Button
+          type="button"
           id="toggle-screen-share"
-          className="button button-secondary"
           disabled={sharePending || leaving}
           aria-pressed={sharing}
           onClick={onToggleShare}
         >
           {sharing ? 'Stop sharing' : 'Share screen'}
-        </button>
+        </Button>
       )}
       {showHand && (
-        <button
+        <Button
+          type="button"
           id="toggle-hand"
-          className="button button-secondary"
           disabled={mediaPending || leaving}
           aria-pressed={handRaised}
           onClick={onToggleHand}
         >
           {handRaised ? 'Lower hand' : 'Raise hand'}
-        </button>
+        </Button>
       )}
       {inRoom ? (
-        <button
+        <Button
+          type="button"
           id="leave-room"
-          className="button button-secondary leave-button"
+          variant="danger"
+          className="flex-[1_1_140px] layout:ml-auto layout:flex-none"
           disabled={leaving}
           onClick={onLeave}
         >
           Leave room
-        </button>
+        </Button>
       ) : (
-        <button
+        <Button
+          type="button"
           id="join-live-room"
-          className="button button-primary"
+          variant="primary"
+          className="flex-[1_1_140px] layout:ml-auto layout:flex-none"
           disabled={joining || busy || (attendee ? false : !ready)}
           onClick={onJoin}
         >
           {joining ? 'Joining…' : attendee ? 'Join as attendee' : 'Join live room'}
-        </button>
+        </Button>
       )}
     </div>
   );

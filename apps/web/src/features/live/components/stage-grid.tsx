@@ -1,7 +1,30 @@
+import { Button } from '../../../components/ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 import type { PeerManager, RemoteStreams } from '../services/peer-manager';
 import { routeAudioOutput } from '../services/output-route';
+
+const gridColumns = {
+  single: 'grid-cols-1',
+  multiple: 'grid-cols-1 min-[480px]:grid-cols-2',
+  sharing: 'grid-cols-1 min-[480px]:grid-cols-3',
+};
+const tileSize = {
+  normal: 'aspect-[4/3]',
+  shared: 'col-span-full row-start-1 aspect-video',
+};
+const videoFit = {
+  camera: 'object-cover',
+  presentation: 'object-contain',
+};
+const videoTransform = {
+  localCamera: '-scale-x-100',
+  unmirrored: 'transform-none',
+};
+const tileBorder = {
+  speaking: 'border-accent ring-1 ring-accent',
+  quiet: 'border-line',
+};
 
 export function StageGrid({
   snapshot,
@@ -27,7 +50,7 @@ export function StageGrid({
   const sharing = stage.find((person) => person.isScreenSharing)?.socketId;
   return (
     <div
-      className={`stage-grid stage-count-${stage.length}${sharing ? ' stage-sharing' : ''}`}
+      className={`mb-7 grid gap-3 ${gridColumns[sharing ? 'sharing' : stage.length === 1 ? 'single' : 'multiple']}`}
       aria-label="Stage"
     >
       {stage.map((person) => (
@@ -120,10 +143,11 @@ function StageTile({
   }
   return (
     <article
-      className={`stage-tile${local ? ' stage-local' : ''}${person.isSyntheticBot ? ' stage-demo' : ''}${large ? ' stage-large' : ''}${person.isScreenSharing ? ' stage-screen' : ''}${speaking ? ' stage-speaking' : ''}`}
+      className={`relative min-w-0 overflow-hidden rounded-lg border-2 bg-video ${tileSize[large ? 'shared' : 'normal']} ${tileBorder[speaking ? 'speaking' : 'quiet']}`}
       aria-label={`${person.displayName}${local ? ' (You)' : ''}`}
     >
       <video
+        className={`h-full w-full ${videoFit[person.isScreenSharing || large || person.isSyntheticBot ? 'presentation' : 'camera']} ${videoTransform[local && !person.isScreenSharing && !large ? 'localCamera' : 'unmirrored']}`}
         ref={video}
         autoPlay
         playsInline
@@ -131,28 +155,37 @@ function StageTile({
         aria-label={`${person.displayName}'s video`}
       />
       {((person.isVideoOff && !person.isScreenSharing) || !stream) && (
-        <div className="stage-placeholder">
-          <strong>{person.displayName}</strong>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-video p-5 text-[13px] text-muted">
+          <strong className="text-ink wrap-anywhere">{person.displayName}</strong>
           <span>{person.isVideoOff ? 'Video off' : 'Connecting…'}</span>
         </div>
       )}
-      <div className="stage-caption">
+      <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-between gap-2 bg-overlay px-3 py-2.5 text-xs wrap-anywhere">
         <span>
           {person.displayName}
           {local ? ' · You' : ''}
         </span>
         <span>{person.isAudioMuted ? 'Muted' : 'Mic on'}</span>
       </div>
-      {speaking && <span className="stage-speaking-label">Speaking</span>}
+      {speaking && (
+        <span className="absolute top-2.5 right-2.5 rounded bg-accent px-2 py-1 text-xs font-semibold text-accent-ink">
+          Speaking
+        </span>
+      )}
       {(autoplayBlocked || outputError) && (
-        <button
-          className="button button-secondary stage-play"
+        <Button
+          type="button"
+          className="absolute inset-x-2.5 top-2.5"
           onClick={() => void retryBlockedPlayback()}
         >
           {outputError ? 'Retry speaker output' : 'Play stage audio and video'}
-        </button>
+        </Button>
       )}
-      {outputError && <p className="error-message">{outputError}</p>}
+      {outputError && (
+        <p className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere">
+          {outputError}
+        </p>
+      )}
     </article>
   );
 }

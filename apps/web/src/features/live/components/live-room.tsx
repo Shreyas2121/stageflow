@@ -33,13 +33,17 @@ export function LiveRoom({
   const videoOff = self?.isVideoOff ?? live.isVideoOff;
 
   return (
-    <div className="live-room">
-      <div className="lobby-heading">
-        <div>
-          <p className="eyebrow">{inRoom ? 'In the room' : 'Before you join'}</p>
-          <h2>{inRoom ? `Welcome, ${session.displayName}` : 'Your green room'}</h2>
+    <div className="mt-8 min-w-0 rounded-panel border border-line bg-surface p-5 layout:p-7">
+      <div className="mb-6 flex items-start justify-between gap-5 layout:items-center">
+        <div className="min-w-0">
+          <p className="mb-2 text-[11px] font-semibold tracking-[0.11em] text-eyebrow uppercase">
+            {inRoom ? 'In the room' : 'Before you join'}
+          </p>
+          <h2 className="m-0 text-[22px] font-medium tracking-tight wrap-anywhere">
+            {inRoom ? `Welcome, ${session.displayName}` : 'Your green room'}
+          </h2>
         </div>
-        <span className="muted">
+        <span className="max-w-[110px] shrink-0 text-right text-xs text-muted layout:max-w-none">
           {live.audience === 'attendee' ? 'Joining as an attendee' : 'Up to 4 people on stage'}
         </span>
       </div>
@@ -66,7 +70,13 @@ export function LiveRoom({
           onRemove={demos.remove}
         />
       )}
-      <div className={showPreview ? 'lobby-grid' : 'attendee-lobby'}>
+      <div
+        className={
+          showPreview
+            ? 'grid items-start gap-7 layout:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]'
+            : ''
+        }
+      >
         {showLobby && (
           <GreenRoom
             attendee={!showPreview}
@@ -93,7 +103,10 @@ export function LiveRoom({
         )}
       </div>
       {live.error && (
-        <p className="error-message" role="alert">
+        <p
+          className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
+          role="alert"
+        >
           Error: {live.error}
         </p>
       )}

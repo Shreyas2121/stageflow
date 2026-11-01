@@ -24,6 +24,15 @@
   --color-danger: #ffc1bc;
   --color-danger-surface: #302022;
   --color-danger-line: #94585b;
+  --color-video: #0d1113;
+  --color-overlay: #101316da;
+  --color-meter-track: #2b3334;
+  --color-badge: #283324;
+  --color-live-line: #4a5d3a;
+  --color-live: #202b1d;
+  --color-ended: #b8c0c1;
+  --color-ended-surface: #252b2d;
+  --color-hand: #e9ce8a;
   --font-sans: Inter, 'Segoe UI', sans-serif;
   --font-mono: 'Cascadia Code', Consolas, monospace;
   --radius-control: 0.375rem;
