@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 import type { PeerManager, RemoteStreams } from './peer-manager';
 
-export function StageGrid({ snapshot, selfSocketId, localStream, streams, manager, speakerId }: {
+export function StageGrid({ snapshot, selfSocketId, localStream, streams, manager, speakerId, activeSocketId }: {
   snapshot: RoomSnapshot; selfSocketId: string; localStream: MediaStream | null;
-  streams: RemoteStreams; manager: PeerManager; speakerId: string;
+  streams: RemoteStreams; manager: PeerManager; speakerId: string; activeSocketId: string | null;
 }) {
   const stage = snapshot.stageSocketIds.flatMap((id) => {
     const participant = snapshot.participants.find((person) => person.socketId === id);
@@ -14,13 +14,13 @@ export function StageGrid({ snapshot, selfSocketId, localStream, streams, manage
   return <div className={`stage-grid stage-count-${stage.length}${sharing ? ' stage-sharing' : ''}`} aria-label="Stage">
     {stage.map((person) => <StageTile key={person.socketId} person={person}
       local={person.socketId === selfSocketId} stream={person.socketId === selfSocketId ? localStream : streams.get(person.socketId) ?? null}
-      manager={manager} speakerId={speakerId} large={person.socketId === sharing} />)}
+      manager={manager} speakerId={speakerId} large={person.socketId === sharing} speaking={person.socketId === activeSocketId} />)}
   </div>;
 }
 
-function StageTile({ person, local, stream, manager, speakerId, large }: {
+function StageTile({ person, local, stream, manager, speakerId, large, speaking }: {
   person: ParticipantState; local: boolean; stream: MediaStream | null;
-  manager: PeerManager; speakerId: string; large: boolean;
+  manager: PeerManager; speakerId: string; large: boolean; speaking: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
@@ -40,10 +40,11 @@ function StageTile({ person, local, stream, manager, speakerId, large }: {
       void element.setSinkId(speakerId).catch(() => setBlocked(true));
     }
   }, [local, speakerId]);
-  return <article className={`stage-tile${local ? ' stage-local' : ''}${large ? ' stage-large' : ''}`} aria-label={`${person.displayName}${local ? ' (You)' : ''}`}>
+  return <article className={`stage-tile${local ? ' stage-local' : ''}${large ? ' stage-large' : ''}${speaking ? ' stage-speaking' : ''}`} aria-label={`${person.displayName}${local ? ' (You)' : ''}`}>
     <video ref={video} autoPlay playsInline {...(local ? { muted: true } : {})} aria-label={`${person.displayName}'s video`} />
     {(person.isVideoOff || !stream) && <div className="stage-placeholder"><strong>{person.displayName}</strong><span>{person.isVideoOff ? 'Video off' : 'Connecting…'}</span></div>}
     <div className="stage-caption"><span>{person.displayName}{local ? ' · You' : ''}</span><span>{person.isAudioMuted ? 'Muted' : 'Mic on'}</span></div>
+    {speaking && <span className="stage-speaking-label">Speaking</span>}
     {blocked && <button className="button button-secondary stage-play" onClick={() => {
       void video.current?.play().then(() => setBlocked(false)).catch(() => setBlocked(true));
     }}>Play stage audio and video</button>}

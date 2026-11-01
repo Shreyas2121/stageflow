@@ -63,9 +63,10 @@ export class PeerManager {
       // Assign both captured tracks before installing the negotiation handler.
       const audio = this.media.microphoneTrack();
       const video = this.media.cameraTrack();
-      if (audio) pc.addTrack(audio);
+      const localStream = new MediaStream([audio, video].filter((track): track is MediaStreamTrack => track !== null));
+      if (audio) pc.addTrack(audio, localStream);
       else pc.addTransceiver('audio', { direction: 'sendrecv' });
-      if (video) pc.addTrack(video);
+      if (video) pc.addTrack(video, localStream);
       else pc.addTransceiver('video', { direction: 'sendrecv' });
       pc.onnegotiationneeded = () => this.enqueue(id, peer, async () => {
         if (this.decide(peer, { type: 'negotiation-needed' }) !== 'send-offer') return;
@@ -84,6 +85,9 @@ export class PeerManager {
       };
       pc.ontrack = ({ track }) => {
         if (!this.alive(id, peer)) return;
+        for (const previous of peer.stream.getTracks()) {
+          if (previous.kind === track.kind && previous !== track) peer.stream.removeTrack(previous);
+        }
         peer.stream.addTrack(track);
         this.changed();
       };

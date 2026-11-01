@@ -9,6 +9,7 @@ import { openSignaling, type RoomConnection } from '../live/signaling';
 import { useRoomStore } from '../live/room-store';
 import { PeerManager, type RemoteStreams } from '../live/peer-manager';
 import { StageGrid } from '../live/stage-grid';
+import { ActiveSpeaker } from '../live/active-speaker';
 
 export function RoomPage() {
   const { slug = '' } = useParams();
@@ -80,6 +81,8 @@ function LiveRoom({ room, session, onEnded }: {
   const peers = useRef<PeerManager | null>(null);
   const [peerManager, setPeerManager] = useState<PeerManager | null>(null);
   const [streams, setStreams] = useState<RemoteStreams>(new Map());
+  const [activeSocketId, setActiveSocketId] = useState<string | null>(null);
+  const [speaker] = useState(() => new ActiveSpeaker(setActiveSocketId));
   const operation = useRef(0);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -126,9 +129,23 @@ function LiveRoom({ room, session, onEnded }: {
       connection.current = null;
       peers.current?.close();
       peers.current = null;
+      speaker.close();
       media.stop();
     };
-  }, [media]);
+  }, [media, speaker]);
+
+  useEffect(() => {
+    const tracks = new Map<string, MediaStreamTrack>();
+    if (peerManager && selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId)) {
+      for (const id of snapshot.stageSocketIds) {
+        const track = id === selfSocketId ? media.microphoneTrack() : streams.get(id)?.getAudioTracks()[0];
+        const person = snapshot.participants.find((participant) => participant.socketId === id);
+        if (track && !person?.isAudioMuted) tracks.set(id, track);
+      }
+    }
+    try { speaker.sync(tracks); }
+    catch { speaker.close(); }
+  }, [media, peerManager, selfSocketId, snapshot, speaker, streams]);
 
   useEffect(() => {
     media.applyFlags(self?.isAudioMuted ?? isAudioMuted, self?.isVideoOff ?? isVideoOff);
@@ -138,6 +155,7 @@ function LiveRoom({ room, session, onEnded }: {
     operation.current += 1;
     peers.current?.close();
     peers.current = null;
+    speaker.close();
     media.stop();
     setPeerManager(null);
     setReady(false);
@@ -253,7 +271,7 @@ function LiveRoom({ room, session, onEnded }: {
       </div>
       {joined && snapshot && selfSocketId && snapshot.stageSocketIds.includes(selfSocketId) && peerManager &&
         <StageGrid snapshot={snapshot} selfSocketId={selfSocketId} localStream={media.previewStream()}
-          streams={streams} manager={peerManager} speakerId={speakerId} />}
+          streams={streams} manager={peerManager} speakerId={speakerId} activeSocketId={activeSocketId} />}
       <div className={attendee || joined ? 'attendee-lobby' : 'lobby-grid'}>
         {!attendee && !joined && <div className="preview-panel">
           <div className="preview-frame">

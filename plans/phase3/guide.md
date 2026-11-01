@@ -1,6 +1,6 @@
 # Guide 3 — Phase 3, commit by commit
 
-**Status:** in progress. P3-C01 and P3-C02 are committed; P3-C03 is verified with test media; P3-C04 and P3-C05 are not implemented.\
+**Status:** in progress. P3-C01 through P3-C03 are committed; P3-C04 is verified with test audio; P3-C05 is not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -129,9 +129,9 @@ Confirm a Phase 2 roster update still arrives after a third guest joins a meetin
 
 ## 4. P3-C03 — Mesh and tiles
 
-**Status:** verified with browser test media\
+**Status:** committed; physical-device observations unverified\
 **Proposed commit message:** `feat(web-stage): show meeting peers on a mesh`\
-**Actual commit:**
+**Actual commit:** `f44d1f19fd20ebdf96f0f1ffdfb2b6bd1768dd19`
 
 **Why:** Two browsers can see and hear each other, and leave releases the camera. Covers P3-A03, P3-A04, P3-A06, and P3-A07.
 
@@ -183,7 +183,7 @@ Record any failed step. A still screenshot does not verify A03, A04, A06, or A07
 
 ## 5. P3-C04 — Active speaker
 
-**Status:** planned\
+**Status:** verified with test audio; physical microphone observation unverified\
 **Proposed commit message:** `feat(web-audio): highlight the active speaker`\
 **Actual commit:**
 
@@ -213,6 +213,12 @@ pnpm --filter @stageflow/shared test
 ```
 
 In the two-window meeting, speak into one microphone and confirm that tile gains `Speaking`, then confirm the label clears after the room goes quiet. If the machine cannot capture audible input, leave that observation unverified and say so.
+
+**Verification result (2026-11-01):** Two Chromium sessions with controlled oscillator microphone input showed Speaking on Ava locally and remotely, switched to Sam with the audio source, and cleared both labels on silence. Direct browser checks and two saved web unit tests cover the 0.08 threshold, no switch at 299 ms, switch at 300 ms, interrupted leads resetting the timer, disabled/ended/removed tracks, preserving media ownership, and releasing analyser nodes, the audio context, and animation frames. The two-browser mesh, mute/video flags without offers, leave/rejoin, host-ended cleanup, and attendee isolation were rerun successfully. Shared tests (72), web tests (2), workspace typecheck, and lint passed. Human speech into a physical microphone and audible speaker output remain unverified; the browser used synthetic test input.
+
+**Regression correction:** Additional controlled-audio runs exposed intermittent ICE stalls during glare after P3-C03. Outgoing audio and video are now associated with one local MediaStream, and each peer keeps only its latest incoming track of each kind. The final browser run passed with two sendrecv transceivers, moving video, nonzero remote audio, and local/remote speaker changes. Speaker selection follows measured samples rather than the remote track muted flag, which remained true despite nonzero received samples in this Chromium runtime.
+
+**Additional verification command:** `pnpm --filter @stageflow/web test`.
 
 **Done when:** The highlight follows the rule above and the slice is committed.
 
