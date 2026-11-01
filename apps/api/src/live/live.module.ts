@@ -1,3 +1,6 @@
+import { RoomsService } from '../rooms/rooms.service';
+import { LiveService } from './live.service';
+import { SerializedOperations } from './serialized-operations';
 import { Injectable, Logger, Module, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { env } from '../config/env';
@@ -49,6 +52,13 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
       provide: LiveRepository,
       inject: [LiveConnection],
       useFactory: (connection: LiveConnection) => new LiveRepository(connection.redis),
+    },
+    SerializedOperations,
+    {
+      provide: LiveService,
+      inject: [RoomsService, LiveRepository, SerializedOperations],
+      useFactory: (rooms: RoomsService, live: LiveRepository, operations: SerializedOperations) =>
+        new LiveService(rooms, live, operations),
     },
     SignalingGateway,
   ],

@@ -1,0 +1,160 @@
+import { Logger } from '@nestjs/common';
+import {
+  canRelay,
+  type CommandAck,
+  type JoinRoomRequest,
+  type RoomSnapshot,
+  type StageCommand,
+} from '@stageflow/shared';
+import type { RoomsService } from '../rooms/rooms.service';
+import type { LiveRepository, LiveRoom, LiveResult } from './live.repository';
+import { SerializedOperations } from './serialized-operations';
+import { failure } from './signaling.messages';
+export interface LiveSession {
+  id: string;
+  user: { id: string; displayName: string };
+  readonly connected: boolean;
+  room: LiveRoom | undefined;
+}
+// Transport effects run inside the operation queue to preserve snapshot/membership ordering.
+export interface LiveTransport {
+  join(socketId: string, roomId: string): Promise<void>;
+  leave(socketId: string, roomId: string): Promise<void>;
+  publish(snapshot: RoomSnapshot): void;
+  peer(socketId: string): { connected: boolean; roomId: string | undefined } | undefined;
+  end(roomId: string): void;
+}
+export class LiveService {
+  private readonly logger = new Logger(LiveService.name);
+  constructor(
+    private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
+    private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
+    private readonly operations: SerializedOperations,
+  ) {}
+  private execute<T extends CommandAck>(
+    client: LiveSession,
+    action: () => Promise<T>,
+  ): Promise<T | Extract<CommandAck, { ok: false }>> {
+    return this.operations.run(`socket:${client.id}`, action).catch((error: unknown) => {
+      this.logger.error(error instanceof Error ? error.message : 'Live room command failed.');
+      return failure('server_error');
+    });
+  }
+
+  private publish(result: Extract<LiveResult, { ok: true }>, transport: LiveTransport): void {
+    if (!result.changed) return;
+    const { state, revision } = result;
+    const snapshot: RoomSnapshot = {
+      roomId: state.roomId,
+      mode: state.mode,
+      status: state.status,
+      revision,
+      participants: state.participants,
+      stageSocketIds: state.stageSocketIds,
+      handSocketIds: state.hands.map((hand) => hand.socketId),
+      broadcast: null,
+    };
+    transport.publish(snapshot);
+  }
+
+  join(
+    client: LiveSession,
+    request: JoinRoomRequest,
+    transport: LiveTransport,
+  ): Promise<CommandAck> {
+    return this.execute(client, async (): Promise<CommandAck> => {
+      if (!client.connected) return failure('not_joined');
+      if (client.room) return failure('already_joined');
+      return this.operations.run(`room:${request.roomId}`, async (): Promise<CommandAck> => {
+        const room = await this.rooms.getById(request.roomId);
+        if (!room) return failure('room_not_found');
+        if (room.status === 'ENDED') return failure('room_ended');
+        const liveRoom: LiveRoom = {
+          roomId: room.id,
+          hostId: room.hostId,
+          mode: room.mode,
+          status: room.status,
+        };
+        const user = client.user;
+        const result = await this.live.apply(`sf:room:${room.id}`, liveRoom, {
+          type: 'join',
+          socketId: client.id,
+          userId: user.id,
+          displayName: user.displayName,
+          isAudioMuted: request.isAudioMuted,
+          isVideoOff: request.isVideoOff,
+          isSyntheticBot: request.isSyntheticBot,
+          joinedAt: Date.now(),
+        });
+        if (!result.ok) return failure(result.error);
+        client.room = liveRoom;
+        await transport.join(client.id, room.id);
+        this.publish(result, transport);
+        return { ok: true };
+      });
+    });
+  }
+
+  update(
+    client: LiveSession,
+    command: StageCommand,
+    transport: LiveTransport,
+  ): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.room;
+      if (!room) return failure('not_joined');
+      return this.operations.run(`room:${room.roomId}`, async () => {
+        // Host leave clears room association on every socket before releasing this queue.
+        if (client.room !== room) return failure('room_ended');
+        const result = await this.live.apply(`sf:room:${room.roomId}`, room, command);
+        if (!result.ok) return failure(result.error);
+        this.publish(result, transport);
+        return { ok: true };
+      });
+    });
+  }
+
+  relay(
+    client: LiveSession,
+    toSocketId: string,
+    transport: LiveTransport,
+    send: () => void,
+  ): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.room;
+      if (!room) return failure('not_joined');
+      return this.operations.run(`room:${room.roomId}`, async () => {
+        if (client.room !== room) return failure('room_ended');
+        const stage = await this.live.readStage(`sf:room:${room.roomId}`);
+        if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
+        const target = transport.peer(toSocketId);
+        if (!target?.connected || target.roomId !== room.roomId) return failure('peer_unavailable');
+        send();
+        return { ok: true };
+      });
+    });
+  }
+
+  leave(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.room;
+      if (!room) return { ok: true };
+      return this.operations.run(`room:${room.roomId}`, async () => {
+        if (client.room !== room) return { ok: true };
+        const prefix = `sf:room:${room.roomId}`;
+        const result = await this.live.apply(prefix, room, { type: 'leave', socketId: client.id });
+        if (!result.ok) return failure(result.error);
+        if (result.roomEnded) {
+          await this.rooms.end(room.roomId);
+          await this.live.deleteRoom(prefix);
+          transport.end(room.roomId);
+        } else {
+          this.publish(result, transport);
+          await transport.leave(client.id, room.roomId);
+        }
+        client.room = undefined;
+        return { ok: true };
+      });
+    });
+  }
+}

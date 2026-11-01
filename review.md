@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01's documentation and C02's dependency work are recorded below; C03–C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C04 are recorded below; C05 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -596,6 +596,9 @@ Record the actual C02 hash after commit under master Section 1.4; that status/ha
 
 ### C03 — `refactor(shared): centralize identifiers and bounded signaling parsers`
 
+**Status:** committed.\
+**Actual commit:** `33d5aa6598b517c1e658dd5e547a87c88d56f8d1`
+
 **Depends on:** C01. **Addresses:** F03/F17.
 
 **Files:** create `packages/shared/src/identifiers.ts`, `limits.ts`, `signaling.parsers.ts`, their focused `.test.ts` files; update `contracts.ts`, `signaling.ts`, `stage.ts`, `index.ts`; update `apps/api/src/sessions/sessions.service.ts`, `rooms/rooms.service.ts`, `live/signaling.gateway.ts`, `apps/web/src/pages/HomePage.tsx`.
@@ -604,7 +607,12 @@ Centralize slug/UUID validation and actual shared policy; parse unknown socket i
 
 **Verify/done:** shared build/tests, all package typechecks/lints, web tests and real Redis suite; malformed/oversize inputs reject before repository work and existing valid payloads still pass.
 
+**Implementation/verification record (2026-11-01):** Centralized UUID/slug validation and generation, text limits, and the unchanged four-slot stage policy. Existing contracts re-export slug generation for compatibility. Invalid byte sources (NaN, negative, fractional, infinite, or above 255) throw immediately; 248-255 rejection sampling and its bounded retry policy remain. Shared signaling parsers copy exact DTO fields before gateway socket/room queues and repository work, preserving the existing invalid_payload error. SDP is bounded at 65,536 UTF-16 code units, ICE text at 4,096, socket IDs at 128, mid at 256, and m-line index at 65,535; these are transport admission budgets, not SDP syntax validation. Non-empty ICE with both identifiers null is rejected; null and empty-string end markers remain accepted. Role/media policy and Lua are unchanged. Shared tests (117), web tests (23), real Redis tests (19), all-package lint and typecheck, and web production build passed; the existing large-chunk warning remains. Physical/browser media acceptance was not rerun for this parser slice. API build also passed. A compiled-gateway probe rejected malformed join, description, ICE, media, and hand events with invalid_payload before execute/relay/update or repository work. Workspace formatting and whitespace checks passed. C03 carries C02's post-commit hash; record C03's real hash after commit for the next slice.
+
 ### C04 — `refactor(api-live): extract room lifecycle orchestration from the gateway`
+
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
 
 **Depends on:** C03. **Addresses:** F08.
 
@@ -613,6 +621,10 @@ Centralize slug/UUID validation and actual shared policy; parse unknown socket i
 Move queue ownership and application operations behind transport-independent results/effects. Keep trusted identity from the handshake. The gateway retains Socket.IO emission/membership mechanics. Do not change persistence order yet; separate regression coverage from C05's behavior fix.
 
 **Verify/done:** shared prerequisite, API typecheck/lint/service tests/Redis tests/build; isolated socket smoke confirms joins, ack shape, stage-only target relay, and disconnect behavior stay compatible.
+
+**Implementation/verification record (2026-11-01):** Extracted promise-chain ownership to SerializedOperations, error messages to signaling.messages.ts, and lifecycle/persistence/snapshot mapping and relay eligibility to LiveService. A transport-independent session and effects port keeps Socket.IO authentication, room membership, target emission, and room-ended disassociation in the gateway. Effects remain inside the same socket/room queue boundaries. The module constructs the service with explicit repository/catalog/queue dependencies. Persistence order remains Lua leave, PostgreSQL end, Redis deletion, then notification/disassociation. The known partial host-ending failure is deliberately retained and covered by a regression for C05; this extraction does not close F01.
+
+Shared prerequisite build, API typecheck, API lint, all 28 API tests (19 real Redis cases plus nine service/queue regressions), API production build, workspace format check, and whitespace checks passed. New regressions cover queue independence/rejection recovery, trusted join identity, membership-before-snapshot ordering, no-op publication suppression, stage/target relay checks, guest/host leave ordering, failed admission, invalidated queued work after host leave, and the existing partial-ending failure. A loopback Socket.IO smoke using the compiled gateway/service and an in-memory oracle repository passed join acknowledgement shape, authenticated session identity, target-only description and null ICE relay, attendee relay rejection, guest disconnect updates, and host disconnect room end. It ran on an ephemeral loopback port without starting the API or clearing developer Redis; real Lua behavior remains covered separately by the integration suite. No browser media acceptance was rerun for this server refactor. C04 carries C03's post-commit hash; record C04's actual hash after commit for the next requested slice.
 
 ### C05 — `fix(api-live): complete host shutdown after partial persistence failures`
 
@@ -798,4 +810,4 @@ The independent pass on 2026-11-01 checked source, the 103-path inventory, expan
 | Pre-join signaling queue                             | Incorporated into F03/C07. Count/bytes are uncapped; normal timeout/caller cleanup bounds retention time. No claim of indefinite normal retention.                                                                                                                            |
 | Inventory, test totals, versions and artifacts       | Retained 103 tracked paths, 95 shared + 23 web + 19 Redis cases, and copied Lua/test artifact observations. This revision did not independently rerun every original command or refresh the audit.                                                                            |
 
-The independent pass corroborated the remaining source-based findings, including Redis failure handling, full-room Lua rewrites, destructive startup, shared dist prerequisites, eager route loading, cache/error handling, and development-service bindings. All original acceptance limitations still apply. This is a corrected report and proposed implementation sequence, not completed application remediation.**Implementation/verification record (2026-11-01):** Centralized UUID/slug validation and generation, text limits, and the unchanged four-slot stage policy. Existing contracts re-export slug generation for compatibility. Invalid byte sources (NaN, negative, fractional, infinite, or above 255) throw immediately; 248?255 rejection sampling and its bounded retry policy remain. Shared signaling parsers copy exact DTO fields before gateway socket/room queues and repository work, preserving the existing invalid_payload error. SDP is bounded at 65,536 UTF-16 code units, ICE text at 4,096, socket IDs at 128, mid at 256, and m-line index at 65,535; these are transport admission budgets, not SDP syntax validation. Non-empty ICE with both identifiers null is rejected; null and empty-string end markers remain accepted. Role/media policy and Lua are unchanged. Shared tests (117), web tests (23), real Redis tests (19), all-package lint and typecheck, and web production build passed; the existing large-chunk warning remains. Physical/browser media acceptance was not rerun for this parser slice. API build also passed. A compiled-gateway probe rejected malformed join, description, ICE, media, and hand events with invalid_payload before execute/relay/update or repository work. Workspace formatting and whitespace checks passed. C03 carries C02?s post-commit hash; record C03?s real hash after commit for the next slice.
+The independent pass corroborated the remaining source-based findings, including Redis failure handling, full-room Lua rewrites, destructive startup, shared dist prerequisites, eager route loading, cache/error handling, and development-service bindings. All original acceptance limitations still apply. This is a corrected report and proposed implementation sequence, not completed application remediation.

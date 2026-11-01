@@ -1,4 +1,4 @@
-import { Logger, OnModuleDestroy } from '@nestjs/common';
+import { OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -10,7 +10,6 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import {
-  canRelay,
   parseJoinRoomRequest,
   parseDescriptionRequest,
   parseIceCandidateRequest,
@@ -23,16 +22,14 @@ import type {
   CommandAck,
   IceServer,
   JoinAck,
-  RoomSnapshot,
   ServerToClientEvents,
-  SignalingError,
-  StageCommand,
 } from '@stageflow/shared';
 import { env } from '../config/env';
-import { RoomsService } from '../rooms/rooms.service';
 import { SessionsService } from '../sessions/sessions.service';
 import type { User } from '../users/user.entity';
-import { LiveRepository, type LiveRoom, type LiveResult } from './live.repository';
+import type { LiveRoom } from './live.repository';
+import { LiveService, type LiveSession, type LiveTransport } from './live.service';
+import { failure } from './signaling.messages';
 
 type SocketData = { user: User; room?: LiveRoom };
 type GuestSocket = Socket<
@@ -47,34 +44,9 @@ type RoomServer = Server<
   Record<string, never>,
   SocketData
 >;
-const messages: Record<SignalingError, string> = {
-  room_ended: 'This room has ended.',
-  already_joined: 'This guest is already in the room.',
-  host_not_present: 'The host has to join this meeting before anyone else.',
-  stage_full: 'This meeting already has 4 people on stage.',
-  room_not_found: 'No room exists for that slug.',
-  not_attendee: 'Only attendees can raise a hand.',
-  audio_locked: 'The host has muted your microphone.',
-  video_locked: 'The host has turned off your camera.',
-  participant_not_found: 'This participant is no longer in the room.',
-  not_host: 'Only the host can do that.',
-  cannot_demote_host: 'The host must stay on stage.',
-  not_speaker: 'This participant is not a speaker.',
-  invalid_payload: 'The room command is invalid.',
-  not_joined: 'Join the room first.',
-  server_error: 'Unable to update the live room. Join again.',
-  not_on_stage: 'Only people on stage can exchange media.',
-  peer_unavailable: 'That person is no longer on stage.',
-};
-function failure(error: SignalingError): Extract<CommandAck, { ok: false }> {
-  return { ok: false, error, message: messages[error] };
-}
-
 @WebSocketGateway({ cors: { origin: env.CORS_ORIGIN } })
 export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer() server: RoomServer;
-  private readonly logger = new Logger(SignalingGateway.name);
-  private readonly queues = new Map<string, Promise<unknown>>();
   private shuttingDown = false;
   private readonly iceServers: IceServer[] = [
     ...(env.STUN_URL ? [{ urls: env.STUN_URL }] : []),
@@ -82,13 +54,47 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
       ? [{ urls: env.TURN_URL, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL }]
       : []),
   ];
-
   constructor(
     private readonly sessions: SessionsService,
-    private readonly rooms: RoomsService,
-    private readonly live: LiveRepository,
+    private readonly live: LiveService,
   ) {}
-
+  private session(client: GuestSocket): LiveSession {
+    return {
+      id: client.id,
+      user: client.data.user,
+      get connected() {
+        return client.connected;
+      },
+      get room() {
+        return client.data.room;
+      },
+      set room(room: LiveRoom | undefined) {
+        if (room) client.data.room = room;
+        else delete client.data.room;
+      },
+    };
+  }
+  private readonly transport: LiveTransport = {
+    join: async (socketId, roomId) => {
+      await this.server.sockets.sockets.get(socketId)?.join(roomId);
+    },
+    leave: async (socketId, roomId) => {
+      await this.server.sockets.sockets.get(socketId)?.leave(roomId);
+    },
+    publish: (snapshot) => {
+      this.server.to(snapshot.roomId).emit('room:state', snapshot);
+    },
+    peer: (socketId) => {
+      const peer = this.server.sockets.sockets.get(socketId);
+      return peer ? { connected: peer.connected, roomId: peer.data.room?.roomId } : undefined;
+    },
+    end: (roomId) => {
+      this.server.to(roomId).emit('room:ended', { roomId });
+      for (const socket of this.server.sockets.sockets.values())
+        if (socket.data.room?.roomId === roomId) delete socket.data.room;
+      this.server.in(roomId).socketsLeave(roomId);
+    },
+  };
   afterInit(server: RoomServer): void {
     server.use((socket, next) => {
       void this.sessions
@@ -101,117 +107,16 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     });
   }
 
-  // Serialize socket lifecycle and room operations, including PostgreSQL ending and Redis deletion.
-  private queue<T>(key: string, action: () => Promise<T>): Promise<T> {
-    const task = (this.queues.get(key) ?? Promise.resolve()).catch(() => undefined).then(action);
-    this.queues.set(key, task);
-    void task
-      .finally(() => {
-        if (this.queues.get(key) === task) this.queues.delete(key);
-      })
-      .catch(() => undefined);
-    return task;
-  }
-
-  private execute<T extends CommandAck>(
-    client: GuestSocket,
-    action: () => Promise<T>,
-  ): Promise<T | Extract<CommandAck, { ok: false }>> {
-    return this.queue(`socket:${client.id}`, action).catch((error: unknown) => {
-      this.logger.error(error instanceof Error ? error.message : 'Live room command failed.');
-      return failure('server_error');
-    });
-  }
-
-  private publish(result: Extract<LiveResult, { ok: true }>): void {
-    if (!result.changed) return;
-    const { state, revision } = result;
-    const snapshot: RoomSnapshot = {
-      roomId: state.roomId,
-      mode: state.mode,
-      status: state.status,
-      revision,
-      participants: state.participants,
-      stageSocketIds: state.stageSocketIds,
-      handSocketIds: state.hands.map((hand) => hand.socketId),
-      broadcast: null,
-    };
-    this.server.to(state.roomId).emit('room:state', snapshot);
-  }
-
   @SubscribeMessage('room:join')
-  join(@ConnectedSocket() client: GuestSocket, @MessageBody() payload: unknown): Promise<JoinAck> {
+  async join(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<JoinAck> {
     const request = parseJoinRoomRequest(payload);
-    if (!request) return Promise.resolve(failure('invalid_payload'));
-    return this.execute(client, async (): Promise<JoinAck> => {
-      if (!client.connected) return failure('not_joined');
-      if (client.data.room) return failure('already_joined');
-      return this.queue(`room:${request.roomId}`, async (): Promise<JoinAck> => {
-        const room = await this.rooms.getById(request.roomId);
-        if (!room) return failure('room_not_found');
-        if (room.status === 'ENDED') return failure('room_ended');
-        const liveRoom: LiveRoom = {
-          roomId: room.id,
-          hostId: room.hostId,
-          mode: room.mode,
-          status: room.status,
-        };
-        const user = client.data.user;
-        const result = await this.live.apply(`sf:room:${room.id}`, liveRoom, {
-          type: 'join',
-          socketId: client.id,
-          userId: user.id,
-          displayName: user.displayName,
-          isAudioMuted: request.isAudioMuted,
-          isVideoOff: request.isVideoOff,
-          isSyntheticBot: request.isSyntheticBot,
-          joinedAt: Date.now(),
-        });
-        if (!result.ok) return failure(result.error);
-        client.data.room = liveRoom;
-        await client.join(room.id);
-        this.publish(result);
-        return { ok: true, selfSocketId: client.id, iceServers: this.iceServers };
-      });
-    });
+    if (!request) return failure('invalid_payload');
+    const result = await this.live.join(this.session(client), request, this.transport);
+    return result.ok ? { ok: true, selfSocketId: client.id, iceServers: this.iceServers } : result;
   }
-
-  private update(client: GuestSocket, command: StageCommand): Promise<CommandAck> {
-    return this.execute(client, async () => {
-      const room = client.data.room;
-      if (!room) return failure('not_joined');
-      return this.queue(`room:${room.roomId}`, async () => {
-        // Host leave clears room association on every socket before releasing this queue.
-        if (client.data.room !== room) return failure('room_ended');
-        const result = await this.live.apply(`sf:room:${room.roomId}`, room, command);
-        if (!result.ok) return failure(result.error);
-        this.publish(result);
-        return { ok: true };
-      });
-    });
-  }
-
-  private relay(
-    client: GuestSocket,
-    toSocketId: string,
-    send: (target: GuestSocket) => void,
-  ): Promise<CommandAck> {
-    return this.execute(client, async () => {
-      const room = client.data.room;
-      if (!room) return failure('not_joined');
-      return this.queue(`room:${room.roomId}`, async () => {
-        if (client.data.room !== room) return failure('room_ended');
-        const stage = await this.live.readStage(`sf:room:${room.roomId}`);
-        if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
-        const target = this.server.sockets.sockets.get(toSocketId);
-        if (!target?.connected || target.data.room?.roomId !== room.roomId)
-          return failure('peer_unavailable');
-        send(target);
-        return { ok: true };
-      });
-    });
-  }
-
   @SubscribeMessage('webrtc:description')
   description(
     @ConnectedSocket() client: GuestSocket,
@@ -220,7 +125,8 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
     const request = parseDescriptionRequest(payload);
     if (!request) return failure('invalid_payload');
     const { toSocketId, description } = request;
-    return this.relay(client, toSocketId, (target) => {
+    return this.live.relay(this.session(client), toSocketId, this.transport, () => {
+      const target = this.server.sockets.sockets.get(toSocketId)!;
       target.emit('webrtc:description', {
         toSocketId,
         fromSocketId: client.id,
@@ -236,7 +142,8 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
   ): Promise<CommandAck> | CommandAck {
     const request = parseIceCandidateRequest(payload);
     if (!request) return failure('invalid_payload');
-    return this.relay(client, request.toSocketId, (target) => {
+    return this.live.relay(this.session(client), request.toSocketId, this.transport, () => {
+      const target = this.server.sockets.sockets.get(request.toSocketId)!;
       target.emit('webrtc:ice-candidate', {
         toSocketId: request.toSocketId,
         fromSocketId: client.id,
@@ -259,11 +166,15 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
   ): Promise<CommandAck> | CommandAck {
     const patch = parseMediaPatch(payload);
     if (!patch) return failure('invalid_payload');
-    return this.update(client, {
-      type: 'patchMedia',
-      socketId: client.id,
-      patch,
-    });
+    return this.live.update(
+      this.session(client),
+      {
+        type: 'patchMedia',
+        socketId: client.id,
+        patch,
+      },
+      this.transport,
+    );
   }
 
   @SubscribeMessage('stage:raise-hand')
@@ -273,42 +184,22 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
   ): Promise<CommandAck> | CommandAck {
     const request = parseHandRequest(payload);
     if (!request) return failure('invalid_payload');
-    return this.update(client, {
-      type: 'setHand',
-      socketId: client.id,
-      raised: request.raised,
-      raisedAt: Date.now(),
-    });
+    return this.live.update(
+      this.session(client),
+      {
+        type: 'setHand',
+        socketId: client.id,
+        raised: request.raised,
+        raisedAt: Date.now(),
+      },
+      this.transport,
+    );
   }
 
   @SubscribeMessage('room:leave')
   leave(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
-    return this.execute(client, async () => {
-      const room = client.data.room;
-      if (!room) return { ok: true };
-      return this.queue(`room:${room.roomId}`, async () => {
-        if (client.data.room !== room) return { ok: true };
-        const prefix = `sf:room:${room.roomId}`;
-        const result = await this.live.apply(prefix, room, { type: 'leave', socketId: client.id });
-        if (!result.ok) return failure(result.error);
-        if (result.roomEnded) {
-          await this.rooms.end(room.roomId);
-          await this.live.deleteRoom(prefix);
-          this.server.to(room.roomId).emit('room:ended', { roomId: room.roomId });
-          for (const socket of this.server.sockets.sockets.values()) {
-            if (socket.data.room?.roomId === room.roomId) delete socket.data.room;
-          }
-          this.server.in(room.roomId).socketsLeave(room.roomId);
-        } else {
-          this.publish(result);
-          await client.leave(room.roomId);
-        }
-        delete client.data.room;
-        return { ok: true };
-      });
-    });
+    return this.live.leave(this.session(client), this.transport);
   }
-
   handleDisconnect(client: GuestSocket): void {
     if (!this.shuttingDown) void this.leave(client);
   }
