@@ -94,7 +94,7 @@ function StageTile({
   }, [local, speakerId]);
   return (
     <article
-      className={`stage-tile${local ? ' stage-local' : ''}${large ? ' stage-large' : ''}${person.isScreenSharing ? ' stage-screen' : ''}${speaking ? ' stage-speaking' : ''}`}
+      className={`stage-tile${local ? ' stage-local' : ''}${person.isSyntheticBot ? ' stage-demo' : ''}${large ? ' stage-large' : ''}${person.isScreenSharing ? ' stage-screen' : ''}${speaking ? ' stage-speaking' : ''}`}
       aria-label={`${person.displayName}${local ? ' (You)' : ''}`}
     >
       <video

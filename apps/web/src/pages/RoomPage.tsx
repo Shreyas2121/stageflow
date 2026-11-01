@@ -1,7 +1,8 @@
 import { Link, useParams } from 'react-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { skipToken, useQuery } from '@tanstack/react-query';
 import type { CommandAck, GuestSessionResponse, RoomResponse } from '@stageflow/shared';
+import { nextDemoPeerName } from '@stageflow/shared';
 import { getRoom } from '../api';
 import { useSessionStore } from '../session';
 import { LocalMedia, type DeviceChoices } from '../live/local-media';
@@ -11,6 +12,7 @@ import { PeerManager, type RemoteStreams } from '../live/peer-manager';
 import { StageGrid } from '../live/stage-grid';
 import { ActiveSpeaker } from '../live/active-speaker';
 import { StatsDrawer } from '../live/stats-drawer';
+import { DemoPeer } from '../live/demo-peer';
 
 export function RoomPage() {
   const { slug = '' } = useParams();
@@ -147,12 +149,27 @@ function LiveRoom({
   const [speakerId, setSpeakerId] = useState('');
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [sinkSupported, setSinkSupported] = useState(false);
+  const demoPeers = useRef(new Map<string, DemoPeer>());
+  const demoStartVersion = useRef(0);
+  const demoStartPending = useRef(false);
+  const [demoCount, setDemoCount] = useState(0);
+  const [demoStarting, setDemoStarting] = useState(false);
   const [isAudioMuted, setAudioMuted] = useState(false);
   const [isVideoOff, setVideoOff] = useState(false);
   const snapshot = useRoomStore((state) => state.snapshot);
   const selfSocketId = useRoomStore((state) => state.selfSocketId);
   const self = snapshot?.participants.find((participant) => participant.socketId === selfSocketId);
   const joined = selfSocketId !== null;
+
+  const stopDemoPeers = useCallback(() => {
+    demoStartVersion.current += 1;
+    demoStartPending.current = false;
+    const running = [...demoPeers.current.values()];
+    demoPeers.current.clear();
+    for (const peer of running) peer.stop();
+    setDemoCount(0);
+    setDemoStarting(false);
+  }, []);
 
   useEffect(() => {
     // Subscribe outside React so offers cannot overtake a stage snapshot render.
@@ -180,6 +197,7 @@ function LiveRoom({
     return () => {
       unsubscribe();
       operation.current += 1;
+      stopDemoPeers();
       connection.current?.close();
       connection.current = null;
       peers.current?.close();
@@ -187,7 +205,7 @@ function LiveRoom({
       speaker.close();
       media.stop();
     };
-  }, [media, speaker]);
+  }, [media, speaker, stopDemoPeers]);
 
   useEffect(() => {
     const tracks = new Map<string, MediaStreamTrack>();
@@ -212,6 +230,7 @@ function LiveRoom({
 
   function stopMedia() {
     operation.current += 1;
+    stopDemoPeers();
     peers.current?.close();
     peers.current = null;
     speaker.close();
@@ -221,6 +240,53 @@ function LiveRoom({
     setReady(false);
     setLevel(0);
     setBusy(false);
+  }
+
+  async function spawnDemoPeer() {
+    const active = connection.current;
+    if (!active || self?.role !== 'HOST' || demoStartPending.current) return;
+    const name = nextDemoPeerName(demoPeers.current.keys());
+    if (!name) return;
+    const generation = operation.current;
+    const version = ++demoStartVersion.current;
+    const valid = () => generation === operation.current && connection.current === active;
+    demoStartPending.current = true;
+    setDemoStarting(true);
+    setError('');
+    let demo: DemoPeer | null = null;
+    try {
+      const context = new AudioContext();
+      demo = new DemoPeer(
+        name,
+        context,
+        (message) => {
+          if (valid()) setError(message);
+        },
+        () => {
+          if (demoPeers.current.get(name) !== demo) return;
+          demoPeers.current.delete(name);
+          setDemoCount(demoPeers.current.size);
+        },
+      );
+      demoPeers.current.set(name, demo);
+      setDemoCount(demoPeers.current.size);
+      // Resume synchronously in the click, before minting the guest or opening its socket.
+      await context.resume();
+      if (!valid() || version !== demoStartVersion.current) {
+        demo.stop();
+        return;
+      }
+      await demo.start(room.id);
+    } catch (failure) {
+      demo?.stop();
+      if (valid() && version === demoStartVersion.current)
+        setError(failure instanceof Error ? failure.message : 'Unable to start a demo peer.');
+    } finally {
+      if (version === demoStartVersion.current) {
+        demoStartPending.current = false;
+        setDemoStarting(false);
+      }
+    }
   }
 
   async function prepare(nextChoices = choices) {
@@ -447,6 +513,29 @@ function LiveRoom({
         selfSocketId &&
         snapshot.stageSocketIds.includes(selfSocketId) &&
         peerManager && <StatsDrawer manager={peerManager} snapshot={snapshot} />}
+      {self?.role === 'HOST' && (
+        <div className="demo-controls" aria-label="Demo peers" aria-busy={demoStarting}>
+          <button
+            id="spawn-demo-peer"
+            className="button button-secondary"
+            disabled={busy || demoStarting || demoCount >= 3}
+            onClick={() => void spawnDemoPeer()}
+          >
+            Spawn demo peer
+          </button>
+          <button
+            id="remove-demo-peers"
+            className="button button-secondary"
+            disabled={demoCount === 0}
+            onClick={stopDemoPeers}
+          >
+            Remove demo peers
+          </button>
+          <span className="muted" role="status">
+            {demoStarting ? 'Starting demo peer…' : `${demoCount} of 3 demo peers`}
+          </span>
+        </div>
+      )}
       <div className={attendee || joined ? 'attendee-lobby' : 'lobby-grid'}>
         {!attendee && !joined && (
           <div className="preview-panel">
@@ -574,6 +663,7 @@ function LiveRoom({
                     <strong>
                       {participant.displayName}
                       {participant.socketId === selfSocketId ? ' (You)' : ''}
+                      {participant.isSyntheticBot && <span className="demo-badge">Demo</span>}
                     </strong>
                     <span className="role-label">{participant.role}</span>
                   </div>

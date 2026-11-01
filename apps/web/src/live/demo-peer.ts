@@ -1,10 +1,10 @@
-import type { IceServer, RoomSnapshot } from '@stageflow/shared';
+import { demoPeerNames, type IceServer, type RoomSnapshot } from '@stageflow/shared';
 import { createGuest } from '../api';
 import { PeerManager, type TrackSource } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 
-// A sine at this gain has about 0.127 RMS, above the existing 0.08 speaker threshold.
-const pulseGain = 0.18;
+// Leave room above the existing 0.08 speaker threshold after remote audio decoding.
+const pulseGain = 0.24;
 
 export class DemoPeer implements TrackSource {
   private connection: RoomConnection | null = null;
@@ -106,7 +106,11 @@ export class DemoPeer implements TrackSource {
     this.gain.connect(destination);
     this.oscillator.start();
     this.oscillatorStarted = true;
-    let nextPulse = this.context.currentTime + 0.15;
+    const pulseOffset = Math.max(
+      0,
+      demoPeerNames.findIndex((name) => name === this.name),
+    );
+    let nextPulse = this.context.currentTime + 0.15 + pulseOffset * 1.1;
     let pulseStarted = -Infinity;
     let lastFrame = -Infinity;
     let frames = 0;

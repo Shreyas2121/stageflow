@@ -1,6 +1,6 @@
 # Phase 4 — Demo peers and stats
 
-**Status:** in progress. P4-C01 through P4-C03 are verified; P4-C04 remains planned.\
+**Status:** verified. P4-A01 through P4-A06 pass; P4-C04 is ready to commit.\
 **Last updated:** 2026-11-01.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4).\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
@@ -92,6 +92,8 @@ The fourth click stays disabled. Removing one peer leaves the others. Removal, h
 
 The pulse is tuned so a remote stage tile crosses the existing `0.08` level. Do not change that threshold. Mute the host microphone during the check if the host mic would otherwise hold the Speaking label.
 
+**Pulse tuning (2026-11-01):** The initial gain `0.18` did not yield a Speaking label during the first full three-demo browser check. The gain is now `0.24`, and the three names offset their first pulse by 0, 1.1, and 2.2 seconds so simultaneous starts do not compete throughout the 300 ms speaker hold. Each peer still pulses every four seconds. The active-speaker threshold stays `0.08`.
+
 ### 5.3 Drawer
 
 The drawer is closed until the host opens **Connection stats**. It lists one row for each remote connection in the host's `PeerManager`, labeled with that participant's display name. Each row shows the fields from Section 5.1, using `—` for null. An empty list says the stage has no remote connections yet. Opening the drawer does not create a peer connection.
@@ -100,14 +102,14 @@ Roster rows with `isSyntheticBot` include the word `Demo`.
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                           | Method                                 | Status                                        |
-| ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------- |
-| P4-A01 | Bitrate, loss, frame rate, and ICE type follow Section 5.1, including a zero interval and zero packets                      | `pnpm --filter @stageflow/shared test` | verified (2026-11-01; 92 shared tests passed) |
-| P4-A02 | Name selection returns the first free demo name and null after three                                                        | Shared test                            | verified (2026-11-01; 95 shared tests passed) |
-| P4-A03 | Three meeting demo peers appear as tiles and as stage members. Stats update for each. One pulse moves Speaking to that peer | Browser                                | planned                                       |
-| P4-A04 | The fourth spawn stays disabled. A full meeting rejects another demo join without a new roster row                          | Browser                                | planned                                       |
-| P4-A05 | A webinar demo peer is an attendee, has no tile, and is not promoted                                                        | Browser                                | planned                                       |
-| P4-A06 | Removing the demo peers stops their tracks and frames. The host leaving still ends the host camera track                    | Browser                                | planned                                       |
+| ID     | Observable result                                                                                                           | Method                                 | Status                                                                                   |
+| ------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| P4-A01 | Bitrate, loss, frame rate, and ICE type follow Section 5.1, including a zero interval and zero packets                      | `pnpm --filter @stageflow/shared test` | verified (2026-11-01; 92 shared tests passed)                                            |
+| P4-A02 | Name selection returns the first free demo name and null after three                                                        | Shared test                            | verified (2026-11-01; 95 shared tests passed)                                            |
+| P4-A03 | Three meeting demo peers appear as tiles and as stage members. Stats update for each. One pulse moves Speaking to that peer | Browser                                | verified (2026-11-01; Chrome, synthetic host devices)                                    |
+| P4-A04 | The fourth spawn stays disabled. A full meeting rejects another demo join without a new roster row                          | Browser                                | verified (2026-11-01; disabled fourth spawn and real full-stage rejection)               |
+| P4-A05 | A webinar demo peer is an attendee, has no tile, and is not promoted                                                        | Browser                                | verified (2026-11-01; attendee with no connection or remote tile)                        |
+| P4-A06 | Removing the demo peers stops their tracks and frames. The host leaving still ends the host camera track                    | Browser                                | verified (2026-11-01; remove, leave, navigation, disconnect, room end and pending start) |
 
 DEMO-01 is A03 and A05. DEMO-02 is A01 and A03. RTC-05 for this phase is A06.
 
@@ -144,5 +146,7 @@ A demo-peer file that matches `getUserMedia` or `getDisplayMedia` fails the chec
 ## 9. Exit and handoff
 
 Phase 4 is done when A01–A06 are verified and each slice has been committed under master Section 1.4. This is the early portfolio gate: one machine, three demo peers, four tiles, and the stats drawer.
+
+**Verification record (2026-11-01):** All six acceptance checks passed. Chrome ran the real peer mesh and generated demo media with fake host camera/microphone devices. Removal, direct host leave, navigation, transport disconnect, room end, and cancellation during guest creation released the owned resources. Shared tests (95), web tests (23), typecheck, lint, and the production web build passed. Detailed browser observations and the resolved pulse/cache failures are recorded in P4-C04 of the guide. Phase 3's physical-device and native-picker observations remain pending in their original record.
 
 Phase 5 may rely on demo attendees appearing in the roster with `isSyntheticBot: true`, and on a stage demo peer already having a peer connection. Promotion UI is still absent. Do not write `plans/phase5.md` until that work starts.

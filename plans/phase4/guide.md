@@ -1,6 +1,6 @@
 # Guide 4 — Phase 4, commit by commit
 
-**Status:** in progress. P4-C01 and P4-C02 are committed; P4-C03 is verified; P4-C04 is not implemented.\
+**Status:** in progress. P4-C01 through P4-C03 are committed; P4-C04 is verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
@@ -124,9 +124,9 @@ Two independent Chrome contexts with fake camera/microphone devices joined a rea
 
 ## 4. P4-C03 — One independent demo peer
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-bots): negotiate a demo peer on its own socket`\
-**Actual commit:**
+**Actual commit:** `61618c7b01c432317d6347185cc800fef1bedc74`
 
 **Why:** A demo peer has to negotiate without replacing the host session. Covers P4-A02 and the connection split in phase Section 5.2.
 
@@ -169,7 +169,7 @@ Confirm by reading the host factory that spawning is not wired yet and that `ope
 
 ## 5. P4-C04 — Spawn and remove
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-bots): spawn and remove up to three demo peers`\
 **Actual commit:**
 
@@ -181,6 +181,7 @@ Confirm by reading the host factory that spawning is not wired yet and that `ope
 
 - `apps/web/src/pages/RoomPage.tsx`
 - `apps/web/src/live/demo-peer.ts`
+- `apps/web/src/live/stage-grid.tsx`
 - `apps/web/src/index.css`
 - `README.md`
 
@@ -215,6 +216,14 @@ In one browser, as the host of a new meeting:
 6. Create a webinar, join as host, and spawn one demo peer. It is an attendee, the word Demo is visible, and it has no video tile.
 
 Record any failed step. A still screenshot does not verify A03–A06.
+
+**Verification result (2026-11-01):** Workspace typecheck and lint, shared tests (95), web tests (23), and the production web build passed. The demo engine capture search printed nothing. The production build reports a large-chunk advisory; it completed successfully.
+
+Chrome with a fake host camera/microphone and real canvas/audio demo sources verified P4-A03 through P4-A06. Three demos produced four tiles, three Demo speaker rows, and twelve connected peer-connection endpoints for the six mesh edges. The host retained its original socket identity and guest session, and only its two original device-capture calls ran. Each stats row showed numeric bitrate/frame rate and ICE type `host`. With the host muted, a demo pulse won Speaking. The fourth spawn stayed disabled. A separate human filled the last slot while only two demos were managed; clicking Spawn showed the server's `stage_full` message without a new row or retained failed-source resources. Removing one demo preserved the others; a later spawn reused the first free name.
+
+Remove stopped all demo video/audio tracks, oscillators, audio contexts, and canvas frame counters while preserving the host tracks. Host leave with demos still active stopped all sources, peer connections, contexts, and the stats timer. Navigation, unexpected host transport closure, and a real `room:ended` event independently exercised that cleanup. Removing during a held guest-creation request prevented a late socket or source; a fresh spawn then succeeded. A webinar demo remained an attendee with a Demo badge, no remote tile, and no peer connection. Inspected meeting and webinar screenshots confirm the layouts; demo video uses contain sizing to keep its full name, role, level bar, and frame count visible.
+
+**Resolved verification failures:** The first run used a stale Vite shared-package dependency cache; restarting with `--force` loaded the new export. The initial pulse gain `0.18` failed the Speaking check. Gain `0.24` plus per-name pulse offsets passed; phase Section 5.2 records the tuning and keeps the `0.08` threshold. Phase 3 physical-device/native-picker observations remain separate and unverified.
 
 **Done when:** P4-A01 through P4-A06 are verified and the slice is committed.
 

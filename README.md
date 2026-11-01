@@ -2,7 +2,7 @@
 
 StageFlow is a bounded stage you can demo alone, with the negotiation, the stats, and the broadcast limits made explicit.
 
-Phase 3 connects people on stage with a WebRTC mesh. Two browsers can see and hear each other, share a screen, return to the camera, and leave. Meeting participants and webinar hosts choose devices in the green room before joining. A meeting has at most four stage members, counting the host. Webinar attendees join without device prompts, can raise a hand, and have no peer connection or stage video. Broadcast is not implemented yet.
+Phase 4 adds three demo peers and live connection stats to the WebRTC stage. One browser can run a four-person meeting with real peer connections, canvas video, and pulsing generated audio. People on stage can also share a screen, return to the camera, and leave. Meeting participants and webinar hosts choose devices in the green room before joining. A meeting has at most four stage members, counting the host. Webinar attendees join without device prompts, can raise a hand, and have no peer connection or stage video. Broadcast is not implemented yet.
 
 Use Node 22.22.1 or newer (`.nvmrc` selects Node 22), pnpm, and Docker Desktop with Linux containers. Postgres 16 uses port 5432, database/user/password `stageflow`, and a named data volume. Redis 7 uses port 6379. Both Compose services have health checks.
 
@@ -39,7 +39,16 @@ Open `http://localhost:5173` in current desktop Chrome or Edge. Vite loads the r
 
 The required environment values are `JWT_SECRET` (at least 16 characters), `DATABASE_URL`, `REDIS_URL`, and `CORS_ORIGIN`. Set `VITE_API_BASE_URL=http://localhost:4000/api`, `VITE_WS_URL=http://localhost:4000`, and `CORS_ORIGIN=http://localhost:5173` for the default setup. Restart the relevant dev server after changing environment values. `STUN_URL` supplies an ICE server; a missing or blank value produces an empty list. A nonblank `TURN_URL` adds TURN with `TURN_USERNAME` and `TURN_CREDENTIAL`. Each stage peer connection uses the ICE servers returned by the API.
 
-To try the meeting in two independent browser windows:
+To try the meeting on one machine in one browser:
+
+1. Enter a display name, create a **meeting**, enable camera and microphone in the green room, and join.
+2. Click **Spawn demo peer** three times. Each demo has its own guest session, socket, canvas camera, and generated microphone. Four tiles appear, and the three demo roster rows have a **Demo** badge. Spawning never requests another device. The button disables while a start is in progress and after three demos. Humans and demos share the same four-person stage cap; a full-stage rejection shows the server message and cleans up the failed demo.
+3. Open **Connection stats**. Each remote connection has a row with outbound/inbound bitrate, packet loss, jitter, round-trip time, frame rate, and local ICE type. Stats update once per second; missing values display `—`. The first sample has no rates. ICE type `host` is normal on one machine.
+4. Mute your microphone. Each demo emits a short tone every four seconds; a demo's pulse can take the **Speaking** label. If the browser blocks playback, click **Play stage audio and video** in its tile.
+5. Click **Remove demo peers**. Their tiles disappear and their tracks, canvas frames, tones, and audio contexts stop. Your camera stays available, and you can spawn again. Leaving, navigating away, room end, or a host disconnect also removes the demos. Leaving stops your camera and microphone too.
+6. Create a **webinar**, join as host, and spawn a demo. It stays an attendee with a **Demo** badge, no video tile, and no peer connection. Spawning does not promote it; there are no promotion or demo screen-share controls.
+
+For a meeting with two independent browser windows:
 
 1. As Ava, create a meeting. Click **Enable camera and microphone**, allow both permissions, and check the preview and moving microphone meter. Select the camera, microphone, and speaker before joining. Browsers without speaker selection use their default output. A permission error names the failed device and keeps join disabled.
 2. Join the live room. In a second independent window, open the home page, enter Sam and the room slug, enable devices, and join. Each sees the other's camera and hears remote audio; the local tile stays muted. If playback is blocked, click **Play stage audio and video**. Both rosters show Ava as `HOST` and Sam as `SPEAKER`. The host must join a meeting first; a fifth stage member is rejected.
@@ -55,6 +64,6 @@ The four HTTP routes remain `POST /api/sessions/guest`, `POST /api/rooms`, `GET 
 
 Live presence is server-owned Redis state. Lua enforces stage limits, roles, media flags, and hands atomically; snapshots carry increasing revisions. On startup the API pings Redis and refuses to listen if it is unavailable, then scans and deletes `sf:room:*` only. Catalog rooms and `sf:itest:*` keys stay intact. Host leave/disconnect ends the catalog room and removes its live keys. API process shutdown drops presence without ending catalog rooms. Socket resume is deliberately absent.
 
-The existing migration creates `users` and `rooms`. Schema synchronization and startup migrations are disabled; Phase 3 adds no migration. Accounts, media-file storage, moderation controls, demo peers, connection statistics, and broadcasts remain outside this build.
+The existing migration creates `users` and `rooms`. Schema synchronization and startup migrations are disabled; Phases 3 and 4 add no migration. Accounts, media-file storage, moderation controls, and broadcasts remain outside this build.
 
-Production builds are `pnpm --filter @stageflow/api build` and `pnpm --filter @stageflow/web build`. The API build copies its Lua assets beside compiled code. Shared and API use CommonJS; web uses Vite and ES modules. Verification and acceptance records, including physical-device checks still awaiting observation, live in the [phase contract](plans/phase3.md) and [execution guide](plans/phase3/guide.md).
+Production builds are `pnpm --filter @stageflow/api build` and `pnpm --filter @stageflow/web build`. The API build copies its Lua assets beside compiled code. Shared and API use CommonJS; web uses Vite and ES modules. After changing shared exports during development, run `pnpm --filter @stageflow/shared build` and restart Vite with `pnpm --filter @stageflow/web dev --force` to refresh its dependency cache. Phase 4 verification and acceptance records live in the [phase contract](plans/phase4.md) and [execution guide](plans/phase4/guide.md). Physical-device and native screen-picker observations still awaiting verification are recorded separately in the [Phase 3 contract](plans/phase3.md) and [guide](plans/phase3/guide.md).
