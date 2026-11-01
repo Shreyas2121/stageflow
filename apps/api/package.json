@@ -11,12 +11,14 @@
     "@nestjs/platform-express": "^11.2.8",
     "@nestjs/typeorm": "^12.0.2",
     "@stageflow/shared": "workspace:*",
+    "ioredis": "^6.0.0",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "typeorm": "^1.1.2"
   },
   "scripts": {
+    "test": "dotenv -e ../../.env -- vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "dev": "dotenv -e ../../.env -- nest start --watch",
@@ -28,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.5",
     "dotenv-cli": "^11.1.0",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "vitest": "5.0.5"
   }
 }

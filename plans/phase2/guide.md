@@ -1,6 +1,6 @@
 # Guide 2 — Phase 2, commit by commit
 
-**Status:** in progress. P2-C01 verified; P2-C02 through P2-C04 are not implemented.\
+**Status:** in progress. P2-C01 committed; P2-C02 verified; P2-C03 and P2-C04 are not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -40,9 +40,9 @@ Do not construct `RTCPeerConnection`, call `getDisplayMedia`, or register promot
 
 ## 2. P2-C01 — Stage transition rules
 
-**Status:** planned\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): add stage join and moderation rules`\
-**Actual commit:**
+**Actual commit:** `ef4e04bd3501d58536c581f74938f5e109552303`
 
 **Why:** Join caps and roles have to be true in a function before Redis copies them. Covers P2-A01.
 
@@ -90,7 +90,7 @@ pnpm lint
 
 ## 3. P2-C02 — Lua scripts and the Redis integration test
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-redis): apply stage changes with Lua scripts`\
 **Actual commit:**
 
@@ -105,6 +105,8 @@ pnpm lint
 - `apps/api/src/live/live.integration.test.ts`
 - `apps/api/package.json`
 - `apps/api/vitest.config.ts`
+- `apps/api/nest-cli.json` to copy Lua assets into the build
+- `pnpm-lock.yaml`
 
 **Implementation:**
 
@@ -125,6 +127,8 @@ pnpm lint
 ```
 
 **Done when:** P2-A02 passes against the Compose Redis and the slice is committed.
+
+**Verification result (2026-11-01):** Compose PostgreSQL and Redis are healthy. All 56 shared tests and all 19 API integration tests passed. Every sequential Lua result matched the pure transition function, including rejection/no-op revision behavior and canonical ordering. Additional checks covered TTL refresh, no broadcast key, concurrent joins/promotions into the fourth slot, and concurrent independent media patches. Missing `REDIS_URL` and an unreachable Redis each failed the suite as required. Workspace typecheck and lint passed. API build passed, and the compiled repository loaded all eight Lua assets. No forbidden media API references were found in app/package source. P2-A02 verified. No gateway or startup Redis connection was added.
 
 **Handoff:** Scripts are callable, and no gateway is listening. Startup does not connect to Redis yet.
 
