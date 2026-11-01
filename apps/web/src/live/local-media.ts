@@ -1,23 +1,31 @@
+import { routeAudioOutput, type OutputRouteResult } from './output-route';
+
 export type DeviceChoices = { cameraId: string; microphoneId: string };
+
+const METER_INTERVAL_MS = 100;
 
 export class LocalMedia {
   private streams: MediaStream[] = [];
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  private frame: number | null = null;
+  private meterTimer: ReturnType<typeof setTimeout> | null = null;
+  private meterGeneration = 0;
   private preview: HTMLVideoElement | null = null;
+  private levelListener: ((level: number) => void) | null = null;
   private generation = 0;
   private screen: MediaStream | null = null;
   private screenGeneration = 0;
 
-  async prepare(
-    video: HTMLVideoElement,
-    choices: DeviceChoices,
-    onLevel: (level: number) => void,
-  ): Promise<boolean> {
+  setLevelListener(listener: ((level: number) => void) | null): void {
+    this.levelListener = listener;
+  }
+
+  async prepare(video: HTMLVideoElement, choices: DeviceChoices): Promise<boolean> {
+    this.levelListener?.(0);
     this.stop();
     const generation = this.generation;
     this.preview = video;
+    const stale = () => generation !== this.generation;
     try {
       for (const kind of ['camera', 'microphone'] as const) {
         const id = kind === 'camera' ? choices.cameraId : choices.microphoneId;
@@ -36,8 +44,7 @@ export class LocalMedia {
             `Unable to use your ${kind}. Allow ${kind} permission and check the selected device, then try again.`,
           );
         }
-        // Permission prompts may finish after navigation or another device selection.
-        if (generation !== this.generation) {
+        if (stale()) {
           stream.getTracks().forEach((track) => track.stop());
           return false;
         }
@@ -47,28 +54,34 @@ export class LocalMedia {
       const microphone = this.streams[1]!;
       video.srcObject = camera;
       await video.play();
-      if (generation !== this.generation) return false;
-      this.context = new AudioContext();
-      this.source = this.context.createMediaStreamSource(microphone);
-      const analyser = this.context.createAnalyser();
+      if (stale()) return false;
+      const context = new AudioContext();
+      this.context = context;
+      this.source = context.createMediaStreamSource(microphone);
+      const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       this.source.connect(analyser);
-      await this.context.resume();
-      if (generation !== this.generation) return false;
+      await context.resume();
+      if (stale()) {
+        this.discardContext(context);
+        return false;
+      }
       const samples = new Float32Array(analyser.fftSize);
-      const meter = () => {
-        if (generation !== this.generation) return;
+      const meterGeneration = ++this.meterGeneration;
+      const tick = () => {
+        if (meterGeneration !== this.meterGeneration) return;
         analyser.getFloatTimeDomainData(samples);
         const rms = Math.sqrt(
           samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length,
         );
-        onLevel(Math.min(1, rms * 4));
-        this.frame = requestAnimationFrame(meter);
+        this.levelListener?.(Math.min(1, rms * 4));
+        if (meterGeneration !== this.meterGeneration) return;
+        this.meterTimer = setTimeout(tick, METER_INTERVAL_MS);
       };
-      meter();
+      tick();
       return true;
     } catch (error) {
-      if (generation !== this.generation) return false;
+      if (stale()) return false;
       this.stop();
       throw error;
     }
@@ -143,26 +156,48 @@ export class LocalMedia {
     this.screen = null;
   }
 
-  async setSpeaker(deviceId: string): Promise<boolean> {
-    const preview = this.preview as
-      (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
-    if (!preview?.setSinkId) return false;
-    if (preview.sinkId !== deviceId) await preview.setSinkId(deviceId);
-    return true;
+  async setSpeaker(deviceId: string): Promise<OutputRouteResult> {
+    if (!this.preview) return { ok: true, supported: false, deviceId: '', message: '' };
+    return routeAudioOutput(this.preview, deviceId);
+  }
+
+  releaseLobby(): void {
+    this.detachPreview();
+    this.stopMeter();
   }
 
   stop(): void {
     this.generation += 1;
     this.stopScreenShare();
-    if (this.frame !== null) cancelAnimationFrame(this.frame);
-    this.frame = null;
+    this.releaseLobby();
+    for (const stream of this.streams) stream.getTracks().forEach((track) => track.stop());
+    this.streams = [];
+  }
+
+  private discardContext(context: AudioContext): void {
+    if (this.context === context) {
+      this.source?.disconnect();
+      this.source = null;
+      this.context = null;
+    }
+    void context.close().catch(() => undefined);
+  }
+
+  private stopMeter(): void {
+    this.meterGeneration += 1;
+    if (this.meterTimer !== null) clearTimeout(this.meterTimer);
+    this.meterTimer = null;
     this.source?.disconnect();
     this.source = null;
     if (this.context) void this.context.close().catch(() => undefined);
     this.context = null;
-    for (const stream of this.streams) stream.getTracks().forEach((track) => track.stop());
-    this.streams = [];
-    if (this.preview) this.preview.srcObject = null;
+  }
+
+  private detachPreview(): void {
+    const preview = this.preview;
     this.preview = null;
+    if (!preview) return;
+    preview.pause();
+    preview.srcObject = null;
   }
 }

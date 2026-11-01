@@ -120,6 +120,25 @@ function RoomContents({ room, session }: { room: RoomResponse; session: GuestSes
   );
 }
 
+function MicrophoneMeter({ media }: { media: LocalMedia }) {
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    media.setLevelListener(setLevel);
+    return () => {
+      media.setLevelListener(null);
+      media.releaseLobby();
+    };
+  }, [media]);
+  return (
+    <>
+      <label className="meter-label" htmlFor="microphone-level">
+        Microphone level
+      </label>
+      <meter id="microphone-level" min={0} max={1} value={level} aria-label="Microphone level" />
+    </>
+  );
+}
+
 function LiveRoom({
   room,
   session,
@@ -144,7 +163,7 @@ function LiveRoom({
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [level, setLevel] = useState(0);
+  const [speakerError, setSpeakerError] = useState('');
   const [choices, setChoices] = useState<DeviceChoices>({ cameraId: '', microphoneId: '' });
   const [speakerId, setSpeakerId] = useState('');
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -238,7 +257,6 @@ function LiveRoom({
     setSharing(false);
     setPeerManager(null);
     setReady(false);
-    setLevel(0);
     setBusy(false);
   }
 
@@ -296,18 +314,26 @@ function LiveRoom({
     setBusy(true);
     setReady(false);
     setError('');
-    setLevel(0);
+    setSpeakerError('');
     setChoices(nextChoices);
     try {
-      const prepared = await media.prepare(video, nextChoices, setLevel);
+      const prepared = await media.prepare(video, nextChoices);
       if (current !== operation.current || !prepared) return;
       setDevices(await navigator.mediaDevices.enumerateDevices());
       if (current !== operation.current) return;
-      setSinkSupported(await media.setSpeaker(speakerId));
+      const route = await media.setSpeaker(speakerId);
+      if (current !== operation.current) return;
+      setSinkSupported(route.supported);
+      if (route.ok) setSpeakerId(route.deviceId);
+      else {
+        setSpeakerId('');
+        setSpeakerError(route.message);
+      }
       setReady(media.ready);
     } catch (failure) {
       if (current === operation.current) {
         media.stop();
+        setReady(false);
         setError(failure instanceof Error ? failure.message : 'Unable to prepare your devices.');
       }
     } finally {
@@ -355,7 +381,7 @@ function LiveRoom({
           stopMedia();
           onEnded();
         }
-      }
+      } else media.releaseLobby();
     } catch (failure) {
       if (active && connection.current !== active) return;
       active?.close();
@@ -548,16 +574,7 @@ function LiveRoom({
               )}
               <span className="preview-name">{session.displayName} · You</span>
             </div>
-            <label className="meter-label" htmlFor="microphone-level">
-              Microphone level
-            </label>
-            <meter
-              id="microphone-level"
-              min={0}
-              max={1}
-              value={level}
-              aria-label="Microphone level"
-            />
+            <MicrophoneMeter media={media} />
           </div>
         )}
         {!joined && (
@@ -625,12 +642,16 @@ function LiveRoom({
                     disabled={!sinkSupported}
                     onChange={(event) => {
                       const id = event.target.value;
-                      setSpeakerId(id);
-                      void media
-                        .setSpeaker(id)
-                        .catch(() =>
-                          setError('Unable to select that speaker. Try another output.'),
-                        );
+                      void media.setSpeaker(id).then((result) => {
+                        setSinkSupported(result.supported);
+                        if (result.ok) {
+                          setSpeakerId(result.deviceId);
+                          setSpeakerError('');
+                        } else {
+                          setSpeakerId('');
+                          setSpeakerError(result.message);
+                        }
+                      });
                     }}
                   >
                     <option value="">System default</option>
@@ -645,6 +666,11 @@ function LiveRoom({
                   </select>
                   {!sinkSupported && (
                     <p className="field-hint">This browser uses the default speaker output.</p>
+                  )}
+                  {speakerError && (
+                    <p className="error-message" role="alert">
+                      {speakerError}
+                    </p>
                   )}
                 </fieldset>
               </>

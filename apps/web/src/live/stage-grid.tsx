@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 import type { PeerManager, RemoteStreams } from './peer-manager';
+import { routeAudioOutput } from './output-route';
 
 export function StageGrid({
   snapshot,
@@ -65,7 +66,8 @@ function StageTile({
   speaking: boolean;
 }) {
   const video = useRef<HTMLVideoElement>(null);
-  const [blocked, setBlocked] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [outputError, setOutputError] = useState<string | null>(null);
   useEffect(() => {
     const element = video.current;
     if (!element) return;
@@ -76,10 +78,10 @@ function StageTile({
       void element
         .play()
         .then(() => {
-          if (active) setBlocked(false);
+          if (active) setAutoplayBlocked(false);
         })
         .catch(() => {
-          if (active) setBlocked(true);
+          if (active) setAutoplayBlocked(true);
         });
     return () => {
       active = false;
@@ -88,10 +90,34 @@ function StageTile({
   }, [stream, manager]);
   useEffect(() => {
     const element = video.current;
-    if (!local && element && 'setSinkId' in element) {
-      void element.setSinkId(speakerId).catch(() => setBlocked(true));
-    }
+    if (local || !element || !('setSinkId' in element)) return;
+    let active = true;
+    void routeAudioOutput(element, speakerId).then((result) => {
+      if (!active) return;
+      setOutputError(result.ok ? null : result.message);
+    });
+    return () => {
+      active = false;
+    };
   }, [local, speakerId]);
+  async function retryBlockedPlayback() {
+    const element = video.current;
+    if (!element) return;
+    if (outputError) {
+      const result = await routeAudioOutput(element, speakerId);
+      if (!result.ok) {
+        setOutputError(result.message);
+        return;
+      }
+      setOutputError(null);
+    }
+    try {
+      await element.play();
+      setAutoplayBlocked(false);
+    } catch {
+      setAutoplayBlocked(true);
+    }
+  }
   return (
     <article
       className={`stage-tile${local ? ' stage-local' : ''}${person.isSyntheticBot ? ' stage-demo' : ''}${large ? ' stage-large' : ''}${person.isScreenSharing ? ' stage-screen' : ''}${speaking ? ' stage-speaking' : ''}`}
@@ -118,19 +144,15 @@ function StageTile({
         <span>{person.isAudioMuted ? 'Muted' : 'Mic on'}</span>
       </div>
       {speaking && <span className="stage-speaking-label">Speaking</span>}
-      {blocked && (
+      {(autoplayBlocked || outputError) && (
         <button
           className="button button-secondary stage-play"
-          onClick={() => {
-            void video.current
-              ?.play()
-              .then(() => setBlocked(false))
-              .catch(() => setBlocked(true));
-          }}
+          onClick={() => void retryBlockedPlayback()}
         >
-          Play stage audio and video
+          {outputError ? 'Retry speaker output' : 'Play stage audio and video'}
         </button>
       )}
+      {outputError && <p className="error-message">{outputError}</p>}
     </article>
   );
 }

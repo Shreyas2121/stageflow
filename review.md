@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C07 are recorded below; C08 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C08 are recorded below; C09 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -664,8 +664,8 @@ The outage smoke used an injected Redis client. No API server was started, no sh
 
 ### C07 — `fix(webrtc): bind queued ICE candidates to accepted descriptions`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `bb118da456e1de9ab385e0d251dd1f7cc4659363`
 
 **Depends on:** C03. **Addresses:** F02.
 
@@ -685,6 +685,9 @@ Shared tests (119), web tests (33), and API tests (41) passed. Shared, web, and 
 
 ### C08 — `fix(web-media): release lobby analysis without stopping call tracks`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C07. **Addresses:** F05/F06.
 
 **Files:** `apps/web/src/live/local-media.ts`, `local-media.test.ts`, `stage-grid.tsx`, `pages/RoomPage.tsx`; add a small output-routing helper/test if needed.
@@ -692,6 +695,12 @@ Shared tests (119), web tests (33), and API tests (41) passed. Shared, web, and 
 Provide separate preview/meter detach and full capture stop. Stop hidden lobby rendering work after join. Handle output selection rejection with default fallback and a distinct routing error. Keep join ready after capture succeeds, and make the visible retry perform the failed operation. Cover concurrent prepare/cancel and all cleanup paths.
 
 **Verify/done:** no meter callbacks/detached preview playback after join, local tracks remain live until leave, sink failure does not disable join, share/leave cleanup tests pass; browser/device checks recorded with physical limitations explicit.
+
+**Implementation/verification record (2026-11-01):** `releaseLobby()` pauses the green-room preview, closes its meter `AudioContext`, and cancels the meter. `stop()` still ends the camera, microphone, and screen. The meter publishes at 100ms into a lobby-only component, so those updates do not rerender the room. A successful join releases the lobby immediately. Capture stays live until leave, disconnect, or room end.
+
+Speaker selection goes through `routeAudioOutput`. A browser without `setSinkId` stays on the default output and can still join. A rejected `setSinkId` restores the default output, reports that speaker error, and does not stop capture or clear join readiness. The stage retry button retries speaker routing when routing failed, and calls `play()` when playback was blocked. The selected speaker is stored only after routing succeeds.
+
+Web tests (41), web lint, and web typecheck passed. Share and leave cleanup tests passed with the new lobby tests. Headless Chrome, using a fake camera and microphone, showed a running meter and an enabled join button. After join the preview and meter were gone, the lobby audio context was closed, the lobby analyser stopped, both tracks stayed live, and the stage was visible. Leave ended both tracks. Active-speaker analysis continued on its own context. This Chrome exposes `setSinkId`, so the default-output hint stayed hidden, and no second physical speaker was selected or rejected in the browser. The rejected-speaker path is covered by the routing tests. Physical cameras, microphones, and speakers were not used. Redis had no `sf:room:*` keys before this single API process started, and none remained after leave. No second API was started. C08 carries C07's post-commit hash. Record C08's actual hash after commit for the next requested slice.
 
 ### C09 — `refactor(web-live): separate room orchestration from route components`
 

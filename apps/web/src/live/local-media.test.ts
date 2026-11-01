@@ -67,9 +67,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function preview() {
+  return {
+    srcObject: null as MediaStream | null,
+    pause: vi.fn(),
+    play: vi.fn(async () => undefined),
+  } as unknown as HTMLVideoElement & { pause: ReturnType<typeof vi.fn> };
+}
 async function prepare() {
-  const video = { srcObject: null, play: async () => undefined } as unknown as HTMLVideoElement;
-  await media.prepare(video, { cameraId: '', microphoneId: '' }, () => undefined);
+  await media.prepare(preview(), { cameraId: '', microphoneId: '' });
 }
 
 describe('LocalMedia screen sharing', () => {
@@ -133,5 +139,119 @@ describe('LocalMedia screen sharing', () => {
     await expect(pending).rejects.toThrow('ended before it could start');
     expect(screen.readyState).toBe('ended');
     expect(media.screenTrack()).toBeNull();
+  });
+});
+
+describe('LocalMedia lobby capture', () => {
+  it('stops the meter and preview after join and keeps the call tracks live until leave', async () => {
+    vi.useFakeTimers();
+    try {
+      const levels: number[] = [];
+      const contexts: { close: ReturnType<typeof vi.fn> }[] = [];
+      vi.stubGlobal(
+        'AudioContext',
+        class {
+          close = vi.fn(() => Promise.resolve());
+          constructor() {
+            contexts.push(this);
+          }
+          createMediaStreamSource() {
+            return { connect: vi.fn(), disconnect: vi.fn() };
+          }
+          createAnalyser() {
+            return {
+              fftSize: 256,
+              getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0.25),
+            };
+          }
+          resume() {
+            return Promise.resolve();
+          }
+        },
+      );
+      media.setLevelListener((level) => levels.push(level));
+      const video = preview();
+      await media.prepare(video, { cameraId: '', microphoneId: '' });
+      expect(levels[0]).toBe(0);
+      expect(levels.at(-1)).toBeGreaterThan(0);
+      await vi.advanceTimersByTimeAsync(100);
+      const published = levels.length;
+      expect(published).toBeGreaterThan(1);
+      media.releaseLobby();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(levels).toHaveLength(published);
+      expect(video.pause).toHaveBeenCalled();
+      expect(video.srcObject).toBeNull();
+      expect(contexts[0]?.close).toHaveBeenCalled();
+      expect(media.ready).toBe(true);
+      expect(camera.readyState).toBe('live');
+      expect(microphone.readyState).toBe('live');
+      media.stop();
+      expect(camera.readyState).toBe('ended');
+      expect(microphone.readyState).toBe('ended');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps capture ready when the selected speaker is rejected', async () => {
+    const video = preview();
+    const setSinkId = vi.fn(async (id: string) => {
+      if (id === 'missing') throw new Error('device not found');
+    });
+    Object.assign(video, { setSinkId, sinkId: '' });
+    await media.prepare(video, { cameraId: '', microphoneId: '' });
+    const result = await media.setSpeaker('missing');
+    expect(result.ok).toBe(false);
+    expect(result.deviceId).toBe('');
+    expect(result.message).toContain('device not found');
+    expect(media.ready).toBe(true);
+    expect(camera.readyState).toBe('live');
+    expect(microphone.readyState).toBe('live');
+  });
+
+  it('stops a capture that resolves after leave or a newer device selection', async () => {
+    const firstCamera = track('video');
+    const secondCamera = track('video');
+    let finishFirst: ((stream: MediaStream) => void) | undefined;
+    let calls = 0;
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(async (constraints) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((resolve) => {
+          finishFirst = resolve;
+        });
+      }
+      return stream([constraints?.video ? secondCamera : microphone]);
+    });
+    const video = preview();
+    const choices = { cameraId: '', microphoneId: '' };
+    const first = media.prepare(video, choices);
+    await vi.waitFor(() => expect(calls).toBe(1));
+    const second = media.prepare(video, choices);
+    finishFirst?.(stream([firstCamera]));
+    await expect(first).resolves.toBe(false);
+    await expect(second).resolves.toBe(true);
+    expect(firstCamera.readyState).toBe('ended');
+    expect(media.cameraTrack()).toBe(secondCamera);
+    expect(media.microphoneTrack()).toBe(microphone);
+
+    let finishLate: ((stream: MediaStream) => void) | undefined;
+    const lateMic = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(async (constraints) => {
+      if (constraints?.video) return stream([camera]);
+      return new Promise((resolve) => {
+        finishLate = resolve;
+      });
+    });
+    const pending = media.prepare(video, choices);
+    await vi.waitFor(() => expect(finishLate).toBeTypeOf('function'));
+    media.stop();
+    finishLate?.(stream([lateMic]));
+    await expect(pending).resolves.toBe(false);
+    expect(lateMic.readyState).toBe('ended');
+    expect(camera.readyState).toBe('ended');
+    expect(media.ready).toBe(false);
+    expect(media.previewStream()).toBeNull();
   });
 });
