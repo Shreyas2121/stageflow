@@ -10,6 +10,7 @@ import { useRoomStore } from '../live/room-store';
 import { PeerManager, type RemoteStreams } from '../live/peer-manager';
 import { StageGrid } from '../live/stage-grid';
 import { ActiveSpeaker } from '../live/active-speaker';
+import { StatsDrawer } from '../live/stats-drawer';
 
 export function RoomPage() {
   const { slug = '' } = useParams();
@@ -441,6 +442,11 @@ function LiveRoom({
             activeSocketId={activeSocketId}
           />
         )}
+      {self?.role === 'HOST' &&
+        snapshot &&
+        selfSocketId &&
+        snapshot.stageSocketIds.includes(selfSocketId) &&
+        peerManager && <StatsDrawer manager={peerManager} snapshot={snapshot} />}
       <div className={attendee || joined ? 'attendee-lobby' : 'lobby-grid'}>
         {!attendee && !joined && (
           <div className="preview-panel">

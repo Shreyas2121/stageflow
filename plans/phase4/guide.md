@@ -1,6 +1,6 @@
 # Guide 4 — Phase 4, commit by commit
 
-**Status:** in progress. P4-C01 is verified; P4-C02 through P4-C04 are not implemented.\
+**Status:** in progress. P4-C01 is committed; P4-C02 is verified; P4-C03 and P4-C04 are not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
@@ -38,9 +38,9 @@ Do not add promote buttons, FFmpeg, or a migration. Do not lower the active-spea
 
 ## 2. P4-C01 — Stat deltas
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): compute connection deltas from stat samples`\
-**Actual commit:**
+**Actual commit:** `2b8b0a08fa17e44801c87ca1f531f29badcdc24b`
 
 **Why:** The drawer needs rates that do not spike on the first sample or a zero interval. Covers P4-A01.
 
@@ -79,7 +79,7 @@ pnpm lint
 
 ## 3. P4-C02 — Stats drawer
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-hud): show a connection stats drawer`\
 **Actual commit:**
 
@@ -91,6 +91,7 @@ pnpm lint
 
 - `apps/web/src/live/peer-manager.ts`
 - `apps/web/src/live/stats-collector.ts`
+- `apps/web/src/live/stats-collector.test.ts`
 - `apps/web/src/live/stats-drawer.tsx`
 - `apps/web/src/pages/RoomPage.tsx`
 - `apps/web/src/index.css`
@@ -112,6 +113,10 @@ pnpm --filter @stageflow/web test
 ```
 
 With two browsers in one meeting, open the drawer and confirm one row shows numbers or `—`, including an ICE type. Then close it and leave. If a second browser is unavailable, leave this visual check for P4-C04 and say so.
+
+**Verification result (2026-11-01):** `pnpm typecheck`, `pnpm lint`, shared tests (92), and web tests (16, including seven collector tests) passed. Collector tests cover RTP-only sums, audio/video jitter preference, nominated candidate selection, null first-sample rates, one-second polling, removed connections, failed reads, overlapping requests, and cleanup with an in-flight report.
+
+Two independent Chrome contexts with fake camera/microphone devices joined a real meeting. The host drawer started closed, rendered the empty state before the guest joined, then displayed the guest's name and all seven metrics, including numeric bitrate/frame rate and ICE type `host`. Opening and closing the drawer did not create or replace a connection. The guest had no host drawer. Guest leave removed its row; host leave stopped the collector timer and further stats reads. Navigating away also stopped the timer. Captured tracks ended on both host cleanup paths. Screenshots were inspected. This verifies the P4-C02 browser check; P4-A03 through P4-A06 still await demo peers in P4-C04.
 
 **Done when:** The drawer renders collector output and the slice is committed.
 

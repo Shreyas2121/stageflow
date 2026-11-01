@@ -687,6 +687,56 @@ meter::-webkit-meter-optimum-value {
   font-size: 12px;
   font-weight: 600;
 }
+.stats-drawer {
+  min-width: 0;
+  margin-bottom: 28px;
+  border: 1px solid #343b3d;
+  border-radius: 8px;
+  background: #101417;
+}
+.stats-drawer summary {
+  cursor: pointer;
+  padding: 16px;
+  color: #c9e798;
+  font-size: 13px;
+  font-weight: 600;
+}
+.stats-drawer[open] summary {
+  border-bottom: 1px solid #343b3d;
+}
+.stats-empty {
+  margin: 0;
+  padding: 16px;
+}
+.stats-table-scroll {
+  overflow-x: auto;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-table th,
+.stats-table td {
+  padding: 14px 16px;
+  white-space: nowrap;
+}
+.stats-table thead th {
+  color: #a7afb2;
+  font-weight: 500;
+}
+.stats-table tbody th {
+  min-width: 120px;
+  max-width: 220px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.stats-table tbody tr {
+  border-top: 1px solid #343b3d;
+}
 button:disabled {
   cursor: not-allowed;
 }

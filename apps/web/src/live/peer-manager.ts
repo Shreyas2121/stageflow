@@ -20,6 +20,10 @@ type Peer = {
   work: Promise<void>;
 };
 export type RemoteStreams = ReadonlyMap<string, MediaStream>;
+export type PeerStatsSource = {
+  readonly socketId: string;
+  readonly getStats: () => Promise<RTCStatsReport>;
+};
 
 export class PeerManager {
   private peers = new Map<string, Peer>();
@@ -34,6 +38,13 @@ export class PeerManager {
 
   private changed(): void {
     this.publish(new Map([...this.peers].map(([id, peer]) => [id, peer.stream])));
+  }
+
+  statsConnections(): readonly PeerStatsSource[] {
+    return [...this.peers].map(([socketId, { pc }]) => ({
+      socketId,
+      getStats: () => pc.getStats(),
+    }));
   }
 
   private alive(id: string, peer: Peer): boolean {
