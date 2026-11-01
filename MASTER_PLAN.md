@@ -3,9 +3,11 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phase 3 implementation verified with automated test media; physical-device observations remain pending. Phases 1 and 2 are complete.\
-**Plan version:** `1.0.2`\
+**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; its prerequisite exception remains unresolved (Section 16).\
+**Plan version:** `1.0.3`\
 **Last revised:** 2026-11-01
+
+**Revision note (1.0.3):** Reconcile the completed Phase 4 implementation with the still-open Phase 3 physical acceptance and the unrecorded prerequisite exception. Adopt feature-local media services, affected checks, and behavioral service-regression tests for requested remediation in `review.md`. This documentation revision changes no media behavior and grants no phase-gate waiver. Section 16 records the pending product decision; earlier verification records retain their original scope.
 
 **Revision note (1.0.2):** Schedule the initial offer from the impolite endpoint of a new pair. Repeated Chromium tests exposed ICE transports staying in `new` after simultaneous initial offers and implicit rollback. Both endpoints attach their audio and video tracks before negotiation; subsequent negotiation and all incoming glare decisions still use the shared reducer. This changes initial-offer scheduling in Section 9.2 and preserves RTC-01 through RTC-05 and the mesh media path. Physical microphone, audible output, camera-indicator, and native screen-picker observations remain unverified in the Phase 3 acceptance record.
 
@@ -57,6 +59,8 @@ A verified slice with no commit is the first job of the next session. Do not sta
 ### 1.3 Change control
 
 Confirmed product decisions and the exclusions in Section 3 require an explicit product decision to change. A tuning value (bitrate, segment length, poll interval) may change inside its stated bound if the phase file records the old value, the new value, and the reason. Tuning does not add features.
+
+Requested maintenance slices in `review.md` Section 8 may proceed independently of outstanding physical observations or gate decisions. Each slice still requires its own verification and commit. The remediation plan does not authorize Phase 5/6 features or close earlier acceptance gaps.
 
 ## 2. Product promise
 
@@ -597,7 +601,8 @@ BullMQ is not used. One broadcast is one child process supervised by the API. A 
 - `strict: true`. No `any`. Use `unknown` and narrow it.
 - Shared enums and socket maps are the only wire contracts.
 - Nest gateways and controllers validate and call a service. Role and stage rules do not live in the gateway.
-- WebRTC, stats, canvas, and `MediaRecorder` live in `apps/web/src/services/`, not in components.
+- WebRTC, media capture, signaling, stats, canvas, and `MediaRecorder` belong to feature-local services. For existing live capabilities the destination is `apps/web/src/features/live/services/`, with adjacent `hooks/`, `components/`, and `stores/`. Existing `apps/web/src/live/` paths remain valid until remediation C09 moves them; do not scaffold future broadcast services during that move.
+- Services own mutable media handles and cleanup, and must not import components. Hooks adapt service state for rendering; stores hold session data and live snapshots, not peer connections, tracks, or audio contexts. Cross-feature imports use a small deliberate public surface; shared code stays free of React, Nest, and runtime browser/database dependencies.
 - Every media handle named in RTC-05 has a cleanup path in the same commit that creates it.
 - Do not add a dependency that exists only to draw the UI for a feature this plan excludes.
 
@@ -613,18 +618,18 @@ Empty `TURN_URL` is valid. Missing `JWT_SECRET`, `DATABASE_URL`, or `REDIS_URL` 
 
 ### 12.4 Suggested web ownership
 
-Exact filenames are fixed when the phase guide is written against the repo. The ownership is fixed now:
+Exact filenames are fixed when the phase guide is written against the repo. These names describe responsibilities, not a requirement to introduce every named store. Existing `LocalMedia` and other live services retain imperative media ownership; Section 12.2 fixes their destination when C09 moves them.
 
-| Area                 | Owns                                                     |
-| -------------------- | -------------------------------------------------------- |
-| `useSessionStore`    | Token, user id, display name                             |
-| `useMediaStore`      | Selected device ids, local stream, local mute intentions |
-| `useRoomStore`       | Last applied snapshot                                    |
-| `signalingClient`    | One typed socket for the human user                      |
-| `webrtcPeerManager`  | Peer map, negotiation, ICE queue, replaceTrack           |
-| `statsCollector`     | Poll loop and `deltaStats`                               |
-| `syntheticBotEngine` | Extra sockets, canvases, tones                           |
-| `stageRecorder`      | Compositor, mix, `MediaRecorder`, ordered upload         |
+| Area                 | Owns                                             |
+| -------------------- | ------------------------------------------------ |
+| `useSessionStore`    | Token, user id, display name                     |
+| Media UI state       | Selected device ids and local mute intentions    |
+| `useRoomStore`       | Last applied snapshot                            |
+| `signalingClient`    | One typed socket for the human user              |
+| `webrtcPeerManager`  | Peer map, negotiation, ICE queue, replaceTrack   |
+| `statsCollector`     | Poll loop and `deltaStats`                       |
+| `syntheticBotEngine` | Extra sockets, canvases, tones                   |
+| `stageRecorder`      | Compositor, mix, `MediaRecorder`, ordered upload |
 
 ## 13. UX map
 
@@ -646,7 +651,20 @@ Visual design stays quiet and dark, with readable type and visible focus. Do not
 
 ### 14.1 Every commit
 
-From the repo root, the phase guide names the exact commands. The minimum bar is typecheck and lint for the packages that commit touches, plus the pure tests that already exist. A commit that adds a pure function adds its tests in the same commit.
+From the repo root, the phase guide or requested remediation slice names the exact commands. Use affected checks while iterating:
+
+| Change                         | Required verification                                                                                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Documents only                 | Prettier on edited documents; validate local links, referenced Git hashes, and status claims. No application build unless code/config also changes                                    |
+| Web services or UI             | Build shared first, then web typecheck/lint and relevant existing tests plus service regressions. Changed media behavior also requires the relevant browser acceptance                |
+| API lifecycle                  | Build shared first, then API typecheck/lint and relevant service regressions. Lua or live-persistence changes also run real Redis integration tests                                   |
+| Shared contracts or algorithms | Shared build/typecheck/lint/tests, both dependent app checks, and affected consumer tests                                                                                             |
+| Dependencies or configuration  | Validate frozen installation and affected checks. Workspace tooling, root lint/config, and lockfile changes can affect every package; run both builds for workspace/toolchain changes |
+| Merge or release               | Full workspace typecheck/lint/tests/format, both builds, isolated Redis integration, artifact checks, and relevant recorded browser/media acceptance                                  |
+
+Until remediation C14 fixes task prerequisites, run `pnpm --filter @stageflow/shared build` explicitly before dependent checks. Affected selection is manual until the tooling/CI slices implement it; the table is policy, not a claim that those entry points exist. Docs-only checks cannot substitute for missing product acceptance. Full merge/release verification remains required after the selected remediation sequence.
+
+A commit that adds a pure function includes its tests. A bug fix includes a behavioral regression when it can be reproduced in a service or adapter; existing relevant tests remain part of the gate.
 
 ### 14.2 Pure tests worth writing
 
@@ -659,6 +677,10 @@ From the repo root, the phase guide names the exact commands. The minimum bar is
 | `buildHlsArgs`      | The locked codecs, sizes, and playlist flags. No argument slot is taken from a request body                                |
 
 Do not test component markup.
+
+Behavioral regression tests for parsing, lifecycle services, media adapters, concurrency, failure recovery, and shutdown orchestration are in scope. This includes Nest service behavior with controlled collaborators and browser media services with meaningful fakes; it does not change Section 3.2's exclusions for component, controller, or entity unit tests or a permanent Playwright suite. Keep tests beside their owning services and retain real Redis parity/concurrency coverage for atomic transitions.
+
+Use isolated dependencies and fixtures for destructive startup or failure injection. Do not start another API against developer live Redis, because startup clears presence; do not stop shared containers to simulate an outage. A fake proves its event sequence and assertions, not physical device behavior or browser ICE compatibility.
 
 ### 14.3 Redis
 
@@ -688,6 +710,12 @@ The argument builder test does not spawn FFmpeg. Phase 6's exit also runs one re
 ## 16. Delivery phases and exit gates
 
 Phases are dependency gates. Finish a playable meeting before building the webinar broadcast. Do not start Phase 5 while Phase 4's demo is broken.
+
+**Current delivery state (2026-11-01):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5/6 contracts and guides are not written, and their implementation has not started.
+
+**Outstanding Phase 3 observations:** P3-A03 physical microphone input and human audible output; P3-A05 native screen picker and browser stop control; P3-A06 physical camera indicator after leave. The recorded automated checks remain valid within their scope and do not verify these observations.
+
+**Prerequisite exception — pending product decision:** Phase 4 proceeded while those Phase 3 observations were open. The repository records no explicit product decision accepting that exception. Preserve the completed Phase 4 work and its evidence, but do not infer a waived Phase 3 exit or full Section 2.2 early demo gate from it. Before the next product phase, complete and record the observations or obtain and record an explicit product decision about the gate and remaining obligations here and in the affected phase contract. C01 documentation reconciliation does not make that decision. Independently requested maintenance can proceed under Section 1.3.
 
 ### Phase 1 — Foundation
 

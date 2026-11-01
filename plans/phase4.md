@@ -1,8 +1,8 @@
 # Phase 4 — Demo peers and stats
 
-**Status:** complete. All four slices are committed; P4-A01 through P4-A06 are verified.\
+**Status:** implementation complete. All four slices are committed; P4-A01 through P4-A06 are verified with synthetic host devices. The Phase 3 prerequisite exception remains unresolved (Section 2).\
 **Last updated:** 2026-11-01.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4).\
+**Master plan:** `MASTER_PLAN.md` version `1.0.3`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4); original execution used version `1.0.2`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** DEMO-01, DEMO-02, and RTC-05 after the demo peers are removed.
 
@@ -14,7 +14,9 @@ Example: Ava joins a meeting and clicks **Spawn demo peer** three times. The ros
 
 ## 2. Entry prerequisites
 
-Observed while writing this plan, on 2026-11-01:
+**Current prerequisite status (2026-11-01):** Phase 3 implementation is committed, but P3-A03 physical microphone/audible output, P3-A05 native picker/browser stop control, and P3-A06 physical camera-indicator observations remain open. Phase 4 proceeded without a recorded product decision accepting that exception. Master Section 16 records the decision as pending; Phase 4's own verified acceptance does not close Phase 3 or waive the prerequisite. Resolve that gate before the next product phase. Requested maintenance may proceed independently.
+
+Historical entry snapshot while writing this plan, on 2026-11-01 (the statements below describe that baseline):
 
 - Phase 3 slices are committed. `HEAD` is `2a68cf5` (`docs(phase3): record the final slice hash`). Physical microphone, audible output, camera-indicator, and native screen-picker observations are still pending in the Phase 3 record. Phase 4 does not close that record and does not repeat the screen-share picker check.
 - The worktree also has uncommitted root `package.json` and `pnpm-lock.yaml` edits that add Prettier, Husky, and lint-staged. Preserve them. Do not revert them, and do not include them in a Phase 4 slice unless that slice is the one that needs those files.
@@ -23,7 +25,7 @@ Observed while writing this plan, on 2026-11-01:
 - Join already accepts `isSyntheticBot` and stores it. Nothing in the web app sets it to true.
 - `createGuest` already mints a session from a display name.
 
-Recheck at execution. Git follows master Section 1.4.
+The entry snapshot is not a current worktree inventory. Tooling was subsequently committed in `ea31806`; all four Phase 4 slices are now committed. Git follows master Section 1.4, and current service ownership and affected checks follow Sections 12 and 14.
 
 ## 3. Included and excluded
 
@@ -145,8 +147,10 @@ A demo-peer file that matches `getUserMedia` or `getDisplayMedia` fails the chec
 
 ## 9. Exit and handoff
 
-Phase 4 is done when A01–A06 are verified and each slice has been committed under master Section 1.4. This is the early portfolio gate: one machine, three demo peers, four tiles, and the stats drawer.
+Phase 4's own acceptance is complete when A01–A06 are verified and each slice has been committed under master Section 1.4. The recorded checks demonstrate one machine, three demo peers, four tiles, and the stats drawer with test media. The full Section 2.2 early portfolio gate still carries the Phase 3 physical gaps and unresolved prerequisite exception described in Section 2.
 
 **Verification record (2026-11-01):** All six acceptance checks passed. Chrome ran the real peer mesh and generated demo media with fake host camera/microphone devices. Removal, direct host leave, navigation, transport disconnect, room end, and cancellation during guest creation released the owned resources. Shared tests (95), web tests (23), typecheck, lint, and the production web build passed. Detailed browser observations and the resolved pulse/cache failures are recorded in P4-C04 of the guide. Phase 3's physical-device and native-picker observations remain pending in their original record.
 
-Phase 5 may rely on demo attendees appearing in the roster with `isSyntheticBot: true`, and on a stage demo peer already having a peer connection. Promotion UI is still absent. Do not write `plans/phase5.md` until that work starts.
+**Commit evidence:** P4-C01 `2b8b0a0`, P4-C02 `46852ec`, P4-C03 `61618c7`, and P4-C04 `1af2d26`; the final hash follow-up is `b132cc3`. The guide retains full hashes and the original per-slice verification. Remediation C01 did not rerun those application/browser checks.
+
+When Phase 5 is authorized after resolving the prerequisite gate, it may rely on demo attendees appearing in the roster with `isSyntheticBot: true`, and on a stage demo peer already having a peer connection. Promotion UI is still absent. Phase 5/6 contracts and guides remain unwritten.

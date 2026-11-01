@@ -2,7 +2,7 @@
 
 **Status:** implementation verified with automated test media. P3-C01 through P3-C05 are committed. Phase exit remains pending physical-device and native picker observations.\
 **Last updated:** 2026-11-01.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.2`, Sections 1.4, 8.3, 9, and 16 (Phase 3).\
+**Master plan:** `MASTER_PLAN.md` version `1.0.3`, Sections 1.4, 8.3, 9, and 16 (Phase 3); original media verification used version `1.0.2`.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns P3-C01 through P3-C05. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** RTC-01, RTC-02, RTC-03, RTC-04, RTC-05 for a meeting.
 
@@ -14,7 +14,7 @@ Example: Ava and Sam join one meeting from two windows. Sam sees Ava's camera. A
 
 ## 2. Entry prerequisites
 
-Observed while writing this plan, on 2026-11-01:
+Historical entry snapshot while writing this plan, on 2026-11-01 (the statements below describe that baseline):
 
 - Phase 2 is complete. `HEAD` is `71f4c12` (`docs(phase2): record the final slice hash`). The worktree is clean.
 - Join, leave, mute, video-off, and hand state already go through `applyStageCommand` and the Lua scripts. The gateway in `apps/api/src/live/signaling.gateway.ts` emits `room:state` and `room:ended`.
@@ -144,13 +144,13 @@ pnpm --filter @stageflow/api dev
 pnpm --filter @stageflow/web dev
 ```
 
-Phase 2 regression: a second meeting guest still appears on the roster, and a fifth join is still rejected. Search:
+Phase 2 regression: a second meeting guest still appears on the roster, and a fifth join is still rejected. Historical Phase 3 excluded-feature search:
 
 ```powershell
 rg -n "getStats|hls\.js|ffmpeg" apps packages -g "!dist/**" -g "!node_modules/**"
 ```
 
-No matches is the pass. `RTCPeerConnection` in `apps/web/src/live` is expected. It is not expected under `apps/api`.
+At Phase 3 verification, no matches was the pass. Phase 4 has since added `getStats` and demo peers, so that search is historical evidence, not a current no-match gate. `RTCPeerConnection` in the web live services is expected; it is not expected under `apps/api`. Use master Sections 12 and 14 for current service ownership and affected checks.
 
 ## 8. Risks
 
@@ -164,15 +164,15 @@ No matches is the pass. `RTCPeerConnection` in `apps/web/src/live` is expected. 
 
 ## 9. Exit and handoff
 
-Phase 3 is done when A01–A07 are verified and each slice has been committed under master Section 1.4. Phase 4 may rely on:
+Phase 3 is done when A01–A07 are fully verified and each slice has been committed under master Section 1.4. The physical observations listed in Section 10 remain open. Phase 4 has since landed on the following implemented foundations:
 
 - The negotiation reducer and a peer map keyed by stage socket id.
 - `iceServers` from the join ack.
 - Local camera and microphone tracks that survive screen share and stop on leave.
 - Tiles that render one `MediaStream` per stage socket.
 
-Phase 4 adds demo peers and the stats drawer on top of those connections. It does not replace the negotiation rule. Do not write `plans/phase4.md` until that work starts.
+Phase 4 added demo peers and the stats drawer on top of those connections through `b132cc3`; it retains the negotiation rule. See [phase4.md](phase4.md) for its own acceptance record. It proceeded before the full Phase 3 exit, and no explicit product decision accepting that prerequisite exception is recorded. Master Section 16 keeps that decision pending; the completed implementation does not close this phase's physical gaps or authorize the next product phase. Requested maintenance may proceed independently.
 
 ## 10. Implementation verification record (2026-11-01)
 
-All five slices have implementation and automated verification. Shared tests: 72; web tests: 9; API Redis tests: 19. Workspace typecheck, lint, web production build, and the excluded-feature search passed. Four repeated browser screen-share flows and an expanded four-person mesh/fifth-rejection flow passed after master revision 1.0.2. The native screen picker and stop UI, human audible playback, physical microphone input, and physical camera indicator still need observation. These gaps keep the full phase exit open; no Phase 4 plan has been written.
+All five slices have implementation and automated verification, recorded through `2a68cf5`. Shared tests: 72; web tests: 9; API Redis tests: 19. Workspace typecheck, lint, web production build, and the then-applicable excluded-feature search passed. Four repeated browser screen-share flows and an expanded four-person mesh/fifth-rejection flow passed after master revision 1.0.2. The native screen picker and stop UI, human audible playback, physical microphone input, and physical camera indicator still need observation. These historical checks were not rerun for remediation C01. The gaps keep the full phase exit open despite the subsequent Phase 4 implementation.
