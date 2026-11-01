@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { RoomSnapshot } from '@stageflow/shared';
-import type { PeerManager } from './peer-manager';
-import { StatsCollector, type ConnectionStats } from './stats-collector';
+import type { PeerManager } from '../services/peer-manager';
+import { StatsCollector, type ConnectionStats } from '../services/stats-collector';
 
 function metric(value: number | null, unit: string): string {
   return value === null

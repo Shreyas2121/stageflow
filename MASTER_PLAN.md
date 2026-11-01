@@ -601,7 +601,7 @@ BullMQ is not used. One broadcast is one child process supervised by the API. A 
 - `strict: true`. No `any`. Use `unknown` and narrow it.
 - Shared enums and socket maps are the only wire contracts.
 - Nest gateways and controllers validate and call a service. Role and stage rules do not live in the gateway.
-- WebRTC, media capture, signaling, stats, canvas, and `MediaRecorder` belong to feature-local services. For existing live capabilities the destination is `apps/web/src/features/live/services/`, with adjacent `hooks/`, `components/`, and `stores/`. Existing `apps/web/src/live/` paths remain valid until remediation C09 moves them; do not scaffold future broadcast services during that move.
+- WebRTC, media capture, signaling, stats, canvas, and `MediaRecorder` belong to feature-local services. For existing live capabilities the destination is `apps/web/src/features/live/services/`, with adjacent `hooks/`, `components/`, and `stores/`. C09 moved them out of `apps/web/src/live/`. Do not scaffold future broadcast services under the live feature.
 - Services own mutable media handles and cleanup, and must not import components. Hooks adapt service state for rendering; stores hold session data and live snapshots, not peer connections, tracks, or audio contexts. Cross-feature imports use a small deliberate public surface; shared code stays free of React, Nest, and runtime browser/database dependencies.
 - Every media handle named in RTC-05 has a cleanup path in the same commit that creates it.
 - Do not add a dependency that exists only to draw the UI for a feature this plan excludes.
@@ -618,7 +618,7 @@ Empty `TURN_URL` is valid. Missing `JWT_SECRET`, `DATABASE_URL`, or `REDIS_URL` 
 
 ### 12.4 Suggested web ownership
 
-Exact filenames are fixed when the phase guide is written against the repo. These names describe responsibilities, not a requirement to introduce every named store. Existing `LocalMedia` and other live services retain imperative media ownership; Section 12.2 fixes their destination when C09 moves them.
+Exact filenames are fixed when the phase guide is written against the repo. These names describe responsibilities, not a requirement to introduce every named store. Existing `LocalMedia` and other live services retain imperative media ownership; Section 12.2 records their destination, and C09 moved them there.
 
 | Area                 | Owns                                             |
 | -------------------- | ------------------------------------------------ |

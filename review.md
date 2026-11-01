@@ -337,7 +337,7 @@ packages/shared/src/
   demo-peers.ts
 ```
 
-C01 adopts this ownership layout in master v1.0.3 Section 12. Existing `src/live` paths remain valid until C09 performs the move; this decision does not scaffold future broadcast capabilities. Services do not import components. UI may call hooks/services through a feature API; cross-feature imports should use a small deliberate surface. Shared must not import Nest, React, browser globals at module initialization, or database clients.
+C01 adopts this ownership layout in master v1.0.3 Section 12. C09 performed the move out of `src/live`; this decision does not scaffold future broadcast capabilities. Services do not import components. UI may call hooks/services through a feature API; cross-feature imports should use a small deliberate surface. Shared must not import Nest, React, browser globals at module initialization, or database clients.
 
 ### Constant/type rules
 
@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C08 are recorded below; C09 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C09 are recorded below; C10 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -685,8 +685,8 @@ Shared tests (119), web tests (33), and API tests (41) passed. Shared, web, and 
 
 ### C08 — `fix(web-media): release lobby analysis without stopping call tracks`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `54b95cbc7d89abc9e61f610d3c3399e51b9e9c25`
 
 **Depends on:** C07. **Addresses:** F05/F06.
 
@@ -704,6 +704,9 @@ Web tests (41), web lint, and web typecheck passed. Share and leave cleanup test
 
 ### C09 — `refactor(web-live): separate room orchestration from route components`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C08 and C01 ownership decision. **Addresses:** F07.
 
 **Files:** `apps/web/src/pages/RoomPage.tsx`; move existing `src/live` services/tests to `src/features/live/services/`, room store to `features/live/stores/`; create `features/live/hooks/use-live-room.ts`, `use-screen-share.ts`, `use-demo-peers.ts`; create `features/live/components/green-room.tsx`, `room-controls.tsx`, `participant-list.tsx`, `demo-controls.tsx`; move stage/stats components under that directory. Update imports in all moved files and page consumers.
@@ -712,11 +715,17 @@ Use one cleanup owner, explicit connection phases, and separate operation states
 
 **Verify/done:** no service→component imports, route is composition/query/error states, source tests/checks/build pass; browser regression covers join, reject, share, demos, remove-during-start, navigation, disconnect, host end.
 
+**Implementation/verification record (2026-11-01):** Room orchestration lives in `RoomSession`. `RoomPage` keeps the catalog query and the missing-session, loading, and error states, then composes `LiveRoom`. Phases are `lobby`, `joining`, `joined`, and `leaving`. Device prepare, room commands, screen share, and demo peers have separate pending flags. Leave, disconnect, room end, and unmount share one local teardown. Peer sync still runs inside the room-store subscriber, so a snapshot is applied before a description that follows it. The store still holds the snapshot, not peer connections or tracks. After join, controls follow the participant role. A later promotion only sets capture consent and does not call `getUserMedia`. A later demotion stops the camera, microphone, and screen. No promote or demote control was added. The lobby meter stays inside the green room and subscribes locally.
+
+Services and tests moved to `apps/web/src/features/live/services/`, the room store to `stores/`, and stage and stats views to `components/`. A source scan rejects service imports of React, components, or hooks. Web tests (58, 10 files), web lint, and web typecheck passed. The production build passed with the existing large-chunk warning (634.36 kB JavaScript, Vite estimated gzip 191.04 kB).
+
+Headless Chrome 156, using a fake camera, microphone, and media prompt, kept Join disabled until capture was ready. The preview track was live and the lobby meter was mounted. After join the welcome line was shown and the meter was gone. Three demo peers brought the roster to 4. A second guest enabled devices and was rejected with "This meeting already has 4 people on stage" while remaining in the lobby. Screen share reached `aria-pressed` true. A same-turn Remove click could not fire because the button was still disabled for that render. A follow-up delayed the demo guest request by 1.5 seconds, clicked Remove while the status read "Starting demo peer…", and returned to "0 of 3 demo peers" with roster 1 and no error. Back to home stopped 5 media tracks. Host leave showed "This room has ended" and Redis had no `sf:room:*` keys. Killing that single API showed "The live room reset. Join again." The killed process left three keys for the open room; the next single API start cleared them, which is the existing startup behavior. No second API ran at the same time, and shared containers were not stopped. Physical cameras, microphones, and speakers were not used. C09 carries C08's post-commit hash. Record C09's actual hash after commit for the next requested slice.
+
 ### C10 — `fix(web-api): preserve request errors cancellation and session recovery`
 
 **Depends on:** C09. **Addresses:** F16/F17 web config.
 
-**Files:** replace `apps/web/src/api.ts` with `lib/http/client.ts`/`api-error.ts`; move session to `features/session/session-store.ts` and API to `features/session/api.ts`; create `features/rooms/api.ts`, `query-options.ts`, `config/env.ts`; update `pages/HomePage.tsx`, `pages/RoomPage.tsx`, demo service, `vite-env.d.ts`; add focused HTTP/session tests.
+**Files:** replace `apps/web/src/api.ts` with `lib/http/client.ts`/`api-error.ts`; move session to `features/session/session-store.ts` and API to `features/session/api.ts`; create `features/rooms/api.ts`, `query-options.ts`, `config/env.ts`; update `pages/HomePage.tsx`, `pages/RoomPage.tsx`, `apps/web/src/features/live/services/demo-peer.ts`, `vite-env.d.ts`; add focused HTTP/session tests.
 
 Preserve status/error codes; consume AbortSignal and bound timeout; parse success envelopes; make storage writes resilient and provide clear/expiry handling. Use identity-aware query keys and clear old private caches. Preserve the contracted fresh guest on each home submission; do not add registered accounts.
 
@@ -806,7 +815,7 @@ Bind local DBs to loopback; validate configuration; separate migration requireme
 
 **Depends on:** C09. **Addresses:** F21.
 
-**Files:** live stats service/tests and drawer at their new paths, `packages/shared/src/stats.ts`/tests only if semantics change, active phase/master tuning notes where appropriate.
+**Files:** `apps/web/src/features/live/services/stats-collector.ts`, `stats-collector.test.ts`, `apps/web/src/features/live/components/stats-drawer.tsx`, `packages/shared/src/stats.ts`/tests only if semantics change, active phase/master tuning notes where appropriate.
 
 Choose hidden-drawer behavior, bound stalled reads per peer, retain healthy rows, and define timestamp/reset semantics. Avoid stale publications after close or manager replacement. Preserve honest null/unknown values and one-second visible update cadence.
 

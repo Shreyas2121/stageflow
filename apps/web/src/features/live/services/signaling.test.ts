@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
 import type { RoomSnapshot } from '@stageflow/shared';
 import { openIndependentSignaling, openSignaling, type RoomConnection } from './signaling';
-import { useRoomStore } from './room-store';
+import { useRoomStore } from '../stores/room-store';
 
 vi.mock('socket.io-client', () => ({ io: vi.fn() }));
 

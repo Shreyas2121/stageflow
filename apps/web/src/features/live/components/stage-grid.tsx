@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
-import type { PeerManager, RemoteStreams } from './peer-manager';
-import { routeAudioOutput } from './output-route';
+import type { PeerManager, RemoteStreams } from '../services/peer-manager';
+import { routeAudioOutput } from '../services/output-route';
 
 export function StageGrid({
   snapshot,

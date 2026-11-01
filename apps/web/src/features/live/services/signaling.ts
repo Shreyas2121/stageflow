@@ -8,7 +8,7 @@ import type {
   RoomSnapshot,
   ServerToClientEvents,
 } from '@stageflow/shared';
-import { useRoomStore } from './room-store';
+import { useRoomStore } from '../stores/room-store';
 import type {
   DescriptionRequest,
   IceCandidateRequest,

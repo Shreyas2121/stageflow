@@ -1,5 +1,5 @@
 import { demoPeerNames, type IceServer, type RoomSnapshot } from '@stageflow/shared';
-import { createGuest } from '../api';
+import { createGuest } from '../../../api';
 import { PeerManager, type TrackSource } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 

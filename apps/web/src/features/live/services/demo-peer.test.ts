@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mocked } from 'vitest';
-import { createGuest } from '../api';
+import { createGuest } from '../../../api';
 import { PeerManager } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 import { DemoPeer } from './demo-peer';
 
-vi.mock('../api', () => ({ createGuest: vi.fn() }));
+vi.mock('../../../api', () => ({ createGuest: vi.fn() }));
 vi.mock('./signaling', () => ({ openIndependentSignaling: vi.fn() }));
 vi.mock('./peer-manager', () => ({
   PeerManager: vi.fn(
