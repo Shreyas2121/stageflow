@@ -142,6 +142,22 @@ describe('applyStageCommand', () => {
     });
   });
 
+  it('reports room shutdown again after the host participant is gone', () => {
+    const ended = step(step(empty(), join('host')), { type: 'leave', socketId: 'host' });
+    expect(run(ended, { type: 'leave', socketId: 'host' })).toMatchObject({
+      ok: true,
+      changed: false,
+      roomEnded: true,
+      state: { status: 'ENDED', participants: [], stageSocketIds: [], hands: [] },
+    });
+    expect(run(ended, { type: 'leave', socketId: 'guest' })).toMatchObject({
+      ok: true,
+      changed: false,
+      roomEnded: true,
+    });
+    rejects(ended, join('late'), 'room_ended');
+  });
+
   it('orders hands by timestamp then socket id, preserves repeated raises, and rejects non-attendees', () => {
     let state = step(step(step(webinar(), hand('c', 3000)), hand('b')), hand('a'));
     expect(state.hands.map((h) => h.socketId)).toEqual(['a', 'b', 'c']);

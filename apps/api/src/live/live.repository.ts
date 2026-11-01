@@ -50,7 +50,7 @@ export class LiveRepository {
 
   async deleteRoom(prefix: string): Promise<void> {
     await this.redis.del(
-      ...['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`),
+      ...['rev', 'participants', 'stage', 'hands', 'ending'].map((suffix) => `${prefix}:${suffix}`),
     );
   }
 }

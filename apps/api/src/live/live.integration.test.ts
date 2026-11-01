@@ -188,6 +188,9 @@ describe('Redis Lua stage transitions', () => {
   const prefixes = new Set<string>();
   const keys = (prefix: string) =>
     ['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`);
+  async function remove(value: string) {
+    await redis.del(...keys(value), `${value}:ending`);
+  }
   function prefix() {
     const value = `sf:itest:${randomUUID()}`;
     prefixes.add(value);
@@ -215,7 +218,7 @@ describe('Redis Lua stage transitions', () => {
     if (!redis) return;
     try {
       if (redis.status === 'ready') {
-        for (const value of prefixes) await redis.del(...keys(value));
+        for (const value of prefixes) await remove(value);
       }
     } finally {
       redis.disconnect();
@@ -273,7 +276,7 @@ describe('Redis Lua stage transitions', () => {
           }
         }
       } finally {
-        await redis.del(...keys(value));
+        await remove(value);
       }
     },
   );
@@ -343,5 +346,49 @@ describe('Redis Lua stage transitions', () => {
       isAudioMuted: true,
       isVideoOff: true,
     });
+  });
+
+  it('keeps host-ending intent after the host record is gone and blocks joins', async () => {
+    const value = prefix();
+    const room = empty();
+    try {
+      await repository.apply(value, room, join('host'));
+      await repository.apply(value, room, join('guest'));
+      const ended = await repository.apply(value, room, { type: 'leave', socketId: 'host' });
+      expect(ended).toMatchObject({
+        ok: true,
+        changed: true,
+        roomEnded: true,
+        state: { status: 'ENDED', participants: [] },
+      });
+      expect(await redis.exists(`${value}:ending`)).toBe(1);
+      const ttl = await redis.ttl(`${value}:ending`);
+      expect(ttl > 86390 && ttl <= 86400).toBe(true);
+      const revision = Number(await redis.get(`${value}:rev`));
+      const retry = await repository.apply(value, room, { type: 'leave', socketId: 'guest' });
+      expect(retry).toMatchObject({ ok: true, changed: false, roomEnded: true, revision });
+      expect(Number(await redis.get(`${value}:rev`))).toBe(revision);
+      expect(await repository.apply(value, room, join('late'))).toMatchObject({
+        ok: false,
+        error: 'room_ended',
+        revision,
+      });
+      expect((await stored(value)).participants).toEqual([]);
+      await repository.deleteRoom(value);
+      for (const suffix of ['rev', 'participants', 'stage', 'hands', 'ending']) {
+        expect(await redis.exists(`${value}:${suffix}`)).toBe(0);
+      }
+      expect(await repository.apply(value, room, join('late'))).toMatchObject({
+        ok: false,
+        error: 'host_not_present',
+        revision: 0,
+      });
+      expect(await repository.apply(value, room, join('host'))).toMatchObject({
+        ok: true,
+        changed: true,
+      });
+    } finally {
+      await remove(value);
+    }
   });
 });

@@ -5,6 +5,7 @@ local revKey = KEYS[1] .. ':rev'
 local participantsKey = KEYS[1] .. ':participants'
 local stageKey = KEYS[1] .. ':stage'
 local handsKey = KEYS[1] .. ':hands'
+local endingKey = KEYS[1] .. ':ending'
 local revision = tonumber(redis.call('GET', revKey)) or 0
 local participants = {}
 local raw = redis.call('HGETALL', participantsKey)
@@ -49,9 +50,9 @@ local function finish(changed, roomEnded)
     for id in pairs(stage) do redis.call('SADD', stageKey, id) end
     for id, raisedAt in pairs(hands) do redis.call('ZADD', handsKey, raisedAt, id) end
     revision = redis.call('INCR', revKey)
-    for _, key in ipairs({ revKey, participantsKey, stageKey, handsKey }) do
-      redis.call('EXPIRE', key, 86400)
-    end
+    local expiring = { revKey, participantsKey, stageKey, handsKey }
+    if redis.call('EXISTS', endingKey) == 1 then expiring[#expiring + 1] = endingKey end
+    for _, key in ipairs(expiring) do redis.call('EXPIRE', key, 86400) end
   end
   local participantList, stageList, handList = {}, {}, {}
   for _, participant in pairs(participants) do participantList[#participantList + 1] = participant end

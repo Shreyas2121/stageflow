@@ -88,11 +88,11 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
       const peer = this.server.sockets.sockets.get(socketId);
       return peer ? { connected: peer.connected, roomId: peer.data.room?.roomId } : undefined;
     },
-    end: (roomId) => {
+    end: async (roomId) => {
       this.server.to(roomId).emit('room:ended', { roomId });
+      await this.server.in(roomId).socketsLeave(roomId);
       for (const socket of this.server.sockets.sockets.values())
         if (socket.data.room?.roomId === roomId) delete socket.data.room;
-      this.server.in(roomId).socketsLeave(roomId);
     },
   };
   afterInit(server: RoomServer): void {

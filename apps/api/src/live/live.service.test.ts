@@ -19,6 +19,7 @@ function fixture(mode: LiveState['mode'] = 'MEETING') {
   const events: string[] = [];
   const snapshots: RoomSnapshot[] = [];
   const sessions = new Map<string, LiveSession>();
+  let catalogStatus: 'LIVE' | 'ENDED' = 'LIVE';
   const client = (id: string): LiveSession => {
     const session = { id, user: { id, displayName: id }, connected: true, room: undefined };
     sessions.set(id, session);
@@ -27,12 +28,13 @@ function fixture(mode: LiveState['mode'] = 'MEETING') {
   const rooms: Pick<RoomsService, 'getById' | 'end'> = {
     getById: vi.fn(
       async () =>
-        ({ id: 'room', hostId: 'host', mode, status: 'LIVE' }) as Awaited<
+        ({ id: 'room', hostId: 'host', mode, status: catalogStatus }) as Awaited<
           ReturnType<RoomsService['getById']>
         >,
     ),
     end: vi.fn(async () => {
       events.push('database:end');
+      catalogStatus = 'ENDED';
     }),
   };
   const live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'> = {
@@ -79,6 +81,9 @@ function fixture(mode: LiveState['mode'] = 'MEETING') {
       transport,
     );
   return { service, rooms, live, transport, client, join, events, snapshots };
+}
+function silenceErrors() {
+  return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
 it('uses trusted session identity, joins before snapshot, and suppresses no-op publications', async () => {
   const f = fixture();
@@ -142,23 +147,191 @@ it('preserves host leave persistence/effect order and clears every association',
   expect(f.events).toEqual(['apply:leave', 'database:end', 'redis:delete', 'transport:end']);
   expect(guest.room).toBeUndefined();
   expect(host.room).toBeUndefined();
+  expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+  expect(f.rooms.end).toHaveBeenCalledTimes(1);
+  expect(f.live.deleteRoom).toHaveBeenCalledTimes(1);
+  expect(f.transport.end).toHaveBeenCalledTimes(1);
 });
-it('records the existing partial host-leave failure for C05 without changing it', async () => {
-  const logger = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+it('completes host shutdown on retry when catalog ending fails first', async () => {
+  const logger = silenceErrors();
   try {
     const f = fixture();
-    const host = f.client('host');
+    const host = f.client('host'),
+      guest = f.client('guest');
     await f.join(host);
+    await f.join(guest);
+    f.events.length = 0;
     vi.mocked(f.rooms.end).mockRejectedValueOnce(new Error('database unavailable'));
     expect(await f.service.leave(host, f.transport)).toMatchObject({
       ok: false,
       error: 'server_error',
     });
-    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(f.events).toEqual(['apply:leave']);
     expect(f.live.deleteRoom).not.toHaveBeenCalled();
-    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
-    expect(f.rooms.end).toHaveBeenCalledTimes(1);
     expect(f.transport.end).not.toHaveBeenCalled();
+    expect(host.room).toBeDefined();
+    expect(guest.room).toBeDefined();
+    expect(await f.join(f.client('late'))).toMatchObject({ ok: false, error: 'room_ended' });
+    expect(f.live.apply).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ socketId: 'late' }),
+    );
+    const applies = vi.mocked(f.live.apply).mock.calls.length;
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(vi.mocked(f.live.apply).mock.calls.length).toBe(applies);
+    expect(f.events).toEqual(['apply:leave', 'database:end', 'redis:delete', 'transport:end']);
+    expect(f.rooms.end).toHaveBeenCalledTimes(2);
+    expect(guest.room).toBeUndefined();
+    expect(host.room).toBeUndefined();
+    expect(await f.rooms.getById('room')).toMatchObject({ status: 'ENDED' });
+    expect(logger).toHaveBeenCalledWith(
+      expect.stringContaining('Incomplete shutdown for room room: database unavailable'),
+    );
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('finishes shutdown from a guest leave after the host participant is gone', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = fixture();
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    vi.mocked(f.rooms.end).mockRejectedValueOnce(new Error('database unavailable'));
+    expect(await f.service.leave(host, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(await f.service.leave(guest, f.transport)).toEqual({ ok: true });
+    expect(f.transport.end).toHaveBeenCalledTimes(1);
+    expect(host.room).toBeUndefined();
+    expect(guest.room).toBeUndefined();
+    expect(await f.rooms.getById('room')).toMatchObject({ status: 'ENDED' });
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('retries key deletion without notifying while Redis deletion is failing', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = fixture();
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    vi.mocked(f.live.deleteRoom).mockRejectedValueOnce(new Error('redis unavailable'));
+    expect(await f.service.leave(host, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(guest.room).toBeDefined();
+    expect(await f.rooms.getById('room')).toMatchObject({ status: 'ENDED' });
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(f.live.deleteRoom).toHaveBeenCalledTimes(2);
+    expect(f.transport.end).toHaveBeenCalledTimes(1);
+    expect(guest.room).toBeUndefined();
+    expect(logger).toHaveBeenCalledWith(
+      expect.stringContaining('Incomplete shutdown for room room: redis unavailable'),
+    );
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('retries notification after Redis deletion without another participant lookup', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = fixture();
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    vi.mocked(f.transport.end).mockRejectedValueOnce(new Error('notify failed'));
+    expect(await f.service.leave(host, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(guest.room).toBeDefined();
+    expect(host.room).toBeDefined();
+    vi.mocked(f.live.apply).mockResolvedValueOnce({
+      ok: true,
+      changed: false,
+      roomEnded: false,
+      revision: 3,
+      state: {
+        roomId: 'room',
+        hostId: 'host',
+        mode: 'MEETING',
+        status: 'LIVE',
+        participants: [],
+        stageSocketIds: [],
+        hands: [],
+      },
+    });
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(f.live.apply).toHaveBeenCalledTimes(3);
+    expect(f.transport.end).toHaveBeenCalledTimes(2);
+    expect(guest.room).toBeUndefined();
+    expect(host.room).toBeUndefined();
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('keeps the room joinable when leave fails before ending intent is recorded', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = fixture();
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    vi.mocked(f.live.apply).mockRejectedValueOnce(new Error('redis unavailable'));
+    expect(await f.service.leave(host, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(f.rooms.end).not.toHaveBeenCalled();
+    expect(f.live.deleteRoom).not.toHaveBeenCalled();
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(host.room).toBeDefined();
+    expect(guest.room).toBeDefined();
+    expect(logger).toHaveBeenCalledWith('redis unavailable');
+    expect(await f.join(f.client('late'))).toEqual({ ok: true });
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(guest.room).toBeUndefined();
+    expect(await f.rooms.getById('room')).toMatchObject({ status: 'ENDED' });
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('completes a disconnect leave queued behind a failing host leave', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = fixture();
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    let rejectEnd!: (error: Error) => void;
+    vi.mocked(f.rooms.end).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectEnd = reject;
+        }),
+    );
+    const first = f.service.leave(host, f.transport);
+    await vi.waitFor(() => expect(f.rooms.end).toHaveBeenCalledTimes(1));
+    const disconnected = f.service.leave(host, f.transport);
+    rejectEnd(new Error('database unavailable'));
+    expect(await first).toMatchObject({ ok: false, error: 'server_error' });
+    expect(await disconnected).toEqual({ ok: true });
+    expect(f.transport.end).toHaveBeenCalledTimes(1);
+    expect(guest.room).toBeUndefined();
+    expect(host.room).toBeUndefined();
+    expect(await f.rooms.getById('room')).toMatchObject({ status: 'ENDED' });
   } finally {
     logger.mockRestore();
   }

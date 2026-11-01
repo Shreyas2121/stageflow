@@ -22,10 +22,12 @@ export interface LiveTransport {
   leave(socketId: string, roomId: string): Promise<void>;
   publish(snapshot: RoomSnapshot): void;
   peer(socketId: string): { connected: boolean; roomId: string | undefined } | undefined;
-  end(roomId: string): void;
+  end(roomId: string): void | Promise<void>;
 }
 export class LiveService {
   private readonly logger = new Logger(LiveService.name);
+  // Rooms whose host shutdown has not finished catalog end, key deletion, and notification.
+  private readonly ending = new Set<string>();
   constructor(
     private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
     private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
@@ -66,6 +68,7 @@ export class LiveService {
       if (!client.connected) return failure('not_joined');
       if (client.room) return failure('already_joined');
       return this.operations.run(`room:${request.roomId}`, async (): Promise<CommandAck> => {
+        if (this.ending.has(request.roomId)) return failure('room_ended');
         const room = await this.rooms.getById(request.roomId);
         if (!room) return failure('room_not_found');
         if (room.status === 'ENDED') return failure('room_ended');
@@ -104,8 +107,8 @@ export class LiveService {
       const room = client.room;
       if (!room) return failure('not_joined');
       return this.operations.run(`room:${room.roomId}`, async () => {
-        // Host leave clears room association on every socket before releasing this queue.
-        if (client.room !== room) return failure('room_ended');
+        // Shutdown clears every association before releasing this queue. Until then, block the room.
+        if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
         const result = await this.live.apply(`sf:room:${room.roomId}`, room, command);
         if (!result.ok) return failure(result.error);
         this.publish(result, transport);
@@ -124,7 +127,7 @@ export class LiveService {
       const room = client.room;
       if (!room) return failure('not_joined');
       return this.operations.run(`room:${room.roomId}`, async () => {
-        if (client.room !== room) return failure('room_ended');
+        if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
         const stage = await this.live.readStage(`sf:room:${room.roomId}`);
         if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
         const target = transport.peer(toSocketId);
@@ -135,23 +138,43 @@ export class LiveService {
     });
   }
 
+  // Intent stays until catalog end, Redis deletion, and notification all succeed. PostgreSQL or Redis
+  // failure skips notification and leaves members associated so leave or disconnect can retry.
+  // Notification failure after key deletion keeps the in-memory intent, so retry does not need the
+  // host participant. Process restart still drops sf:room:* and does not mark the catalog ENDED.
+  private async finishShutdown(room: LiveRoom, transport: LiveTransport): Promise<void> {
+    this.ending.add(room.roomId);
+    try {
+      await this.rooms.end(room.roomId);
+      await this.live.deleteRoom(`sf:room:${room.roomId}`);
+      await transport.end(room.roomId);
+      this.ending.delete(room.roomId);
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'unknown failure';
+      throw new Error(`Incomplete shutdown for room ${room.roomId}: ${detail}`, { cause: error });
+    }
+  }
+
   leave(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
     return this.execute(client, async () => {
       const room = client.room;
       if (!room) return { ok: true };
       return this.operations.run(`room:${room.roomId}`, async () => {
         if (client.room !== room) return { ok: true };
-        const prefix = `sf:room:${room.roomId}`;
-        const result = await this.live.apply(prefix, room, { type: 'leave', socketId: client.id });
-        if (!result.ok) return failure(result.error);
-        if (result.roomEnded) {
-          await this.rooms.end(room.roomId);
-          await this.live.deleteRoom(prefix);
-          transport.end(room.roomId);
-        } else {
-          this.publish(result, transport);
-          await transport.leave(client.id, room.roomId);
+        if (!this.ending.has(room.roomId)) {
+          const result = await this.live.apply(`sf:room:${room.roomId}`, room, {
+            type: 'leave',
+            socketId: client.id,
+          });
+          if (!result.ok) return failure(result.error);
+          if (!result.roomEnded) {
+            this.publish(result, transport);
+            await transport.leave(client.id, room.roomId);
+            client.room = undefined;
+            return { ok: true };
+          }
         }
+        await this.finishShutdown(room, transport);
         client.room = undefined;
         return { ok: true };
       });

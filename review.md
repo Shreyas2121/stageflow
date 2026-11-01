@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C04 are recorded below; C05 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C05 are recorded below; C06 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. Use the exact current source paths below until the explicit move commit; update later slice paths when that move lands.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -611,8 +611,8 @@ Centralize slug/UUID validation and actual shared policy; parse unknown socket i
 
 ### C04 — `refactor(api-live): extract room lifecycle orchestration from the gateway`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `5b38db4d0c8c18e1cd8ddccf3bfaf4664c871685`
 
 **Depends on:** C03. **Addresses:** F08.
 
@@ -628,6 +628,9 @@ Shared prerequisite build, API typecheck, API lint, all 28 API tests (19 real Re
 
 ### C05 — `fix(api-live): complete host shutdown after partial persistence failures`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C04. **Addresses:** F01.
 
 **Files:** `apps/api/src/live/live.service.ts`, `live.repository.ts`, `scripts/leave.lua`, `scripts/common.lua`, `signaling.gateway.ts`, relevant service/Redis tests, `packages/shared/src/stage.ts` and its tests if the domain result changes.
@@ -635,6 +638,12 @@ Shared prerequisite build, API typecheck, API lint, all 28 API tests (19 real Re
 Implement retained ending intent and idempotent completion. Reject joins while ending. Retry completion independently of the vanished host participant. Define notification/socket cleanup when PostgreSQL or Redis is unavailable; keep catalog-reset behavior on process restart as contracted. Test failure at each awaited boundary, duplicate leave, and disconnect during leave.
 
 **Verify/done:** original F01 reproduction now completes all effects on retry; zero stale associated guests; appropriate catalog ENDED state; all affected checks and real Redis parity pass.
+
+**Implementation/verification record (2026-11-01):** Host leave writes `sf:room:{id}:ending` in the same Lua script that clears participants, stage, and hands. A later leave returns `roomEnded` while that key exists, or when the room status is already `ENDED`, without a revision bump and without the host participant. Joins with a still-`LIVE` catalog payload receive `room_ended` until room deletion removes the tombstone. The shared oracle reports the same retry once status is `ENDED`. `rooms.end` is unchanged and remains idempotent for a `LIVE` row.
+
+The service remembers the room until catalog end, Redis deletion, and socket notification all succeed. PostgreSQL or Redis deletion failure leaves members associated and does not emit `room:ended`. Notification runs only after both succeed. If notification fails, associations remain and the in-memory intent survives the deleted tombstone, so retry does not look up the vanished host. A guest leave or a disconnect leave queued behind the failing attempt can finish the same shutdown. A duplicate leave after success does not repeat it. Incomplete attempts log `Incomplete shutdown for room {id}` and keep the caught error as `cause`, then return `server_error`. Startup still deletes `sf:room:*`, including ending keys, and does not mark catalog rows `ENDED`.
+
+Shared tests (118), web tests (23), and API tests (34: 20 real Redis cases plus 14 service/queue regressions) passed. API lint, shared lint, root typecheck, and the API production build passed. Redis cases used isolated `sf:itest:` prefixes; no API server was started and developer `sf:room:*` keys were not cleared. Workspace whitespace check passed. No browser media acceptance was rerun; this slice does not change media behavior. C05 carries C04's post-commit hash. Record C05's actual hash after commit for the next requested slice.
 
 ### C06 — `fix(api-live): expose Redis readiness and reset failed live sessions`
 

@@ -1,4 +1,4 @@
-if room.status == 'ENDED' then return reject('room_ended') end
+if room.status == 'ENDED' or redis.call('EXISTS', endingKey) == 1 then return reject('room_ended') end
 for id, participant in pairs(participants) do
   if participant.userId == command.userId or id == command.socketId then return reject('already_joined') end
 end

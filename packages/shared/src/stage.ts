@@ -130,6 +130,8 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
   if ('socketId' in command) {
     const participant = next.participants.find((p) => p.socketId === command.socketId);
     if (command.type === 'leave') {
+      // A later leave must still report shutdown after the host record is gone.
+      if (state.status === 'ENDED') return success(false, true);
       if (!participant) return success(false);
       if (participant.role === 'HOST') {
         next.status = 'ENDED';
