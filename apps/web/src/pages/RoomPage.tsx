@@ -7,6 +7,8 @@ import { useSessionStore } from '../session';
 import { LocalMedia, type DeviceChoices } from '../live/local-media';
 import { openSignaling, type RoomConnection } from '../live/signaling';
 import { useRoomStore } from '../live/room-store';
+import { PeerManager, type RemoteStreams } from '../live/peer-manager';
+import { StageGrid } from '../live/stage-grid';
 
 export function RoomPage() {
   const { slug = '' } = useParams();
@@ -62,7 +64,7 @@ function RoomContents({ room, session }: { room: RoomResponse; session: GuestSes
         : <LiveRoom room={room} session={session} onEnded={() => setEnded(true)} />}
       <aside className="foundation-note room-foundation">
         <span className="note-marker" aria-hidden="true">i</span>
-        <div><h2>A shared roster, for now.</h2><p>People can see the roster. Video between people arrives in a later phase.</p></div>
+        <div><h2>A shared room.</h2><p>People on stage can see and hear each other. Stage video is only for people on stage.</p></div>
       </aside>
     </section>
   );
@@ -75,6 +77,9 @@ function LiveRoom({ room, session, onEnded }: {
   const [media] = useState(() => new LocalMedia());
   const preview = useRef<HTMLVideoElement>(null);
   const connection = useRef<RoomConnection | null>(null);
+  const peers = useRef<PeerManager | null>(null);
+  const [peerManager, setPeerManager] = useState<PeerManager | null>(null);
+  const [streams, setStreams] = useState<RemoteStreams>(new Map());
   const operation = useRef(0);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -91,11 +96,38 @@ function LiveRoom({ room, session, onEnded }: {
   const self = snapshot?.participants.find((participant) => participant.socketId === selfSocketId);
   const joined = selfSocketId !== null;
 
-  useEffect(() => () => {
-    operation.current += 1;
-    connection.current?.close();
-    connection.current = null;
-    media.stop();
+  useEffect(() => {
+    // Subscribe outside React so offers cannot overtake a stage snapshot render.
+    const sync = () => {
+      const { selfSocketId, snapshot, iceServers } = useRoomStore.getState();
+      if (!selfSocketId || !snapshot?.stageSocketIds.includes(selfSocketId) || !media.ready) {
+        peers.current?.close();
+        peers.current = null;
+        setPeerManager(null);
+        return;
+      }
+      const active = connection.current;
+      if (!active) return;
+      try {
+        if (!peers.current) {
+          peers.current = new PeerManager(media, active, setStreams, setError);
+          setPeerManager(peers.current);
+        }
+        peers.current.sync(selfSocketId, snapshot.stageSocketIds, iceServers);
+      } catch {
+        setError('Unable to start stage media. You can still use the roster and leave the room.');
+      }
+    };
+    const unsubscribe = useRoomStore.subscribe(sync);
+    return () => {
+      unsubscribe();
+      operation.current += 1;
+      connection.current?.close();
+      connection.current = null;
+      peers.current?.close();
+      peers.current = null;
+      media.stop();
+    };
   }, [media]);
 
   useEffect(() => {
@@ -104,7 +136,10 @@ function LiveRoom({ room, session, onEnded }: {
 
   function stopMedia() {
     operation.current += 1;
+    peers.current?.close();
+    peers.current = null;
     media.stop();
+    setPeerManager(null);
     setReady(false);
     setLevel(0);
     setBusy(false);
@@ -147,6 +182,8 @@ function LiveRoom({ room, session, onEnded }: {
     let active: RoomConnection | null = null;
     try {
       active = openSignaling(session.token, room.id, {
+        onDescription: (payload) => peers.current?.description(payload),
+        onCandidate: (payload) => peers.current?.candidate(payload),
         onEnded: () => { connection.current = null; stopMedia(); onEnded(); },
         onDisconnect: () => {
           connection.current = null;
@@ -214,8 +251,11 @@ function LiveRoom({ room, session, onEnded }: {
         <div><p className="eyebrow">{joined ? 'In the room' : 'Before you join'}</p><h2>{joined ? `Welcome, ${session.displayName}` : 'Your green room'}</h2></div>
         <span className="muted">{attendee ? 'Joining as an attendee' : 'Up to 4 people on stage'}</span>
       </div>
-      <div className={attendee ? 'attendee-lobby' : 'lobby-grid'}>
-        {!attendee && <div className="preview-panel">
+      {joined && snapshot && selfSocketId && snapshot.stageSocketIds.includes(selfSocketId) && peerManager &&
+        <StageGrid snapshot={snapshot} selfSocketId={selfSocketId} localStream={media.previewStream()}
+          streams={streams} manager={peerManager} speakerId={speakerId} />}
+      <div className={attendee || joined ? 'attendee-lobby' : 'lobby-grid'}>
+        {!attendee && !joined && <div className="preview-panel">
           <div className="preview-frame">
             <video ref={preview} autoPlay muted playsInline aria-label="Your camera preview" />
             {(!ready || (self?.isVideoOff ?? isVideoOff)) && <p className="preview-placeholder">{ready ? 'Your camera is off' : 'Your preview will appear here'}</p>}

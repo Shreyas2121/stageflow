@@ -114,6 +114,18 @@ meter::-webkit-meter-optimum-value { background: #c9e798; transition: width .08s
 .roster-flags .raised-hand { color: #e9ce8a; }
 .room-ended { border: 1px solid #465052; border-radius: 8px; padding: 24px; margin: 32px 0 0; }
 .status-ended { color: #b8c0c1; background: #252b2d; border-color: #465052; }
+.stage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+.stage-count-1 { grid-template-columns: minmax(0, 1fr); }
+.stage-tile { position: relative; min-width: 0; aspect-ratio: 4 / 3; border: 2px solid #343b3d; border-radius: 8px; overflow: hidden; background: #0d1113; }
+.stage-tile video { width: 100%; height: 100%; object-fit: cover; }
+.stage-local video { transform: scaleX(-1); }
+.stage-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; background: #0d1113; color: #a7afb2; font-size: 13px; }
+.stage-placeholder strong { color: #edf0eb; overflow-wrap: anywhere; }
+.stage-caption { position: absolute; bottom: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 10px 12px; background: #101316da; font-size: 12px; }
+.stage-play { position: absolute; top: 10px; left: 10px; right: 10px; }
+.stage-sharing { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stage-large { grid-column: 1 / -1; grid-row: 1; aspect-ratio: 16 / 9; }
+.stage-large video { object-fit: contain; transform: none; }
 button:disabled { cursor: not-allowed; }
 
 @media (max-width: 720px) {

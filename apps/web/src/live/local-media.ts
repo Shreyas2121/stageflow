@@ -72,6 +72,18 @@ export class LocalMedia {
       stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'live'));
   }
 
+  cameraTrack(): MediaStreamTrack | null {
+    return this.streams.flatMap((stream) => stream.getVideoTracks()).find((track) => track.readyState === 'live') ?? null;
+  }
+
+  microphoneTrack(): MediaStreamTrack | null {
+    return this.streams.flatMap((stream) => stream.getAudioTracks()).find((track) => track.readyState === 'live') ?? null;
+  }
+
+  previewStream(): MediaStream | null {
+    return this.streams[0] ?? null;
+  }
+
   async setSpeaker(deviceId: string): Promise<boolean> {
     const preview = this.preview as (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> }) | null;
     if (!preview?.setSinkId) return false;

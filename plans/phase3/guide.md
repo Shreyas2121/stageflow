@@ -1,6 +1,6 @@
 # Guide 3 — Phase 3, commit by commit
 
-**Status:** in progress. P3-C01 is committed; P3-C02 is verified; P3-C03 through P3-C05 are not implemented.\
+**Status:** in progress. P3-C01 and P3-C02 are committed; P3-C03 is verified with test media; P3-C04 and P3-C05 are not implemented.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
@@ -87,9 +87,9 @@ pnpm lint
 
 ## 3. P3-C02 — Relay between stage sockets
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-signaling): relay stage descriptions and ICE candidates`\
-**Actual commit:**
+**Actual commit:** `27f55f86d854647259c182b16c421ffdf792e62f`
 
 **Why:** The mesh needs a server path that attendees cannot use. Covers P3-A02.
 
@@ -129,7 +129,7 @@ Confirm a Phase 2 roster update still arrives after a third guest joins a meetin
 
 ## 4. P3-C03 — Mesh and tiles
 
-**Status:** planned\
+**Status:** verified with browser test media\
 **Proposed commit message:** `feat(web-stage): show meeting peers on a mesh`\
 **Actual commit:**
 
@@ -172,6 +172,10 @@ In two browser windows, join one meeting as Ava and Sam:
 4. Create a webinar. The guest joins without a camera prompt, sees the roster, and has no remote video tile.
 
 Record any failed step. A still screenshot does not verify A03, A04, A06, or A07.
+
+**Verification result (2026-11-01):** Two isolated Chromium sessions (Ava and Sam) using fake camera/microphone devices connected through the running API. Both remote videos advanced, both unmuted remote streams carried nonzero audio samples, and each connection had exactly two sendrecv transceivers. Mute and video-off changed roster flags and track.enabled without an additional offer or removing a tile (P3-A04). Guest leave removed the remote tile, closed connections, ended captured tracks, cleared video srcObjects, and closed audio contexts; rejoin and host-ended cleanup also passed. A webinar attendee captured no media, constructed no peer connection, displayed no stage tiles, and could raise a hand (P3-A07). P3-A03 and P3-A06 have automated test-media coverage; human audible playback and physical camera/indicator observations remain unverified. Shared tests (72), workspace typecheck, and lint passed.
+
+**Implementation note:** addTrack creates the required audio and video sendrecv transceivers before negotiation. These transceivers can be reassociated during implicit rollback; explicitly addTransceiver-created transceivers cannot, per https://www.w3.org/TR/webrtc/. max-bundle keeps one ICE transport for the pair. Browser testing caught duplicate transceivers and stalled ICE with the earlier setup; both checks passed after this correction. Signaling queues incoming WebRTC events until the join ack, and a synchronous store subscription syncs the mesh before delivering them.
 
 **Done when:** Those IDs pass and the slice is committed.
 
