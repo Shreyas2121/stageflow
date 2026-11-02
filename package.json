@@ -18,7 +18,13 @@
     "test:unit": "pnpm --filter @stageflow/shared test && pnpm --filter @stageflow/web test",
     "test:integration": "pnpm --filter @stageflow/api test",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm format:check",
-    "lint:config": "node scripts/lint.mjs eslint.config.js scripts"
+    "lint:config": "node scripts/lint.mjs eslint.config.js scripts",
+    "test:tooling": "node --test scripts/*.test.mjs",
+    "check:artifacts": "node scripts/check-artifacts.mjs",
+    "smoke:live": "pnpm --filter @stageflow/api exec dotenv -e ../../.env -- node ../../scripts/smoke-live.mjs",
+    "check:release": "pnpm test:tooling && pnpm check && pnpm check:artifacts && pnpm smoke:live",
+    "check:affected": "node scripts/check-affected.mjs",
+    "audit:check": "node scripts/audit.mjs"
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown"

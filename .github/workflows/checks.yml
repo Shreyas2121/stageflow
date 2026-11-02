@@ -1,0 +1,59 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  merge_group:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      CI: 'true'
+      HUSKY: '0'
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_SECRET: stageflow-ci-only-placeholder
+      DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
+      CORS_ORIGIN: http://127.0.0.1:5173
+      LIVE_NAMESPACE: sf_ci
+      VITE_API_BASE_URL: http://127.0.0.1:4000/api
+      VITE_WS_URL: http://127.0.0.1:4000
+      CHECK_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+      CHECK_AUDIT: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:affected

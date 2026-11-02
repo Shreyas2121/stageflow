@@ -1,0 +1,26 @@
+[
+  {
+    "id": "GHSA-g3hv-75wg-m249",
+    "module": "minimatch",
+    "severity": "moderate",
+    "owner": "StageFlow repository maintainer",
+    "reviewBy": "2026-11-08",
+    "reason": "C02: trusted local lint/build globs only; compatible parents still require vulnerable majors. Remove when a supported parent adopts a fix."
+  },
+  {
+    "id": "GHSA-3g3m-2fjr-6pw4",
+    "module": "glob",
+    "severity": "moderate",
+    "owner": "StageFlow repository maintainer",
+    "reviewBy": "2026-11-08",
+    "reason": "C02: Nest CLI local asset globs only; fixed release crosses its declared major. Remove on a supported CLI fix."
+  },
+  {
+    "id": "GHSA-gcqx-w48m-w2h4",
+    "module": "deepmerge",
+    "severity": "low",
+    "owner": "StageFlow repository maintainer",
+    "reviewBy": "2026-11-08",
+    "reason": "C02: webpack checker merges trusted local config; no compatible published patch. Remove when a supported parent fixes or replaces it."
+  }
+]

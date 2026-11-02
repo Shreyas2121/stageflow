@@ -21,6 +21,7 @@ function sharedSourcePlugin(): Plugin {
 }
 
 export default defineConfig({
+  build: { manifest: true },
   plugins: [sharedSourcePlugin(), react(), tailwindcss()],
   envDir: fileURLToPath(new URL('../..', import.meta.url)),
   optimizeDeps: { exclude: ['@stageflow/shared'] },
