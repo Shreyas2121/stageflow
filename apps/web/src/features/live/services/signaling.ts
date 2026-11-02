@@ -32,6 +32,8 @@ export type RoomConnection = {
   promote: (targetSocketId: string) => Promise<CommandAck>;
   demote: (targetSocketId: string) => Promise<CommandAck>;
   setLock: (request: StageLockRequest) => Promise<CommandAck>;
+  startBroadcast: () => Promise<CommandAck>;
+  stopBroadcast: () => Promise<CommandAck>;
   leave: () => Promise<CommandAck>;
   close: () => void;
 };
@@ -169,6 +171,8 @@ export function openIndependentSignaling(
     demote: (targetSocketId) =>
       socket.timeout(8000).emitWithAck('stage:demote', { targetSocketId }),
     setLock: (request) => socket.timeout(8000).emitWithAck('stage:set-lock', request),
+    startBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:start'),
+    stopBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:stop'),
     leave: () => socket.timeout(8000).emitWithAck('room:leave'),
     close() {
       if (closed) return;

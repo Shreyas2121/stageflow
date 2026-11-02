@@ -1,6 +1,6 @@
 # Phase 5 — Webinar moderation
 
-**Status:** P5-C01 and P5-C02 committed; P5-C03 verified; P5-C04 planned. P5-C01 through P5-C03 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
+**Status:** P5-C01 through P5-C03 committed; P5-C04 verified. P5-A01 through P5-A06 passed with synthetic browser devices. P5-C01 through P5-C04 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.7`, Sections 1.4, 5.2, 5.3, 7, 8, 9.1 through 9.4, 10.1, 13, and 16 (Phase 5).\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns P5-C01 through P5-C04. This file owns the rules those commits must satisfy.\
@@ -14,7 +14,7 @@ Example: Ava creates a webinar and joins as host. Sam joins in a second window, 
 
 ## 2. Entry prerequisites
 
-**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 and the subsequent requests for P5-C02 and P5-C03 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
+**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 and the subsequent requests for P5-C02 through P5-C04 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
 
 Historical entry snapshot while writing this plan, on 2026-11-02:
 
@@ -125,14 +125,14 @@ Empty, denied, `stage_full`, and lock failures use the server sentence and name 
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                                                           | Method                                              | Status  |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------- |
-| P5-A01 | Promote, demote, and lock follow Section 5.1 through the socket. Broadcast start and stop return `broadcast_not_available` and do not write                 | API service test and the existing Redis integration | passed  |
-| P5-A02 | The host sees hands in raise order and can promote, demote, and lock. The target cannot turn the locked device back on                                      | Browser                                             | planned |
-| P5-A03 | A second window joins as an attendee and receives no description. After promotion and device consent, the two windows show each other                       | Browser                                             | planned |
-| P5-A04 | Demotion closes both sides of that connection, clears the tile, and stops the demoted camera. The person remains an attendee with no peer connection        | Browser                                             | planned |
-| P5-A05 | The attendee view shows the missing-broadcast sentence and no media element. Webinar broadcast controls report the Section 5.2 sentence. A meeting has none | Browser and search                                  | planned |
-| P5-A06 | Promoting a demo peer opens real peer connections. Before promotion it has none. Demotion closes them. The demo never calls `getUserMedia`                  | Browser and search                                  | planned |
+| ID     | Observable result                                                                                                                                           | Method                                              | Status |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------ |
+| P5-A01 | Promote, demote, and lock follow Section 5.1 through the socket. Broadcast start and stop return `broadcast_not_available` and do not write                 | API service test and the existing Redis integration | passed |
+| P5-A02 | The host sees hands in raise order and can promote, demote, and lock. The target cannot turn the locked device back on                                      | Browser                                             | passed |
+| P5-A03 | A second window joins as an attendee and receives no description. After promotion and device consent, the two windows show each other                       | Browser                                             | passed |
+| P5-A04 | Demotion closes both sides of that connection, clears the tile, and stops the demoted camera. The person remains an attendee with no peer connection        | Browser                                             | passed |
+| P5-A05 | The attendee view shows the missing-broadcast sentence and no media element. Webinar broadcast controls report the Section 5.2 sentence. A meeting has none | Browser and search                                  | passed |
+| P5-A06 | Promoting a demo peer opens real peer connections. Before promotion it has none. Demotion closes them. The demo never calls `getUserMedia`                  | Browser and search                                  | passed |
 
 ROOM-02 for moderation is A01. ROOM-04 is A01 and A02. RTC-03 is A03, A04, and A06.
 
@@ -196,3 +196,21 @@ New service regressions cover consent before capture/connections, a single on-st
 Chrome 156.0.8078.74 on Windows, against an API with a unique isolated `p5c03-browser-` namespace, verified a host and an independent attendee with synthetic devices. Before promotion the attendee made zero capture calls and peer connections, and received no description. Promotion still made zero capture calls and connections until the user enabled devices. Consent then produced connected endpoints and nonzero decoded remote video dimensions in both windows. Microphone and camera locks disabled the matching tracks and controls; unlock left them off until the participant used the existing control. Demotion ended the camera/microphone tracks, closed both endpoints, removed attendee media elements, and preserved signaling (the attendee raised a new hand afterward). A spawned webinar demo peer had no connection before promotion; promotion connected both endpoints without any new device capture, camera lock disabled its canvas track, and demotion closed both endpoints. The connected-window screenshot was inspected; no page errors occurred.
 
 These are the automated and scoped browser checks for P5-C03, supporting P5-A02 through P5-A04 and P5-A06. The complete P5-C04 browser sequence and final acceptance records remain pending, including broadcast UI/rejection and the stage-full UI check. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up.
+
+## 13. P5-C04 and final acceptance (2026-11-02)
+
+All workspace tests passed: shared 141, web 105, API 105, including real Redis integration. Workspace typecheck and lint, formatting, the production web build, and web artifact validation passed. Searches for `hls.js`, `ffmpeg`, and `BullMQ` in apps/packages, and for device-capture APIs in `demo-peer.ts`, printed nothing. No script, migration, broadcast storage, or broadcast media implementation was added; snapshots retain `broadcast: null`.
+
+The complete guide Section 5 browser sequence passed in Chrome 156.0.8078.74 on Windows, using independent host and attendee contexts, synthetic camera/microphone devices, and a real API with a unique isolated `p5c04-browser-` Redis namespace:
+
+1. Ava created a webinar, explicitly enabled both devices, and joined as HOST.
+2. Sam joined as ATTENDEE with zero capture calls and zero peer connections. The roster and exact missing-broadcast sentence rendered; the Broadcast region and the attendee page contained no video, audio, or canvas. Sam raised a hand.
+3. Ava saw Sam in the queue. Neither endpoint had a connection to Sam, and no description was delivered to Sam before promotion. Queue ordering was also verified with two raised attendees in P5-C02.
+4. Ava promoted Sam. Sam saw the green room, with zero capture calls and connections until consent. After explicit consent, both endpoints connected and both windows decoded the other person's video. The role changed to SPEAKER.
+5. Microphone and camera locks disabled the matching captured tracks and controls. Unlocking left each device off; Sam could then enable it through the existing control.
+6. Both Start broadcast and Stop broadcast showed `Error: Broadcast is not available yet.` The entire snapshot, including revision and roster, stayed unchanged. Ava joined a separate meeting as host; it had neither broadcast button.
+7. Demotion ended Sam's camera and microphone tracks, closed both endpoints, and cleared retained remote video attachments to `srcObject: null`. Sam returned to ATTENDEE with the same broadcast sentence and no media elements. Raising a new hand proved that the signaling connection remained joined.
+8. A spawned demo attendee made no device-capture call and had no peer connection. Promotion opened its two connected endpoints and decoded video. Camera lock disabled its canvas track; demotion closed both endpoints.
+9. Promoting three demo peers filled the four-person stage and connected all 12 mesh endpoints. Promoting Sam then showed the existing `stage_full` sentence. Sam remained an attendee, the stage stayed at four, and the complete snapshot and revision were unchanged.
+
+No browser step failed and no page error occurred. Attendee, connected-stage, demoted-attendee, and full-stage screenshots were inspected. P5-A01 through P5-A06 passed within this synthetic-device scope. Phase 5's four slices are verified; committing P5-C04 and recording its hash completes the phase. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up under master Section 16. Phase 6 can replace the explicit broadcast rejection; this phase supplies no player or broadcast media.

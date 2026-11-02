@@ -1,6 +1,6 @@
 # Guide 5 — Phase 5, commit by commit
 
-**Status:** P5-C01 and P5-C02 committed; P5-C03 verified; P5-C04 is not implemented.\
+**Status:** P5-C01 through P5-C03 committed; P5-C04 verified. P5-A01 through P5-A06 passed with synthetic browser devices.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.7`.\
@@ -10,7 +10,7 @@
 
 Read the phase contract before editing code. Planning-time `HEAD` was `8fcf04051bd52b255cf4dd951d1a5890c767c103`. Recheck the worktree.
 
-Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. The user subsequently requested P5-C02 and P5-C03 under the same exception. Later slices retain their own verification gates.
+Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. The user subsequently requested P5-C02 through P5-C04 under the same exception. Later slices retain their own verification gates.
 
 When implementation is authorized:
 
@@ -143,9 +143,9 @@ With the API running, join a webinar as host and confirm the queue and buttons r
 
 ## 4. P5-C03 — Stage membership and locks
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-stage): open the mesh only for current stage members`\
-**Actual commit:**
+**Actual commit:** `3b26024210919e3372a5c80c9ef9a0bc135a4e13`
 
 **Why:** Promotion and demotion have to change who holds a peer connection. Covers the automated part of P5-A03, P5-A04, and P5-A06.
 
@@ -194,7 +194,7 @@ Session tests cover: promotion does not call `getUserMedia` until consent; conse
 
 ## 5. P5-C04 — Missing broadcast and the two-window check
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-room): tell attendees that broadcast is not available`\
 **Actual commit:**
 
@@ -205,6 +205,8 @@ Session tests cover: promotion does not call `getUserMedia` until consent; conse
 **Files:**
 
 - `apps/web/src/features/live/services/signaling.ts`
+- `apps/web/src/features/live/services/signaling.test.ts`
+- `apps/web/src/features/live/services/demo-peer.test.ts` (connection fixture only)
 - `apps/web/src/features/live/services/room-session.ts`
 - `apps/web/src/features/live/services/room-session.test.ts`
 - `apps/web/src/features/live/components/live-room.tsx`
@@ -241,6 +243,8 @@ In current desktop Chrome or Edge, with the API and web app running:
 9. Fill the stage to 4 and promote another attendee. The server sentence for `stage_full` appears and the roster does not gain a fifth stage member.
 
 Record any failed step. A still screenshot does not verify A02–A06. If no browser is available, leave those IDs unverified.
+
+**Verification result (2026-11-02):** All workspace tests (shared 141, web 105, API 105 including Redis), workspace typecheck/lint, formatting, production web build, and web artifact validation passed. Both forbidden-import and demo-capture searches printed nothing. All nine browser steps passed in Chrome 156 on Windows with synthetic devices, including broadcast start/stop rejection without snapshot mutation, meeting button visibility, demotion cleanup, demo promotion, and full-stage rejection. P5-A01 through P5-A06 passed. Phase Section 13 records the evidence and retained Phase 3 physical-device obligations.
 
 **Done when:** P5-A02 through P5-A06 are verified and the slice is committed.
 

@@ -82,6 +82,8 @@ beforeEach(() => {
     promote: vi.fn(async () => ({ ok: true as const })),
     demote: vi.fn(async () => ({ ok: true as const })),
     setLock: vi.fn(async () => ({ ok: true as const })),
+    startBroadcast: vi.fn(async () => ({ ok: true as const })),
+    stopBroadcast: vi.fn(async () => ({ ok: true as const })),
   };
   vi.mocked(openIndependentSignaling).mockReturnValue(connection);
 });

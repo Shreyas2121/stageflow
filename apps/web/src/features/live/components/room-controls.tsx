@@ -17,6 +17,9 @@ export function RoomControls({
   handRaised,
   showHand,
   showShare,
+  showBroadcast,
+  onStartBroadcast,
+  onStopBroadcast,
   onToggleAudio,
   onToggleVideo,
   onToggleShare,
@@ -41,6 +44,9 @@ export function RoomControls({
   handRaised: boolean;
   showHand: boolean;
   showShare: boolean;
+  showBroadcast: boolean;
+  onStartBroadcast: () => void;
+  onStopBroadcast: () => void;
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onToggleShare: () => void;
@@ -98,6 +104,16 @@ export function RoomControls({
         >
           {handRaised ? 'Lower hand' : 'Raise hand'}
         </Button>
+      )}
+      {showBroadcast && (
+        <>
+          <Button type="button" disabled={mediaPending || leaving} onClick={onStartBroadcast}>
+            Start broadcast
+          </Button>
+          <Button type="button" disabled={mediaPending || leaving} onClick={onStopBroadcast}>
+            Stop broadcast
+          </Button>
+        </>
       )}
       {inRoom ? (
         <Button

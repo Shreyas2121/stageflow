@@ -117,6 +117,11 @@ export function LiveRoom({
           />
         )}
       </div>
+      {live.phase === 'joined' && self?.role === 'ATTENDEE' && (
+        <section className="mt-5 text-sm text-muted" aria-label="Broadcast">
+          <p>The host has not started the broadcast.</p>
+        </section>
+      )}
       {live.error && (
         <p
           className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
@@ -143,6 +148,9 @@ export function LiveRoom({
         handRaised={self?.isHandRaised ?? false}
         showHand={self?.role === 'ATTENDEE'}
         showShare={Boolean(inRoom && onStage && live.peerManager)}
+        showBroadcast={live.phase === 'joined' && room.mode === 'WEBINAR' && self?.role === 'HOST'}
+        onStartBroadcast={() => void live.startBroadcast()}
+        onStopBroadcast={() => void live.stopBroadcast()}
         onToggleAudio={() => live.toggleAudio()}
         onToggleVideo={() => live.toggleVideo()}
         onToggleShare={() => (share.sharing ? share.stop() : share.start())}

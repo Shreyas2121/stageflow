@@ -134,6 +134,8 @@ describe('signaling connection ownership', () => {
     await demo.join({ ...joinRequest, isSyntheticBot: true });
     await expect(host.promote('guest')).resolves.toEqual({ ok: true });
     await expect(host.demote('guest')).resolves.toEqual({ ok: true });
+    await expect(host.startBroadcast()).resolves.toEqual({ ok: true });
+    await expect(host.stopBroadcast()).resolves.toEqual({ ok: true });
     await expect(
       host.setLock({ targetSocketId: 'guest', kind: 'audio', locked: true }),
     ).resolves.toEqual({ ok: true });
@@ -141,6 +143,8 @@ describe('signaling connection ownership', () => {
       ['room:join', joinRequest],
       ['stage:promote', { targetSocketId: 'guest' }],
       ['stage:demote', { targetSocketId: 'guest' }],
+      ['broadcast:start'],
+      ['broadcast:stop'],
       ['stage:set-lock', { targetSocketId: 'guest', kind: 'audio', locked: true }],
     ]);
     expect(sockets[1]!.emitWithAck.mock.calls).toEqual([

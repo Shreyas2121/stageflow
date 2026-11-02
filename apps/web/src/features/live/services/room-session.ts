@@ -532,6 +532,16 @@ export class RoomSession {
     return this.moderate((active) => active.promote(targetSocketId));
   }
 
+  startBroadcast(): Promise<void> {
+    if (this.room.mode !== 'WEBINAR') return Promise.resolve();
+    return this.moderate((active) => active.startBroadcast());
+  }
+
+  stopBroadcast(): Promise<void> {
+    if (this.room.mode !== 'WEBINAR') return Promise.resolve();
+    return this.moderate((active) => active.stopBroadcast());
+  }
+
   demote(targetSocketId: string): Promise<void> {
     return this.moderate((active) => active.demote(targetSocketId));
   }

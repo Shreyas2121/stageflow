@@ -130,6 +130,8 @@ function fakeConnection() {
     promote: vi.fn<RoomConnection['promote']>(async () => ({ ok: true })),
     demote: vi.fn<RoomConnection['demote']>(async () => ({ ok: true })),
     setLock: vi.fn<RoomConnection['setLock']>(async () => ({ ok: true })),
+    startBroadcast: vi.fn<RoomConnection['startBroadcast']>(async () => ({ ok: true })),
+    stopBroadcast: vi.fn<RoomConnection['stopBroadcast']>(async () => ({ ok: true })),
     leave: vi.fn(() => Promise.resolve({ ok: true as const })),
     close: vi.fn(),
   };
@@ -266,6 +268,48 @@ describe('RoomSession', () => {
     finishJoin({ ok: true, selfSocketId: 'self', iceServers: [] });
     await joining;
     expect(session.phase).toBe('joined');
+  });
+
+  it.each(['startBroadcast', 'stopBroadcast'] as const)(
+    'shows the %s rejection without inventing broadcast or roster state',
+    async (action) => {
+      const h = open({ room: webinar, userId: 'host-user' });
+      await joinStage(h.session, h.media, h.connection);
+      const original = useRoomStore.getState().snapshot;
+      h.connection[action].mockResolvedValue({
+        ok: false,
+        error: 'broadcast_not_available',
+        message: 'Broadcast is not available yet.',
+      });
+      await h.session[action]();
+      expect(h.connection[action]).toHaveBeenCalledExactlyOnceWith();
+      expect(h.session.error).toBe('Broadcast is not available yet.');
+      expect(useRoomStore.getState().snapshot).toBe(original);
+      expect(useRoomStore.getState().snapshot?.broadcast).toBeNull();
+      expect(h.connection.media).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not send broadcast commands from a meeting host or a webinar attendee', async () => {
+    const meeting = open();
+    await joinStage(meeting.session, meeting.media, meeting.connection);
+    await meeting.session.startBroadcast();
+    await meeting.session.stopBroadcast();
+    expect(meeting.connection.startBroadcast).not.toHaveBeenCalled();
+    expect(meeting.connection.stopBroadcast).not.toHaveBeenCalled();
+    const guest = open({ room: webinar, userId: 'guest' });
+    guest.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'ATTENDEE', false, 1), mode: 'WEBINAR' });
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await guest.session.join();
+    await guest.session.startBroadcast();
+    await guest.session.stopBroadcast();
+    expect(guest.connection.startBroadcast).not.toHaveBeenCalled();
+    expect(guest.connection.stopBroadcast).not.toHaveBeenCalled();
   });
 
   it('surfaces failed promote and waits for a higher snapshot revision after successful moderation', async () => {
