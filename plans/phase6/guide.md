@@ -235,7 +235,7 @@ A compiled-controller check used real guest JWT verification, PostgreSQL rows in
 1. Build the Section 5.4 canvas and audio mix in the broadcast feature. Pass video elements and tracks in from the live room. Do not import a live component.
 2. Start recording only after `broadcast:start` acks success. Upload sequence `0` first, and send the next blob only after `204`. Keep at most 8 unsent blobs. On the ninth, stop the recorder and call `broadcast:stop`.
 3. Rebuild the mix when the stage set or mute flags change, and disconnect the replaced nodes.
-4. On broadcast stop, host leave, room end, and unmount, stop the recorder, cancel the canvas frame, stop the upload loop, and close the mix context. Leave still stops the camera and the peer connections.
+4. On a normal Stop broadcast, finish the recorder before `broadcast:stop`: accept the final blob that arrives before the recorder `stop` event, upload accepted chunks in order, then tell the server to stop. Leave, room end, and page unload abort immediately and do not wait for an upload. Leave still stops the camera and the peer connections. The verification record below describes the earlier drop-on-stop behavior; Section 5.4 is the current contract.
 5. Do not render a player in this slice. An attendee still sees the missing-broadcast sentence.
 
 **Verification:**

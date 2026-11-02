@@ -145,4 +145,87 @@ describe('ChunkUpload', () => {
     expect(clearSession).toHaveBeenCalledExactlyOnceWith(token);
     useSessionStore.setState({ clearSession: previous });
   });
+
+  it('drains the pending blob and the sealed queue before resolving', async () => {
+    const sent: Blob[] = [];
+    let release: (status: number) => void = () => undefined;
+    const upload = new ChunkUpload(
+      broadcastId,
+      token,
+      (request) => {
+        sent.push(request.body);
+        return new Promise<number>((resolve) => {
+          release = resolve;
+        });
+      },
+      () => undefined,
+    );
+    const header = blob('header');
+    const queued = blob('queued');
+    const late = blob('late');
+    upload.push(header);
+    upload.push(queued);
+    await Promise.resolve();
+    const drained = upload.drain(8_000);
+    upload.push(late);
+    expect(sent).toEqual([header]);
+    release(204);
+    await vi.waitFor(() => expect(sent).toEqual([header, queued]));
+    release(204);
+    await expect(drained).resolves.toEqual({ ok: true });
+    expect(sent).toEqual([header, queued]);
+  });
+
+  it('aborts a drain that exceeds its bound and does not keep the request open', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let signal: AbortSignal | undefined;
+      const onGiveUp = vi.fn();
+      const upload = new ChunkUpload(
+        broadcastId,
+        token,
+        (request) => {
+          signal = request.signal;
+          return new Promise<number>(() => undefined);
+        },
+        onGiveUp,
+      );
+      upload.push(blob('header'));
+      upload.push(blob('queued'));
+      await Promise.resolve();
+      const drained = upload.drain(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(drained).resolves.toEqual({ ok: false, reason: 'timeout' });
+      expect(signal?.aborted).toBe(true);
+      expect(onGiveUp).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves an in-flight drain as aborted when upload is stopped', async () => {
+    const upload = new ChunkUpload(
+      broadcastId,
+      token,
+      () => new Promise<number>(() => undefined),
+      () => undefined,
+    );
+    upload.push(blob('header'));
+    await Promise.resolve();
+    const drained = upload.drain(8_000);
+    upload.stop();
+    await expect(drained).resolves.toEqual({ ok: false, reason: 'aborted' });
+  });
+
+  it('reports a refused chunk as an upload failure while a drain is waiting', async () => {
+    const upload = new ChunkUpload(
+      broadcastId,
+      token,
+      () => Promise.resolve(409),
+      () => undefined,
+    );
+    upload.push(blob('header'));
+    const drained = upload.drain(8_000);
+    await expect(drained).resolves.toEqual({ ok: false, reason: 'upload' });
+  });
 });

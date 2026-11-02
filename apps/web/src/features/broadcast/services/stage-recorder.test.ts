@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   StageRecorder,
+  RECORDER_FINISH_MS,
   type StageSource,
   VIDEO_BITS_PER_SECOND,
   RECORDER_MIME,
@@ -75,13 +76,20 @@ describe('StageRecorder', () => {
     ) {
       recorders.push(this);
     }
+    finalBlob: Blob | null = null;
     start(timeslice?: number): void {
       this.state = 'recording';
       this.timeslice = timeslice;
     }
+    /** Queues the final blob, then the stop event, matching the recorder algorithm. */
     stop(): void {
+      if (this.state === 'inactive') return;
       this.state = 'inactive';
-      this.onstop?.();
+      const blob = this.finalBlob;
+      queueMicrotask(() => {
+        if (blob && blob.size > 0) this.ondataavailable?.({ data: blob } as BlobEvent);
+        this.onstop?.();
+      });
     }
     emit(data: Blob): void {
       this.ondataavailable?.({ data } as BlobEvent);
@@ -351,7 +359,11 @@ describe('StageRecorder', () => {
     recorders[0]?.emit(new Blob(['header']));
     recorders[0]?.emit(new Blob(['queued']));
     await Promise.resolve();
+    const tail = new Blob(['tail']);
+    if (recorders[0]) recorders[0].finalBlob = tail;
     stage.stop();
+    await Promise.resolve();
+    expect(sent.some((request) => request.body === tail)).toBe(false);
     expect(cancelFrame).toHaveBeenCalled();
     expect(frames.size).toBe(0);
     expect(recorders[0]?.state).toBe('inactive');
@@ -465,5 +477,132 @@ describe('StageRecorder', () => {
     expect(mixedTrack.readyState).toBe('ended');
     expect(closeContext).toHaveBeenCalledOnce();
     expect(canvas.width).toBe(0);
+  });
+
+  it('uploads the final blob after a pending chunk, then releases owned tracks', async () => {
+    const sent: ChunkRequest[] = [];
+    let release: (status: number) => void = () => undefined;
+    const mic = track();
+    const stage = recorder((request) => {
+      sent.push(request);
+      return new Promise<number>((resolve) => {
+        release = resolve;
+      });
+    });
+    stage.update([source({ audioTrack: mic })]);
+    stage.start();
+    const header = new Blob(['header']);
+    const finalBlob = new Blob(['final']);
+    recorders[0]?.emit(header);
+    await Promise.resolve();
+    expect(sent.map((request) => request.body)).toEqual([header]);
+    if (recorders[0]) recorders[0].finalBlob = finalBlob;
+    const finishing = stage.finish();
+    stage.update([source({ id: 'late', audioTrack: track() })]);
+    expect(nodes).toHaveLength(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sent.map((request) => request.body)).toEqual([header]);
+    expect(captureTrack.readyState).toBe('live');
+    expect(mixedTrack.readyState).toBe('live');
+    release(204);
+    await vi.waitFor(() =>
+      expect(sent.map((request) => request.body)).toEqual([header, finalBlob]),
+    );
+    expect(captureTrack.readyState).toBe('live');
+    release(204);
+    await expect(finishing).resolves.toEqual({ ok: true });
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+    expect(mic.stop).not.toHaveBeenCalled();
+    expect(mic.readyState).toBe('live');
+    recorders[0]?.emit(new Blob(['after-stop']));
+    expect(sent).toHaveLength(2);
+  });
+
+  it('uploads the only blob when the recording is shorter than one timeslice', async () => {
+    const sent: Blob[] = [];
+    const stage = recorder((request) => {
+      sent.push(request.body);
+      return Promise.resolve(204);
+    });
+    stage.start();
+    expect(sent).toEqual([]);
+    const only = new Blob(['short']);
+    if (recorders[0]) recorders[0].finalBlob = only;
+    await expect(stage.finish()).resolves.toEqual({ ok: true });
+    expect(sent).toEqual([only]);
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+  });
+
+  it('fails a hung upload and still releases owned tracks', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let signal: AbortSignal | undefined;
+      const stage = recorder((request) => {
+        signal = request.signal;
+        return new Promise<number>(() => undefined);
+      });
+      stage.start();
+      recorders[0]?.emit(new Blob(['header']));
+      await Promise.resolve();
+      if (recorders[0]) recorders[0].finalBlob = new Blob(['final']);
+      const finishing = stage.finish();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(captureTrack.readyState).toBe('live');
+      await vi.advanceTimersByTimeAsync(RECORDER_FINISH_MS);
+      await expect(finishing).resolves.toEqual({ ok: false, reason: 'timeout' });
+      expect(signal?.aborted).toBe(true);
+      expect(captureTrack.readyState).toBe('ended');
+      expect(mixedTrack.readyState).toBe('ended');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails when the recorder never delivers its final stop event', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const stage = recorder(() => Promise.resolve(204), vi.fn(), {
+        createRecorder: (stream, options) => {
+          const created = new FakeRecorder(stream, options);
+          created.stop = () => {
+            created.state = 'inactive';
+          };
+          return created as unknown as MediaRecorder;
+        },
+      });
+      stage.start();
+      const finishing = stage.finish();
+      await vi.advanceTimersByTimeAsync(RECORDER_FINISH_MS);
+      await expect(finishing).resolves.toEqual({ ok: false, reason: 'timeout' });
+      expect(captureTrack.readyState).toBe('ended');
+      expect(mixedTrack.readyState).toBe('ended');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('aborts a finish without waiting for the upload or the final blob', async () => {
+    const sent: Blob[] = [];
+    const stage = recorder((request) => {
+      sent.push(request.body);
+      return new Promise<number>(() => undefined);
+    });
+    stage.start();
+    const header = new Blob(['header']);
+    const tail = new Blob(['tail']);
+    recorders[0]?.emit(header);
+    await Promise.resolve();
+    if (recorders[0]) recorders[0].finalBlob = tail;
+    const finishing = stage.finish();
+    stage.stop();
+    await expect(finishing).resolves.toEqual({ ok: false, reason: 'aborted' });
+    await Promise.resolve();
+    expect(sent).toEqual([header]);
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
   });
 });

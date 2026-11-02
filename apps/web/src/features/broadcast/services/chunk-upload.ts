@@ -32,17 +32,24 @@ export async function postChunk(request: ChunkRequest): Promise<number> {
   return response.status;
 }
 
+export type ChunkDrain = { ok: true } | { ok: false; reason: 'timeout' | 'upload' | 'aborted' };
+
 /**
  * Uploads sequence 0 first and sends n+1 only after n returns 204.
- * Stopping drops every blob that has not been accepted, including the one in flight.
+ * stop() drops every blob that has not been accepted, including the one in flight.
+ * drain() accepts no further blobs and waits until the queued ones are accepted.
  */
 export class ChunkUpload {
   private readonly queue: Blob[] = [];
   private nextSequence = 0;
   private sending = false;
   private stopped = false;
+  private sealed = false;
   private gaveUp = false;
   private abort: AbortController | null = null;
+  private drainPromise: Promise<ChunkDrain> | null = null;
+  private resolveDrain: ((result: ChunkDrain) => void) | null = null;
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly broadcastId: string,
@@ -52,7 +59,7 @@ export class ChunkUpload {
   ) {}
 
   push(blob: Blob): void {
-    if (this.stopped) return;
+    if (this.stopped || this.sealed) return;
     if (this.queue.length >= MAX_UNSENT_BLOBS) {
       this.giveUp();
       return;
@@ -61,19 +68,65 @@ export class ChunkUpload {
     void this.pump();
   }
 
+  /** Ignores later blobs. Blobs already queued, including the one in flight, stay. */
+  seal(): void {
+    this.sealed = true;
+  }
+
+  drain(timeoutMs: number): Promise<ChunkDrain> {
+    if (this.drainPromise) return this.drainPromise;
+    this.sealed = true;
+    this.drainPromise = new Promise((resolve) => {
+      this.resolveDrain = resolve;
+    });
+    if (this.stopped) {
+      this.settle({ ok: false, reason: 'aborted' });
+      return this.drainPromise;
+    }
+    void this.pump();
+    if (!this.sending && this.queue.length === 0) this.settle({ ok: true });
+    else this.drainTimer = setTimeout(() => this.expire(), timeoutMs);
+    return this.drainPromise;
+  }
+
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.sealed = true;
     this.queue.length = 0;
     this.abort?.abort();
+    this.settle({ ok: false, reason: 'aborted' });
+  }
+
+  private expire(): void {
+    if (this.resolveDrain === null) return;
+    this.stopped = true;
+    this.sealed = true;
+    this.queue.length = 0;
+    this.abort?.abort();
+    this.settle({ ok: false, reason: 'timeout' });
   }
 
   private giveUp(): void {
     if (this.gaveUp) return;
     this.gaveUp = true;
-    this.stop();
+    if (!this.stopped) {
+      this.stopped = true;
+      this.sealed = true;
+      this.queue.length = 0;
+      this.abort?.abort();
+    }
+    this.settle({ ok: false, reason: 'upload' });
     // MediaRecorder forbids stop() inside dataavailable, which is what called push().
     queueMicrotask(() => this.onGiveUp());
+  }
+
+  private settle(result: ChunkDrain): void {
+    if (this.drainTimer !== null) clearTimeout(this.drainTimer);
+    this.drainTimer = null;
+    const resolve = this.resolveDrain;
+    this.resolveDrain = null;
+    resolve?.(result);
   }
 
   private async pump(): Promise<void> {
@@ -107,6 +160,10 @@ export class ChunkUpload {
     this.queue.shift();
     this.nextSequence += 1;
     this.abort = null;
+    if (this.sealed && this.queue.length === 0) {
+      this.settle({ ok: true });
+      return;
+    }
     void this.pump();
   }
 }

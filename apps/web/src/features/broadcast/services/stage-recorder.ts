@@ -19,11 +19,19 @@ export type StageSource = {
   screenSharing: boolean;
 };
 
+export type RecorderFinish = { ok: true } | { ok: false; reason: 'timeout' | 'upload' | 'aborted' };
+
 export type BroadcastRecorder = {
   start(): void;
   update(sources: readonly StageSource[]): void;
+  /** Drops unsent media immediately and releases owned tracks. */
   stop(): void;
+  /** Collects the final blob, uploads accepted chunks, then releases owned tracks. */
+  finish(): Promise<RecorderFinish>;
 };
+
+/** Bounds the final-blob wait and, separately, the ordered upload that follows it. */
+export const RECORDER_FINISH_MS = 8_000;
 
 type FrameRect = { x: number; y: number; width: number; height: number };
 
@@ -104,6 +112,10 @@ export class StageRecorder implements BroadcastRecorder {
   private lastDraw = Number.NEGATIVE_INFINITY;
   private started = false;
   private stopped = false;
+  private finishing = false;
+  private inputSealed = false;
+  private finishTask: Promise<RecorderFinish> | null = null;
+  private settleCollect: ((result: RecorderFinish) => void) | null = null;
 
   constructor(private readonly options: StageRecorderOptions) {
     this.upload = new ChunkUpload(
@@ -152,7 +164,8 @@ export class StageRecorder implements BroadcastRecorder {
       });
       this.mediaRecorder = recorder;
       recorder.ondataavailable = (event) => {
-        if (!this.stopped) this.upload.push(event.data);
+        if (this.stopped || this.inputSealed) return;
+        this.upload.push(event.data);
       };
       recorder.start(CHUNK_INTERVAL_MS);
       this.frame = this.requestFrame(this.draw);
@@ -164,26 +177,42 @@ export class StageRecorder implements BroadcastRecorder {
 
   update(sources: readonly StageSource[]): void {
     this.sources = [...sources];
-    if (this.audio && !this.stopped) this.rebuildMix(false);
+    if (this.audio && !this.stopped && !this.finishing) this.rebuildMix(false);
   }
 
-  /** Cancels the canvas frame, stops the recorder, drops unsent chunks, and releases owned media. */
+  /**
+   * Waits for the recorder's final blob and for every accepted chunk upload.
+   * Owned tracks stay live until that drain ends. Leave and unload use stop() instead.
+   */
+  finish(): Promise<RecorderFinish> {
+    if (this.finishTask) return this.finishTask;
+    if (this.stopped) return Promise.resolve({ ok: false, reason: 'aborted' });
+    this.finishing = true;
+    this.finishTask = this.runFinish();
+    return this.finishTask;
+  }
+
+  /** Cancels the canvas frame, drops unsent chunks, and releases owned media immediately. */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    const settle = this.settleCollect;
+    this.settleCollect = null;
     try {
       if (this.frame !== null) this.cancelFrame(this.frame);
       this.frame = null;
       const recorder = this.mediaRecorder;
       this.mediaRecorder = null;
-      if (recorder && recorder.state !== 'inactive') {
+      if (recorder) {
         recorder.ondataavailable = null;
-        recorder.stop();
+        recorder.onstop = null;
+        if (recorder.state !== 'inactive') recorder.stop();
       }
       this.upload.stop();
       this.disconnectMix();
     } finally {
       this.releaseOwnedMedia();
+      settle?.({ ok: false, reason: 'aborted' });
     }
   }
 
@@ -216,7 +245,72 @@ export class StageRecorder implements BroadcastRecorder {
 
   private overflow(): void {
     this.stop();
-    this.options.onCap();
+    if (!this.finishing) this.options.onCap();
+  }
+
+  private async runFinish(): Promise<RecorderFinish> {
+    const collected = await this.collectFinal();
+    if (this.stopped) return { ok: false, reason: 'aborted' };
+    if (!collected.ok) {
+      this.stop();
+      return collected;
+    }
+    const drained = await this.upload.drain(RECORDER_FINISH_MS);
+    if (!drained.ok && drained.reason !== 'aborted') {
+      if (!this.stopped) this.stop();
+      return { ok: false, reason: drained.reason };
+    }
+    if (this.stopped) return { ok: false, reason: 'aborted' };
+    this.stop();
+    return { ok: true };
+  }
+
+  /** The final dataavailable event is delivered before the recorder's stop event. */
+  private collectFinal(): Promise<RecorderFinish> {
+    if (this.stopped) return Promise.resolve({ ok: false, reason: 'aborted' });
+    if (this.frame !== null) {
+      this.cancelFrame(this.frame);
+      this.frame = null;
+    }
+    const recorder = this.mediaRecorder;
+    if (!recorder || recorder.state === 'inactive') {
+      this.inputSealed = true;
+      this.upload.seal();
+      return Promise.resolve({ ok: true });
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result: RecorderFinish) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.settleCollect = null;
+        resolve(result);
+      };
+      this.settleCollect = finish;
+      const timer = setTimeout(() => {
+        this.inputSealed = true;
+        this.upload.seal();
+        const pending = this.mediaRecorder;
+        if (pending) {
+          pending.ondataavailable = null;
+          pending.onstop = null;
+        }
+        finish({ ok: false, reason: 'timeout' });
+      }, RECORDER_FINISH_MS);
+      recorder.onstop = () => {
+        this.inputSealed = true;
+        this.upload.seal();
+        finish({ ok: true });
+      };
+      try {
+        recorder.stop();
+      } catch {
+        this.inputSealed = true;
+        this.upload.seal();
+        finish({ ok: false, reason: 'aborted' });
+      }
+    });
   }
 
   private disconnectMix(): void {
@@ -246,7 +340,7 @@ export class StageRecorder implements BroadcastRecorder {
   }
 
   private readonly draw = (now: number): void => {
-    if (this.stopped) return;
+    if (this.stopped || this.finishing) return;
     this.frame = null;
     if (now - this.lastDraw >= FRAME_MS) {
       this.lastDraw = Number.isFinite(this.lastDraw)
@@ -254,7 +348,7 @@ export class StageRecorder implements BroadcastRecorder {
         : now;
       this.paint();
     }
-    if (!this.stopped) this.frame = this.requestFrame(this.draw);
+    if (!this.stopped && !this.finishing) this.frame = this.requestFrame(this.draw);
   };
 
   private paint(): void {

@@ -10,7 +10,7 @@ import type {
 } from '@stageflow/shared';
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
-import type { BroadcastRecorder } from '../../broadcast/services/stage-recorder';
+import type { BroadcastRecorder, RecorderFinish } from '../../broadcast/services/stage-recorder';
 import { RoomSession, type RoomMedia } from './room-session';
 import { useRoomStore } from '../stores/room-store';
 import type { RoomConnection } from './signaling';
@@ -139,7 +139,12 @@ function fakeConnection() {
 }
 
 function recorderFake() {
-  return { start: vi.fn(), update: vi.fn(), stop: vi.fn() };
+  return {
+    start: vi.fn(),
+    update: vi.fn(),
+    stop: vi.fn(),
+    finish: vi.fn(() => Promise.resolve<RecorderFinish>({ ok: true })),
+  };
 }
 
 function harness(options?: {
@@ -353,6 +358,7 @@ describe('RoomSession', () => {
     ]);
     await h.session.leave();
     expect(recorder.stop).toHaveBeenCalledOnce();
+    expect(recorder.finish).not.toHaveBeenCalled();
     expect(h.media.stopped).toBe(1);
     expect(h.peers.close).toHaveBeenCalled();
     expect(h.connection.close).toHaveBeenCalled();
@@ -422,6 +428,7 @@ describe('RoomSession', () => {
       expect(recorder.start).toHaveBeenCalledOnce();
       listeners.get('pagehide')?.(new Event('pagehide'));
       expect(recorder.stop).toHaveBeenCalledOnce();
+      expect(recorder.finish).not.toHaveBeenCalled();
       expect(h.media.stopped).toBe(0);
       expect(h.peers.close).not.toHaveBeenCalled();
       expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
@@ -429,6 +436,99 @@ describe('RoomSession', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('asks the server to stop only after the final chunks are accepted', async () => {
+    const events: string[] = [];
+    let resolveFinish: (result: RecorderFinish) => void = () => undefined;
+    const recorder = recorderFake();
+    recorder.finish.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFinish = (result) => {
+            events.push('chunks-accepted');
+            resolve(result);
+          };
+        }),
+    );
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      createRecorder: () => recorder,
+    });
+    await startLiveBroadcast(h);
+    h.connection.stopBroadcast.mockImplementation(async () => {
+      events.push('server-stop');
+      return { ok: true };
+    });
+    const stopping = h.session.stopBroadcast();
+    expect(h.session.mediaPending).toBe(true);
+    expect(recorder.finish).toHaveBeenCalledOnce();
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    resolveFinish({ ok: true });
+    await stopping;
+    expect(events).toEqual(['chunks-accepted', 'server-stop']);
+    expect(h.session.mediaPending).toBe(false);
+    expect(h.session.error).toBe('');
+  });
+
+  it('shows a failure when the recording drain times out and still stops the server', async () => {
+    let resolveFinish: (result: RecorderFinish) => void = () => undefined;
+    const recorder = recorderFake();
+    recorder.finish.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFinish = resolve;
+        }),
+    );
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      createRecorder: () => recorder,
+    });
+    await startLiveBroadcast(h);
+    const stopping = h.session.stopBroadcast();
+    expect(h.session.mediaPending).toBe(true);
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    resolveFinish({ ok: false, reason: 'timeout' });
+    await stopping;
+    expect(h.connection.stopBroadcast).toHaveBeenCalledOnce();
+    expect(h.session.error).toBe(
+      'The broadcast stopped before the last of the recording uploaded.',
+    );
+    expect(h.session.mediaPending).toBe(false);
+    expect(h.media.stopped).toBe(0);
+    expect(h.peers.close).not.toHaveBeenCalled();
+  });
+
+  it('leaves without waiting for a finish that is still uploading', async () => {
+    let resolveFinish: (result: RecorderFinish) => void = () => undefined;
+    const recorder = recorderFake();
+    recorder.finish.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFinish = resolve;
+        }),
+    );
+    recorder.stop.mockImplementation(() => {
+      resolveFinish({ ok: false, reason: 'aborted' });
+    });
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      createRecorder: () => recorder,
+    });
+    await startLiveBroadcast(h);
+    const stopping = h.session.stopBroadcast();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    await h.session.leave();
+    await stopping;
+    expect(recorder.stop).toHaveBeenCalled();
+    expect(h.media.stopped).toBe(1);
+    expect(h.peers.close).toHaveBeenCalled();
+    expect(h.session.phase).toBe('lobby');
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
   });
 
   it('does not send broadcast commands from a meeting host or a webinar attendee', async () => {
@@ -747,6 +847,24 @@ describe('RoomSession', () => {
     expect(h.session.phase).toBe('joined');
     expect(h.connection.close).not.toHaveBeenCalled();
   });
+
+  async function startLiveBroadcast(h: ReturnType<typeof harness>) {
+    await joinWebinarHost(h);
+    h.connection.startBroadcast.mockImplementation(async () => {
+      useRoomStore.getState().receive({
+        ...snapshot('self', 'HOST', true, 2),
+        mode: 'WEBINAR',
+        broadcast: {
+          id: 'broadcast-1',
+          status: 'LIVE',
+          playlistUrl: null,
+          errorMessage: null,
+        },
+      });
+      return { ok: true };
+    });
+    await h.session.startBroadcast();
+  }
 
   async function joinWebinarHost(h: ReturnType<typeof harness>) {
     h.media.ready = true;

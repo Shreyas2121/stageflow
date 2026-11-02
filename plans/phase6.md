@@ -122,7 +122,11 @@ One `AudioContext` mixes the current unmuted stage tracks, local and remote, int
 
 `MediaRecorder` uses `video/webm;codecs=vp8,opus`, `videoBitsPerSecond: 2_500_000`, and a 1000 ms timeslice. The first blob is sequence `0` and must be uploaded. It carries the WebM header.
 
-Send sequence `n+1` only after `n` returns 204. Hold at most 8 unsent blobs. Beyond that, stop locally and call `broadcast:stop`. Leave, room end, broadcast stop, and page unload cancel the canvas frame, stop the recorder, stop the upload loop, and close the mix context.
+Send sequence `n+1` only after `n` returns 204. Hold at most 8 unsent blobs. Beyond that, stop locally and call `broadcast:stop`.
+
+A normal Stop broadcast finishes the recorder before `broadcast:stop`. The recorder delivers its final blob through `dataavailable` and then fires `stop`. The client uploads that blob, and every earlier accepted chunk, in order. Owned capture and mix tracks stay live until those uploads settle, then they are released. The final-blob wait and the upload drain each give up after 8 seconds. A failed or timed-out drain shows an error and still asks the server to stop; that partial recording is not a clean completion. Blobs that arrive after the recorder's `stop` event are ignored.
+
+Leave, room end, and page unload abort instead. They cancel the canvas frame, drop unsent chunks, release owned tracks, and close the mix without waiting for an upload. Leave still stops the camera and the peer connections.
 
 Stage members keep the mesh tiles. They do not play HLS of themselves.
 

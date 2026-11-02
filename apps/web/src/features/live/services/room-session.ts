@@ -11,6 +11,7 @@ import type {
 import {
   StageRecorder,
   type BroadcastRecorder,
+  type RecorderFinish,
   type StageSource,
 } from '../../broadcast/services/stage-recorder';
 import { ActiveSpeaker } from './active-speaker';
@@ -573,8 +574,20 @@ export class RoomSession {
 
   stopBroadcast(): Promise<void> {
     if (this.room.mode !== 'WEBINAR') return Promise.resolve();
-    this.stopRecorder();
-    return this.moderate((active) => active.stopBroadcast());
+    return this.moderate(async (active) => {
+      const finished = await this.finishRecorder();
+      if (this.connection !== active || this.state.phase !== 'joined') return { ok: true };
+      const result = await active.stopBroadcast();
+      if (
+        this.connection === active &&
+        result.ok &&
+        !finished.ok &&
+        finished.reason !== 'aborted'
+      ) {
+        this.state.error = unfinishedRecordingMessage(finished.reason);
+      }
+      return result;
+    });
   }
 
   setStageVideo(socketId: string, element: HTMLVideoElement | null): void {
@@ -927,7 +940,21 @@ export class RoomSession {
   }
 
   private onRecorderCap(): void {
-    void this.stopBroadcast();
+    this.stopRecorder();
+    void this.moderate((active) => active.stopBroadcast());
+  }
+
+  /** Uploads the final blob before the caller sends broadcast:stop. */
+  private finishRecorder(): Promise<RecorderFinish> {
+    this.armedBroadcast = false;
+    const recorder = this.recorder;
+    if (!recorder) return Promise.resolve({ ok: true });
+    return recorder.finish().finally(() => {
+      if (this.recorder === recorder) {
+        this.recorder = null;
+        this.recordingId = null;
+      }
+    });
   }
 
   private stopRecorder(): void {
@@ -960,4 +987,10 @@ export class RoomSession {
     }
     return sources;
   }
+}
+
+function unfinishedRecordingMessage(reason: 'timeout' | 'upload'): string {
+  return reason === 'timeout'
+    ? 'The broadcast stopped before the last of the recording uploaded.'
+    : 'The broadcast stopped before every recorded chunk was accepted.';
 }
