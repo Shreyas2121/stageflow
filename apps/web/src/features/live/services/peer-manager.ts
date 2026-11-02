@@ -67,6 +67,8 @@ function toInit(candidate: StageIceCandidate): RTCIceCandidateInit {
 export type RemoteStreams = ReadonlyMap<string, MediaStream>;
 export type PeerStatsSource = {
   readonly socketId: string;
+  /** Stable for one connection, even when source wrappers are recreated. */
+  readonly identity: object;
   readonly getStats: () => Promise<RTCStatsReport>;
 };
 
@@ -88,6 +90,7 @@ export class PeerManager {
   statsConnections(): readonly PeerStatsSource[] {
     return [...this.peers].map(([socketId, { pc }]) => ({
       socketId,
+      identity: pc,
       getStats: () => pc.getStats(),
     }));
   }

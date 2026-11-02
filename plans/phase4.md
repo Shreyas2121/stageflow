@@ -1,8 +1,8 @@
 # Phase 4 — Demo peers and stats
 
 **Status:** implementation complete. All four slices are committed; P4-A01 through P4-A06 are verified with synthetic host devices. The Phase 3 prerequisite exception remains unresolved (Section 2).\
-**Last updated:** 2026-11-01.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.3`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4); original execution used version `1.0.2`.\
+**Last updated:** 2026-11-02.\
+**Master plan:** `MASTER_PLAN.md` version `1.0.5`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4); original execution used version `1.0.2`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** DEMO-01, DEMO-02, and RTC-05 after the demo peers are removed.
 
@@ -59,16 +59,20 @@ The entry snapshot is not a current worktree inventory. Tooling was subsequently
 
 `deltaStats(previous, next)` lives in `@stageflow/shared`. Both samples are plain numbers, not a browser stats report. A missing counter is `null`.
 
-| Field                        | Rule                                                                                                                        |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Outbound and inbound bitrate | `(bytesDelta * 8) / secondsDelta`. `secondsDelta <= 0`, a null counter, or a byte counter that moves backward yields `null` |
-| Packet loss percent          | `lostDelta / (lostDelta + receivedDelta) * 100`. A null counter, a negative delta, or a zero denominator yields `null`      |
-| Jitter                       | Pass through the inbound jitter sample, converted from seconds to milliseconds. Null stays null                             |
-| Round-trip time              | `currentRoundTripTime` seconds times 1000. Null stays null                                                                  |
-| Frames per second            | `framesDelta / secondsDelta`, with the same null and backward rules as bitrate                                              |
-| ICE type                     | `host`, `srflx`, `relay`, or `unknown`. Any other local type, including `prflx`, is `unknown`                               |
+| Field                        | Rule                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outbound and inbound bitrate | `(bytesDelta * 8) / secondsDelta`. `secondsDelta <= 0`, a null counter, or a byte counter that moves backward yields `null`                          |
+| Packet loss percent          | `lostDelta / (lostDelta + receivedDelta) * 100`. A non-finite/non-positive interval, null counter, negative delta, or zero denominator yields `null` |
+| Jitter                       | Pass through the inbound jitter sample, converted from seconds to milliseconds. Null stays null                                                      |
+| Round-trip time              | `currentRoundTripTime` seconds times 1000. Null stays null                                                                                           |
+| Frames per second            | `framesDelta / secondsDelta`, with the same null and backward rules as bitrate                                                                       |
+| ICE type                     | `host`, `srflx`, `relay`, or `unknown`. Any other local type, including `prflx`, is `unknown`                                                        |
 
 The collector maps `getStats()` into those numbers and keeps the previous sample outside React. It sums RTP byte and packet counters. It does not also add candidate-pair byte counters. Jitter prefers the inbound audio report, then the inbound video report. Round-trip time and ICE type come from the nominated candidate pair. Frame rate comes from the inbound video report. The poll interval is one second. The first sample has no delta, so the rates are `null`.
+
+**C19 telemetry policy (2026-11-02):** The one-second visible cadence is unchanged. Previously the closed drawer also polled, and an unresolved peer read could block every later poll. The collector now exists only while the drawer is open. It samples immediately on open, then every 1000 ms; each peer read has an 800 ms deadline so a stalled peer cannot block subsequent polls. Only one native `getStats()` may remain outstanding per connection, including across close/reopen. Timed-out/rejected reads show all-null metrics and unknown ICE, clear that peer's baseline, and ignore late expired reports. Native reads cannot be aborted; after a stalled read settles, the next scheduled read starts a fresh baseline. Browser background-tab timer throttling can delay the open drawer's cadence.
+
+All deltas, including loss, require a finite positive timestamp interval. A report without a finite timestamp, or one whose time repeats/moves backward, makes that row unavailable and resets the baseline. No local fallback timestamp is mixed into report time. A removed/replaced connection resets independently of socket ID; close clears all collector baselines and prevents later publication. Reopening starts fresh, so first-sample rates/loss are null while available current latency/ICE can display. Aggregate counter decreases yield null for the affected delta for that interval; the current values become the next baseline. Per-stream counter membership tracking remains outside this slice.
 
 On one machine the ICE type may be `host`. That satisfies the drawer. A relay candidate is not required.
 
@@ -99,6 +103,8 @@ The pulse is tuned so a remote stage tile crosses the existing `0.08` level. Do 
 ### 5.3 Drawer
 
 The drawer is closed until the host opens **Connection stats**. It lists one row for each remote connection in the host's `PeerManager`, labeled with that participant's display name. Each row shows the fields from Section 5.1, using `—` for null. An empty list says the stage has no remote connections yet. Opening the drawer does not create a peer connection.
+
+Sampling pauses while closed. The panel explains that readings update while open and dashes mean unavailable or a fresh sample. Replacing the room's manager cannot display rows from the previous manager.
 
 Roster rows with `isSyntheticBot` include the word `Demo`.
 

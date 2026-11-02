@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deltaStats } from '@stageflow/shared';
 import type { PeerStatsSource } from './peer-manager';
-import { StatsCollector, statsSample } from './stats-collector';
+import { StatsCollector, statsSample, STATS_READ_TIMEOUT_MS } from './stats-collector';
 
 type Entry = { id: string; type: string; [key: string]: unknown };
 
@@ -139,6 +139,178 @@ describe('statsSample', () => {
 });
 
 describe('StatsCollector', () => {
+  it('bounds one never-resolving peer while healthy rows keep their one-second cadence', async () => {
+    vi.useFakeTimers();
+    const stalled = vi.fn(() => new Promise<RTCStatsReport>(() => {}));
+    let count = 0;
+    const healthy = vi.fn(async () => {
+      count++;
+      return rtpReport(count * 1000, count * 24);
+    });
+    const publish = vi.fn();
+    const collector = new StatsCollector(
+      () => [
+        { socketId: 'stalled', identity: stalled, getStats: stalled },
+        { socketId: 'healthy', identity: healthy, getStats: healthy },
+      ],
+      publish,
+    );
+    await vi.advanceTimersByTimeAsync(STATS_READ_TIMEOUT_MS - 1);
+    expect(publish).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(publish.mock.lastCall?.[0].get('stalled')).toEqual(
+      deltaStats(null, statsSample(report([]))),
+    );
+    await vi.advanceTimersByTimeAsync(6000 - STATS_READ_TIMEOUT_MS);
+    expect(stalled).toHaveBeenCalledOnce();
+    expect(healthy).toHaveBeenCalledTimes(7);
+    expect(publish).toHaveBeenCalledTimes(7);
+    expect(publish.mock.lastCall?.[0].get('healthy').inboundBitrate).toBe(192);
+    collector.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ignores an expired result and uses a fresh baseline when that peer becomes readable again', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: RTCStatsReport) => void;
+    const getStats = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<RTCStatsReport>((done) => {
+            resolve = done;
+          }),
+      )
+      .mockResolvedValueOnce(rtpReport(3000, 10))
+      .mockResolvedValue(rtpReport(4000, 34));
+    const publish = vi.fn();
+    const collector = new StatsCollector(
+      () => [{ socketId: 'peer', identity: getStats, getStats }],
+      publish,
+    );
+    await vi.advanceTimersByTimeAsync(1200);
+    const calls = publish.mock.calls.length;
+    resolve(rtpReport(1000, 999));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(publish).toHaveBeenCalledTimes(calls);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    collector.close();
+  });
+
+  it('rejects results from a replaced connection even when the socket ID is reused', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: RTCStatsReport) => void;
+    const oldRead = vi.fn(
+      () =>
+        new Promise<RTCStatsReport>((done) => {
+          resolve = done;
+        }),
+    );
+    const newRead = vi
+      .fn()
+      .mockResolvedValueOnce(rtpReport(2000, 100))
+      .mockResolvedValue(rtpReport(3000, 124));
+    let sources: PeerStatsSource[] = [{ socketId: 'peer', identity: oldRead, getStats: oldRead }];
+    const publish = vi.fn();
+    const collector = new StatsCollector(() => sources, publish);
+    await vi.advanceTimersByTimeAsync(10);
+    sources = [{ socketId: 'peer', identity: newRead, getStats: newRead }];
+    resolve(rtpReport(1000, 0));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(publish.mock.lastCall?.[0].size).toBe(0);
+    await vi.advanceTimersByTimeAsync(990);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    collector.close();
+  });
+
+  it('closes during await and reopens without overlapping or accepting the old native read', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: RTCStatsReport) => void;
+    const getStats = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<RTCStatsReport>((done) => {
+            resolve = done;
+          }),
+      )
+      .mockResolvedValueOnce(rtpReport(2000, 100))
+      .mockResolvedValue(rtpReport(3000, 124));
+    const sources = () => [{ socketId: 'peer', identity: getStats, getStats }];
+    const oldPublish = vi.fn(),
+      newPublish = vi.fn();
+    const old = new StatsCollector(sources, oldPublish);
+    await vi.advanceTimersByTimeAsync(50);
+    old.close();
+    const next = new StatsCollector(sources, newPublish);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldPublish).not.toHaveBeenCalled();
+    expect(getStats).toHaveBeenCalledOnce();
+    resolve(rtpReport(1000, 999));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldPublish).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(newPublish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(newPublish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    next.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does no hidden work after close and starts rates over when reopened', async () => {
+    vi.useFakeTimers();
+    const getStats = vi
+      .fn()
+      .mockResolvedValueOnce(rtpReport(1000, 0))
+      .mockResolvedValueOnce(rtpReport(2000, 24))
+      .mockResolvedValueOnce(rtpReport(7000, 144))
+      .mockResolvedValue(rtpReport(8000, 168));
+    const sources = () => [{ socketId: 'peer', identity: getStats, getStats }];
+    const firstPublish = vi.fn();
+    const first = new StatsCollector(sources, firstPublish);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(firstPublish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    first.close();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(getStats).toHaveBeenCalledTimes(2);
+    const publish = vi.fn();
+    const next = new StatsCollector(sources, publish);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    next.close();
+  });
+
+  it('clears the baseline on non-advancing or missing report timestamps', async () => {
+    vi.useFakeTimers();
+    const getStats = vi
+      .fn()
+      .mockResolvedValueOnce(rtpReport(1000, 0))
+      .mockResolvedValueOnce(rtpReport(1000, 24))
+      .mockResolvedValueOnce(rtpReport(2000, 48))
+      .mockResolvedValueOnce(rtpReport(1500, 60))
+      .mockResolvedValueOnce(rtpReport(Number.NaN, 72))
+      .mockResolvedValueOnce(rtpReport(4000, 96))
+      .mockResolvedValue(rtpReport(5000, 120));
+    const publish = vi.fn();
+    const collector = new StatsCollector(
+      () => [{ socketId: 'peer', identity: getStats, getStats }],
+      publish,
+    );
+    for (let index = 0; index < 6; index++) {
+      await vi.advanceTimersByTimeAsync(index ? 1000 : 0);
+      expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBe(192);
+    collector.close();
+  });
   it('publishes first-sample nulls, polls once a second, and stops on close', async () => {
     vi.useFakeTimers();
     const getStats = vi
@@ -146,7 +318,10 @@ describe('StatsCollector', () => {
       .mockResolvedValueOnce(rtpReport(1000, 0))
       .mockResolvedValue(rtpReport(2000, 24));
     const publish = vi.fn();
-    const collector = new StatsCollector(() => [{ socketId: 'peer', getStats }], publish);
+    const collector = new StatsCollector(
+      () => [{ socketId: 'peer', getStats, identity: getStats }],
+      publish,
+    );
     await vi.advanceTimersByTimeAsync(0);
     expect(publish.mock.lastCall?.[0].get('peer')).toMatchObject({
       inboundBitrate: null,
@@ -170,14 +345,14 @@ describe('StatsCollector', () => {
   it('drops removed rows and starts a fresh baseline for a returning connection', async () => {
     vi.useFakeTimers();
     const getStats = vi.fn().mockResolvedValue(rtpReport(1000, 10));
-    let sources: readonly PeerStatsSource[] = [{ socketId: 'peer', getStats }];
+    let sources: readonly PeerStatsSource[] = [{ socketId: 'peer', getStats, identity: getStats }];
     const publish = vi.fn();
     const collector = new StatsCollector(() => sources, publish);
     await vi.advanceTimersByTimeAsync(0);
     sources = [];
     await vi.advanceTimersByTimeAsync(1000);
     expect(publish.mock.lastCall?.[0].size).toBe(0);
-    sources = [{ socketId: 'peer', getStats }];
+    sources = [{ socketId: 'peer', getStats, identity: getStats }];
     getStats.mockResolvedValue(rtpReport(3000, 100));
     await vi.advanceTimersByTimeAsync(1000);
     expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
@@ -198,8 +373,8 @@ describe('StatsCollector', () => {
     const publish = vi.fn();
     const collector = new StatsCollector(
       () => [
-        { socketId: 'failing', getStats: failing },
-        { socketId: 'healthy', getStats: healthy },
+        { socketId: 'failing', getStats: failing, identity: failing },
+        { socketId: 'healthy', getStats: healthy, identity: healthy },
       ],
       publish,
     );
@@ -223,9 +398,13 @@ describe('StatsCollector', () => {
         }),
     );
     const publish = vi.fn();
-    const collector = new StatsCollector(() => [{ socketId: 'peer', getStats }], publish);
+    const collector = new StatsCollector(
+      () => [{ socketId: 'peer', getStats, identity: getStats }],
+      publish,
+    );
     await vi.advanceTimersByTimeAsync(2000);
     expect(getStats).toHaveBeenCalledOnce();
+    publish.mockClear();
     collector.close();
     resolve(rtpReport(1000, 0));
     await vi.advanceTimersByTimeAsync(0);

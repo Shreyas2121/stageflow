@@ -9,25 +9,46 @@ function metric(value: number | null, unit: string): string {
     : `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
 }
 
-export function StatsDrawer({
-  manager,
-  snapshot,
-}: {
+type StatsProps = {
   manager: PeerManager;
   snapshot: RoomSnapshot;
-}) {
-  const [stats, setStats] = useState<ConnectionStats>(new Map());
+};
+
+export function StatsDrawer(props: StatsProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="group mb-7 min-w-0 rounded-lg border border-line bg-field"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer p-4 text-[13px] font-semibold text-accent group-open:border-b group-open:border-line">
+        Connection stats
+      </summary>
+      {open && <StatsContents {...props} />}
+    </details>
+  );
+}
+
+function StatsContents({ manager, snapshot }: StatsProps) {
+  const [value, setValue] = useState<{ manager: PeerManager; stats: ConnectionStats }>(() => ({
+    manager,
+    stats: new Map(),
+  }));
+  const stats = value.manager === manager ? value.stats : new Map();
 
   useEffect(() => {
-    const collector = new StatsCollector(() => manager.statsConnections(), setStats);
+    const collector = new StatsCollector(
+      () => manager.statsConnections(),
+      (stats) => setValue({ manager, stats }),
+    );
     return () => collector.close();
   }, [manager]);
 
   return (
-    <details className="group mb-7 min-w-0 rounded-lg border border-line bg-field">
-      <summary className="cursor-pointer p-4 text-[13px] font-semibold text-accent group-open:border-b group-open:border-line">
-        Connection stats
-      </summary>
+    <>
+      <p className="m-0 px-4 pt-3 text-xs text-muted">
+        Readings update every second while open. Dashes mean unavailable or a fresh sample.
+      </p>
       {stats.size === 0 ? (
         <p className="m-0 p-4 text-sm text-muted">The stage has no remote connections yet.</p>
       ) : (
@@ -71,6 +92,6 @@ export function StatsDrawer({
           </table>
         </div>
       )}
-    </details>
+    </>
   );
 }

@@ -55,13 +55,23 @@ describe('deltaStats', () => {
     });
   });
 
-  it.each([1000, 500])(
+  it.each([1000, 500, Number.NaN, Number.POSITIVE_INFINITY])(
     'returns null rates for a nonpositive interval ending at %s',
     (timestamp) => {
-      const view = deltaStats(sample(), sample({ timestamp, bytesSent: 225, framesDecoded: 54 }));
+      const view = deltaStats(
+        sample(),
+        sample({
+          timestamp,
+          bytesSent: 225,
+          framesDecoded: 54,
+          packetsLost: 12,
+          packetsReceived: 28,
+        }),
+      );
       expect(view.outboundBitrate).toBeNull();
       expect(view.inboundBitrate).toBeNull();
       expect(view.framesPerSecond).toBeNull();
+      expect(view.packetLossPercent).toBeNull();
     },
   );
 
@@ -106,7 +116,9 @@ describe('deltaStats', () => {
   );
 
   it('reports zero loss when received packets have no losses', () => {
-    expect(deltaStats(sample(), sample({ packetsReceived: 28 })).packetLossPercent).toBe(0);
+    expect(
+      deltaStats(sample(), sample({ timestamp: 2000, packetsReceived: 28 })).packetLossPercent,
+    ).toBe(0);
   });
 
   it('keeps missing current latency samples null', () => {

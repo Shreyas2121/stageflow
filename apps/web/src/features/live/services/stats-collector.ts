@@ -44,7 +44,7 @@ export function statsSample(report: RTCStatsReport): StatsSample {
   const video = inbound.find((entry) => entry.kind === 'video' && Number.isFinite(entry.jitter));
 
   return {
-    timestamp: timestamp ?? performance.now(),
+    timestamp: timestamp ?? Number.NaN,
     bytesSent: sum(outbound.map((entry) => entry.bytesSent)),
     bytesReceived: sum(inbound.map((entry) => entry.bytesReceived)),
     packetsLost: sum(inbound.map((entry) => entry.packetsLost)),
@@ -60,8 +60,26 @@ export function statsSample(report: RTCStatsReport): StatsSample {
   };
 }
 
+export const STATS_POLL_INTERVAL_MS = 1000;
+export const STATS_READ_TIMEOUT_MS = 800;
+
+type PendingRead = { deliver: ((report: RTCStatsReport | null) => void) | null };
+// One native read per connection, including across drawer close/reopen. A native
+// getStats promise cannot be cancelled. Expired reads have no waiting collector.
+const pendingReads = new WeakMap<object, PendingRead>();
+function observeRead(source: PeerStatsSource, pending: PendingRead): void {
+  const settle = (report: RTCStatsReport | null) => {
+    if (pendingReads.get(source.identity) === pending) pendingReads.delete(source.identity);
+    pending.deliver?.(report);
+  };
+  void Promise.resolve()
+    .then(source.getStats)
+    .then(settle, () => settle(null));
+}
+
 export class StatsCollector {
-  private previous = new Map<string, StatsSample>();
+  private previous = new Map<string, { identity: object; sample: StatsSample }>();
+  private readonly cancelReads = new Set<() => void>();
   private timer: ReturnType<typeof setInterval>;
   private closed = false;
   private polling = false;
@@ -70,8 +88,27 @@ export class StatsCollector {
     private connections: () => readonly PeerStatsSource[],
     private publish: (stats: ConnectionStats) => void,
   ) {
-    this.timer = setInterval(() => void this.poll(), 1000);
+    this.timer = setInterval(() => void this.poll(), STATS_POLL_INTERVAL_MS);
     void this.poll();
+  }
+
+  private read(source: PeerStatsSource): Promise<RTCStatsReport | null> {
+    if (pendingReads.has(source.identity)) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const pending: PendingRead = { deliver: null };
+      const finish = (report: RTCStatsReport | null) => {
+        clearTimeout(timer);
+        this.cancelReads.delete(cancel);
+        pending.deliver = null;
+        resolve(report);
+      };
+      const cancel = () => finish(null);
+      const timer = setTimeout(cancel, STATS_READ_TIMEOUT_MS);
+      this.cancelReads.add(cancel);
+      pending.deliver = finish;
+      pendingReads.set(source.identity, pending);
+      observeRead(source, pending);
+    });
   }
 
   private async poll(): Promise<void> {
@@ -79,34 +116,41 @@ export class StatsCollector {
     this.polling = true;
     try {
       const sources = this.connections();
-      const ids = new Set(sources.map((source) => source.socketId));
-      for (const id of this.previous.keys()) {
-        if (!ids.has(id)) this.previous.delete(id);
+      const identities = new Map(sources.map((source) => [source.socketId, source.identity]));
+      for (const [id, baseline] of this.previous) {
+        if (identities.get(id) !== baseline.identity) this.previous.delete(id);
       }
       const rows = await Promise.all(
-        sources.map(async ({ socketId, getStats }) => {
-          try {
-            const sample = statsSample(await getStats());
-            if (this.closed) return null;
-            const view = deltaStats(this.previous.get(socketId) ?? null, sample);
-            this.previous.set(socketId, sample);
-            return [socketId, view] as const;
-          } catch {
-            // A closing connection or an unavailable report must not retain old rates.
-            this.previous.delete(socketId);
-            return [socketId, deltaStats(null, statsSample(new Map()))] as const;
+        sources.map(async (source) => {
+          const report = await this.read(source);
+          if (this.closed) return null;
+          const sample = report ? statsSample(report) : null;
+          const previous = this.previous.get(source.socketId)?.sample;
+          if (
+            !sample ||
+            !Number.isFinite(sample.timestamp) ||
+            (previous && sample.timestamp <= previous.timestamp)
+          ) {
+            this.previous.delete(source.socketId);
+            return [source.socketId, deltaStats(null, statsSample(new Map()))] as const;
           }
+          const view = deltaStats(previous ?? null, sample);
+          this.previous.set(source.socketId, { identity: source.identity, sample });
+          return [source.socketId, view] as const;
         }),
       );
       if (this.closed) return;
-      const currentIds = new Set(this.connections().map((source) => source.socketId));
-      for (const id of this.previous.keys()) {
-        if (!currentIds.has(id)) this.previous.delete(id);
+      const current = new Map(
+        this.connections().map((source) => [source.socketId, source.identity]),
+      );
+      for (const [id, baseline] of this.previous) {
+        if (current.get(id) !== baseline.identity) this.previous.delete(id);
       }
       this.publish(
         new Map(
           rows.filter(
-            (row): row is readonly [string, StatsView] => row !== null && currentIds.has(row[0]),
+            (row): row is readonly [string, StatsView] =>
+              row !== null && current.get(row[0]) === identities.get(row[0]),
           ),
         ),
       );
@@ -116,8 +160,10 @@ export class StatsCollector {
   }
 
   close(): void {
+    if (this.closed) return;
     this.closed = true;
     clearInterval(this.timer);
+    for (const cancel of this.cancelReads) cancel();
     this.previous.clear();
   }
 }

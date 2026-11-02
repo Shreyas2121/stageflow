@@ -4,8 +4,10 @@
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
 **Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; its prerequisite exception remains unresolved (Section 16).\
-**Plan version:** `1.0.4`\
+**Plan version:** `1.0.5`\
 **Last revised:** 2026-11-02
+
+**Revision note (1.0.5):** C19 pauses closed-drawer telemetry, bounds each peer read to 800 ms, and defines timestamp/reset semantics while keeping the one-second visible cadence. Mesh connections, media ownership, product phases, and physical acceptance requirements are unchanged.
 
 **Revision note (1.0.4):** C18 makes environment validation, network admission, bounded live queues, and one-owner namespace enforcement explicit. Startup acquires ownership before resetting live presence; graceful shutdown drains work before releasing ownership, and an unclean stop requires confirmed operator recovery. The stage cap, guest JWT lifetime, attendee policy, product phases, and physical acceptance requirements are unchanged.
 
@@ -467,18 +469,20 @@ Demo peers are how a reviewer sees a 4-way mesh. They do not replace the second 
 
 ### 10.2 Stats
 
-Once per second, for each peer, read `getStats()` and update the drawer.
+While the drawer is open, read `getStats()` once per second for each peer. Closing it stops polling and clears baselines; reopening starts with fresh samples. Each read has an 800 ms deadline. A stalled peer shows unknown values while healthy peers continue; there is at most one outstanding native read per connection, including across close/reopen. Late expired results are ignored. This does not create additional peer connections.
 
 Pure function `deltaStats(previous, next)`:
 
 - Bitrate: `(bytesDelta * 8) / secondsDelta`, outbound and inbound separately. A non-positive interval yields `null`, not a spike.
-- Packet loss percent: `lostDelta / (lostDelta + receivedDelta) * 100`. A zero denominator yields `null`.
+- Packet loss percent: `lostDelta / (lostDelta + receivedDelta) * 100`. A zero denominator or non-finite/non-positive sample interval yields `null`.
 - Jitter from the inbound RTP report.
 - Round-trip time from the nominated candidate pair's `currentRoundTripTime`, converted to milliseconds.
 - Frames per second from the inbound video report's frame delta.
 - ICE type from the nominated pair's local candidate type: `host`, `srflx`, `relay`, or `unknown`.
 
 The collector stores the previous counters outside React and publishes the computed view. Tests feed fixture reports. They do not open a peer connection.
+
+Use finite report timestamps, without mixing in a local fallback clock. Missing, repeated, or backward report times make the row unavailable and clear its baseline; the next valid sample has null deltas. Replaced connections reset baselines even if the socket ID is reused. Decreased aggregate counters yield null for the affected delta, and the current counters become the next baseline.
 
 ## 11. Broadcast and replay
 

@@ -1,5 +1,5 @@
 export type StatsSample = {
-  /** Sample time in milliseconds, as supplied by getStats(). */
+  /** Report time in milliseconds. Non-finite/non-advancing times cannot yield deltas. */
   timestamp: number;
   bytesSent: number | null;
   bytesReceived: number | null;
@@ -29,9 +29,10 @@ function counterDelta(previous: number | null, next: number | null): number | nu
 
 export function deltaStats(previous: StatsSample | null, next: StatsSample): StatsView {
   const seconds = previous === null ? 0 : (next.timestamp - previous.timestamp) / 1000;
+  const validInterval = Number.isFinite(seconds) && seconds > 0;
   const rate = (before: number | null, after: number | null): number | null => {
     const delta = counterDelta(before, after);
-    return seconds > 0 && delta !== null ? delta / seconds : null;
+    return validInterval && delta !== null ? delta / seconds : null;
   };
   const outbound = rate(previous?.bytesSent ?? null, next.bytesSent);
   const inbound = rate(previous?.bytesReceived ?? null, next.bytesReceived);
@@ -43,7 +44,7 @@ export function deltaStats(previous: StatsSample | null, next: StatsSample): Sta
     outboundBitrate: outbound === null ? null : outbound * 8,
     inboundBitrate: inbound === null ? null : inbound * 8,
     packetLossPercent:
-      lost !== null && received !== null && lost + received > 0
+      validInterval && lost !== null && received !== null && lost + received > 0
         ? (lost / (lost + received)) * 100
         : null,
     jitterMs: next.jitter === null ? null : next.jitter * 1000,

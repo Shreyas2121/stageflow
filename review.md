@@ -919,8 +919,8 @@ Both clean platforms produced identical production asset hashes: `index-CPeuIImV
 
 ### C18 — `fix(config): isolate local infrastructure and bound public API work`
 
-**Status:** implemented and verified; included in this C18 changeset.\
-**Actual commit:** see Git history; record the hash in the next requested slice.
+**Status:** committed.\
+**Actual commit:** `128273e5c3fab47eb3543704bbd57821288edf51`
 
 **Depends on:** C03/C06. **Addresses:** F03/F10/F17/F18.
 
@@ -946,6 +946,9 @@ Frozen installation and `pnpm check:affected --full` passed in the Windows worki
 
 ### C19 — `perf(telemetry): isolate stalled reads and document hidden polling`
 
+**Status:** implemented and verified; included in this C19 changeset.\
+**Actual commit:** see Git history; record the hash in the next requested slice.
+
 **Depends on:** C09. **Addresses:** F21.
 
 **Files:** `apps/web/src/features/live/services/stats-collector.ts`, `stats-collector.test.ts`, `apps/web/src/features/live/components/stats-drawer.tsx`, `packages/shared/src/stats.ts`/tests only if semantics change, active phase/master tuning notes where appropriate.
@@ -953,6 +956,18 @@ Frozen installation and `pnpm check:affected --full` passed in the Windows worki
 Choose hidden-drawer behavior, bound stalled reads per peer, retain healthy rows, and define timestamp/reset semantics. Avoid stale publications after close or manager replacement. Preserve honest null/unknown values and one-second visible update cadence.
 
 **Verify/done:** fake-timer tests cover one never-resolving peer, healthy peer updates, close during await, reopening drawer and baseline behavior; browser stats/demos still work with no additional peer connections.
+
+**Implementation/verification record (2026-11-02):** The drawer now mounts its collecting content only while open. Closing unmounts it, stops its interval/deadlines, and clears baselines; reopening starts a fresh collector. The panel states that readings update while open and dashes represent unavailable/fresh samples. Its state is associated with the current manager, so replacing the manager cannot render the previous manager's rows during effect replacement. `PeerStatsSource` supplies the existing peer connection as an opaque stable identity; collecting stats creates no connection or media handle.
+
+Visible sampling remains immediate on open and every 1000 ms afterward. Each peer read has an 800 ms deadline, shorter than the poll period. Timeouts and rejections publish an all-null/unknown row and clear only that peer's baseline; healthy peer rows continue. A weak map permits at most one unresolved native read for each connection, including across collector close/reopen. Timed-out reads remain marked pending until their native promise settles, so later polls do not create overlapping requests or attach another native-promise handler each second. Deadline/close detaches the collector delivery callback, and expired late reports cannot publish or update its baseline. The API has no native read cancellation; a permanently stalled peer stays unknown while the others continue. Removed/replaced identities are filtered again after await, including same-socket-ID replacement.
+
+Only report timestamps are used; a missing timestamp no longer substitutes a local performance clock. Missing/non-finite, repeated, or backward times make the collector row unavailable and reset its baseline. Shared `deltaStats` now requires a finite positive interval for loss as well as bitrate/frame rate. After failure or timestamp reset, the next valid report is a first sample: deltas are null, while valid current latency/ICE may display. Aggregate counter decreases keep the affected delta null and establish the next baseline. Per-stream counter membership/reset tracking remains outside this slice; aggregate growth can still conceal a constituent stream reset. Master 1.0.5, the Phase 4 contract, and README record the closed-drawer policy, deadline, cadence, and reset rules without changing media ownership, stage roles, or physical acceptance.
+
+Fake-timer regressions cover a never-resolving peer alongside continuing healthy updates, one outstanding native call across repeated polls, expired completion/recovery, same-ID connection replacement while awaiting, close during await, reopening while the old native read remains pending, no work while closed, fresh reopen baselines, and repeated/backward/missing timestamps. Shared tests cover non-positive and non-finite intervals with growing packet counters, and the existing zero-loss fixture now supplies a positive interval rather than depending on the previous same-timestamp behavior.
+
+Headless Chrome 156.0.8078.74 exercised the built production UI against a separately migrated disposable PostgreSQL 16 database, disposable Redis 7, and an isolated compiled API namespace/loopback port. Host capture used Chrome's synthetic camera/microphone; the three demos used their real canvas/audio services. All 12 native peer connections in the four-member mesh reached connected state. Closed-drawer `getStats` calls were zero. Opening showed three labeled demo rows with real RTP/latency/ICE readings. Injecting one unresolved read made that row unknown while healthy rows continued; that peer's call count stayed fixed over later ticks. Closing stopped every stats call; reopening showed first-sample nulls and did not overlap the pending read. Releasing its expired result allowed subsequent scheduled reads to recover. Connection count remained exactly 12 through open/close/recovery. Removing demos removed the stats rows, and host leave closed all 12 peers. The temporary browser harness observed no page errors; it is not a permanent Playwright dependency or suite. A screenshot was inspected locally. No physical device, audible output, or native screen-picker acceptance is claimed.
+
+`pnpm check:release` passed on Windows/Node 22.23.2/pnpm 12.9.1 with isolated Redis: workspace typechecks/lint, 8 tooling tests, 121 shared tests (7 files), 87 web tests (12 files), 88 API tests (11 files), both builds, repository formatting, artifact checks, and the compiled socket smoke. API output retained all eight Lua files and omitted tests. The working-tree Vite build retained its existing warning with the local development-mode environment; the separate browser build used production mode. No dependency/lockfile change, fresh installation, audit rerun, or clean Linux gate was needed for this slice. Verification started no API or migration against developer services; only the disposable browser database was migrated. Temporary API/preview/browser processes and the two disposable containers were stopped afterward; existing developer containers were left running. C19 records C18's actual hash. Record C19's hash in the next requested slice.
 
 ### C20 — `fix(api-live): normalize off-stage participant media state`
 
