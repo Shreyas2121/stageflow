@@ -519,7 +519,7 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C14 are recorded below; C15 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C15 are recorded below; C16 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
@@ -811,8 +811,8 @@ The four-participant results are noisy and include a slower optimized round; no 
 
 ### C14 — `fix(tooling): build and watch shared before dependent tasks`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `f27c991396e706c57dd616a1d7d20f7bdd89bd01`
 
 **Depends on:** C03. **Addresses:** F11.
 
@@ -832,6 +832,9 @@ A temporary runtime export, removed before this commit, was visible without `--f
 
 ### C15 — `perf(build): exclude API tests and defer the room route`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C09 and C14. **Addresses:** F12/F13.
 
 **Files:** create `apps/api/tsconfig.build.json`; update `nest-cli.json`, API scripts if required; `apps/web/src/App.tsx`, create `app/route-error-boundary.tsx`; root build/check scripts.
@@ -839,6 +842,23 @@ A temporary runtime export, removed before this commit, was visible without `--f
 Exclude tests from emitted API output while retaining their check config. Keep Lua assets. Lazy-load the room route with loading and failure states. Keep release typecheck as a graph prerequisite and maintain the size warning. Record before/after entry chunks and actual total room-load cost.
 
 **Verify/done:** both builds/typechecks pass; API dist contains no tests and all Lua files; production module smoke works; home does not fetch room/media chunk before navigation and deep-link room loading still works.
+
+**Implementation/verification record (2026-11-02):** Nest now compiles with `tsconfig.build.json`, which includes `src` and excludes test files. `tsconfig.json` remains the check config, so `pnpm typecheck` still covers API tests. `pnpm check` already typechecks before the production builds; the web build does not run `tsc` again. Nest's emit typechecks the production project while writing it. `deleteOutDir` remains, and the Lua asset copy is unchanged. The room route is a lazy import behind a status fallback and an error boundary with retry and a home link. Demo and stats modules stay in that room chunk: after the split, the entry was still over the warning threshold and the room chunk was not, so those modules were not split further and the warning limit was not raised.
+
+The previous entry, from the C14 build on this machine, was one JavaScript file of 637.18 kB (Vite estimated gzip 192.36 kB) and 24.70 kB of CSS (6.12 kB estimated gzip). The C15 build reports:
+
+| Request             | File                    | Raw       | Vite gzip |
+| ------------------- | ----------------------- | --------- | --------- |
+| Home and room entry | `index-x9sVC56M.js`     | 520.67 kB | 159.56 kB |
+| Room route          | `RoomPage-Cu_Hxklr.js`  | 120.27 kB | 34.99 kB  |
+| Home and room CSS   | `index-wia2ZAMF.css`    | 24.44 kB  | 6.10 kB   |
+| Room CSS            | `RoomPage-DRrGZlzX.css` | 0.35 kB   | 0.17 kB   |
+
+Home downloads the entry script and the shared CSS. Opening a room adds the room script and room CSS. Summing those Vite figures, a room load is 640.94 kB of JavaScript and 24.79 kB of CSS, 665.73 kB before compression. The per-file gzip estimates sum to 194.55 kB of JavaScript and 6.27 kB of CSS. The entry warning remains.
+
+API typecheck passed with tests included. The API build emitted no `*.test.js` or `*.spec.js`, no `vitest` source, and all eight Lua scripts. `node --check` accepted `dist/main.js`. A production require of the compiled live-key helper and `ApiException` returned the expected namespace, key list, and HTTP status. That process did not listen or connect to Redis. Web typecheck, lint, and 81 tests passed, and the web build kept the large-chunk warning.
+
+Headless Chrome 156 loaded the preview. Home requested only `index-x9sVC56M.js` and `index-wia2ZAMF.css` and rendered the create/join form. `http://127.0.0.1:4173/r/abcdefghijkl` also requested `RoomPage-Cu_Hxklr.js` and `RoomPage-DRrGZlzX.css`, then showed the guest-session prompt for that slug. With the room script renamed away, the same URL showed "This page could not be loaded", "Try again", and "Back to home". Restoring the script showed the guest-session prompt again. No API server was started and no physical media acceptance was rerun. C15 carries C14's post-commit hash. Record C15's actual hash after commit for the next requested slice.
 
 ### C16 — `chore(quality): add focused lint rules and incremental check caches`
 

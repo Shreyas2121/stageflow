@@ -1,7 +1,7 @@
 import { Link, Route, Routes } from 'react-router';
-import { HomePage } from './pages/HomePage';
-import { RoomPage } from './pages/RoomPage';
+import { RoomRoute } from './app/route-error-boundary';
 import { PageState } from './components/ui/page-state';
+import { HomePage } from './pages/HomePage';
 
 export function App() {
   return (
@@ -33,7 +33,7 @@ export function App() {
       <main id="main-content" tabIndex={-1} className="flex-1">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/r/:slug" element={<RoomPage />} />
+          <Route path="/r/:slug" element={<RoomRoute />} />
           <Route
             path="*"
             element={
