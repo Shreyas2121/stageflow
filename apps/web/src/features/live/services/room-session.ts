@@ -59,8 +59,7 @@ export type RoomSessionOptions = {
  * One owner for join, leave, disconnect, room end, and unmount.
  * Peer sync runs inside the room-store subscriber so a snapshot is applied
  * before a description or ICE candidate queued behind it.
- * Promotion asks for device consent. Demotion releases capture. Neither path
- * adds a Phase 5 control.
+ * Promotion asks for device consent. Demotion releases capture.
  */
 export class RoomSession {
   readonly media: RoomMedia;
@@ -469,6 +468,28 @@ export class RoomSession {
     const self = this.selfParticipant();
     if (!self || this.state.phase !== 'joined') return;
     void this.send((active) => active.hand(!self.isHandRaised));
+  }
+
+  promote(targetSocketId: string): Promise<void> {
+    return this.moderate((active) => active.promote(targetSocketId));
+  }
+
+  demote(targetSocketId: string): Promise<void> {
+    return this.moderate((active) => active.demote(targetSocketId));
+  }
+
+  setLock(targetSocketId: string, kind: 'audio' | 'video', locked: boolean): Promise<void> {
+    return this.moderate((active) => active.setLock({ targetSocketId, kind, locked }));
+  }
+
+  private moderate(action: (active: RoomConnection) => Promise<CommandAck>): Promise<void> {
+    if (
+      this.state.phase !== 'joined' ||
+      this.selfParticipant()?.role !== 'HOST' ||
+      this.state.mediaPending
+    )
+      return Promise.resolve();
+    return this.send(action);
   }
 
   startSharing(): Promise<void> {

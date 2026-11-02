@@ -1,6 +1,6 @@
 # Guide 5 — Phase 5, commit by commit
 
-**Status:** P5-C01 verified; P5-C02 through P5-C04 are not implemented.\
+**Status:** P5-C01 committed; P5-C02 verified; P5-C03 and P5-C04 are not implemented.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.7`.\
@@ -10,7 +10,7 @@
 
 Read the phase contract before editing code. Planning-time `HEAD` was `8fcf04051bd52b255cf4dd951d1a5890c767c103`. Recheck the worktree.
 
-Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. Later slices retain their own verification gates.
+Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. The user subsequently requested P5-C02 under the same exception. Later slices retain their own verification gates.
 
 When implementation is authorized:
 
@@ -42,9 +42,9 @@ Do not add FFmpeg, `hls.js`, a broadcast table, a broadcast Redis key, a migrati
 
 ## 2. P5-C01 — Moderation commands
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-signaling): accept promote, demote, and host lock`\
-**Actual commit:**
+**Actual commit:** `298ad5c53a66e4266b855e242418ecc13407cf60`
 
 **Why:** The host's later buttons need a server command that already enforces the stage rules. Covers P5-A01.
 
@@ -97,7 +97,7 @@ The existing Redis integration test still covers the Lua promote and demote case
 
 ## 3. P5-C02 — Host controls
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-room): give the host a hand queue and stage controls`\
 **Actual commit:**
 
@@ -109,6 +109,7 @@ The existing Redis integration test still covers the Lua promote and demote case
 
 - `apps/web/src/features/live/services/signaling.ts`
 - `apps/web/src/features/live/services/signaling.test.ts`
+- `apps/web/src/features/live/services/demo-peer.test.ts` (connection fixture only)
 - `apps/web/src/features/live/services/room-session.ts`
 - `apps/web/src/features/live/services/room-session.test.ts`
 - `apps/web/src/features/live/components/participant-list.tsx`
@@ -133,6 +134,8 @@ pnpm lint
 The session test covers a failed promote leaving the local roster unchanged and surfacing the server message. The signaling test covers that a demo connection still does not call the human store.
 
 With the API running, join a webinar as host and confirm the queue and buttons render. Leave the two-window promote check for P5-C04 if a second browser is not available, and say so.
+
+**Verification result (2026-11-02):** Web tests (90), shared tests (141), API tests (105, including Redis integration), workspace typecheck/lint, formatting, API build, and API artifact check passed. Chrome 156 on Windows verified the host queue in raise order, host-only moderation controls, audio/video lock and unlock labels, and promote/demote role updates across independent pages. Desktop and 390px layouts were inspected. P5-A02 remains incomplete pending device-lock enforcement; two-way media consent and P5-A03 through P5-A06 remain for P5-C03/P5-C04. See phase Section 11 for the browser evidence and scope.
 
 **Done when:** The host can send the three commands, and the slice is committed.
 

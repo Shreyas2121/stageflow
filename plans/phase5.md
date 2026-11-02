@@ -1,6 +1,6 @@
 # Phase 5 — Webinar moderation
 
-**Status:** P5-C01 verified; P5-C02 through P5-C04 planned. P5-C01 is authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
+**Status:** P5-C01 committed; P5-C02 verified; P5-C03 and P5-C04 planned. P5-C01 and P5-C02 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.7`, Sections 1.4, 5.2, 5.3, 7, 8, 9.1 through 9.4, 10.1, 13, and 16 (Phase 5).\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns P5-C01 through P5-C04. This file owns the rules those commits must satisfy.\
@@ -14,7 +14,7 @@ Example: Ava creates a webinar and joins as host. Sam joins in a second window, 
 
 ## 2. Entry prerequisites
 
-**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
+**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 and the subsequent request for P5-C02 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
 
 Historical entry snapshot while writing this plan, on 2026-11-02:
 
@@ -178,3 +178,11 @@ Phase 6 may rely on promote, demote, and lock changing the stage; on `stage:forc
 ## 10. P5-C01 verification (2026-11-02)
 
 Shared tests passed (141), API tests passed (105, including real Redis integration with isolated test key prefixes), and workspace typecheck and lint passed. Moderation payloads reject unknown keys; the service tests cover promote, stage-full and role rejections, demote-host rejection, targeted audio/video locks, unlocks, no-op suppression, and broadcast rejection without repository access. The eight existing Lua scripts remain unchanged. P5-A02 through P5-A06 remain unverified and belong to later slices. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up under the recorded exception.
+
+## 11. P5-C02 verification (2026-11-02)
+
+Web tests passed (90), shared tests passed (141), API tests passed (105, including Redis integration), workspace typecheck, workspace lint, and formatting passed. The API build and artifact check passed. The demo test fixture was extended for the new connection methods; demo production code sends no moderation commands.
+
+In desktop Chrome 156.0.8078.74 on Windows, three independent contexts joined a real webinar using an API in the isolated `p5c02-browser-20261102` namespace. The host used synthetic camera/microphone devices. Two attendees joined without capture or media elements, raised hands, and appeared in raise order. The host had Promote, Demote, Lock microphone, Unlock microphone, Lock camera, and Unlock camera as appropriate; the host row had no self-moderation controls. Attendees and the promoted speaker had no moderation controls. Queue promotion removed the hand and changed the role to SPEAKER; demotion restored ATTENDEE on both pages. Audio/video lock and unlock labels followed server snapshots. Desktop and 390px screenshots were inspected, with no horizontal overflow or browser page errors.
+
+This verifies the P5-C02 controls portion of P5-A02. P5-A02 remains incomplete until device-lock enforcement is checked in P5-C03/P5-C04. Promoted device consent, two-way media, and the remaining P5-A03 through P5-A06 checks remain for those slices. No media consent was granted to the promoted attendee in this check. The Phase 3 physical observations remain open.

@@ -99,7 +99,22 @@ export function LiveRoom({
           />
         )}
         {inRoom && snapshot && (
-          <ParticipantList participants={snapshot.participants} selfSocketId={selfSocketId} />
+          <ParticipantList
+            participants={snapshot.participants}
+            selfSocketId={selfSocketId}
+            handSocketIds={snapshot.handSocketIds}
+            moderation={
+              live.phase === 'joined' && self?.role === 'HOST'
+                ? {
+                    disabled: live.mediaPending,
+                    onPromote: (socketId) => void live.promote(socketId),
+                    onDemote: (socketId) => void live.demote(socketId),
+                    onSetLock: (socketId, kind, locked) =>
+                      void live.setLock(socketId, kind, locked),
+                  }
+                : undefined
+            }
+          />
         )}
       </div>
       {live.error && (

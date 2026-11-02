@@ -91,6 +91,7 @@ describe('signaling connection ownership', () => {
       iceServers: [],
     });
     expect(useRoomStore.getState()).toBe(hostState);
+    expect(sockets[1]!.emitWithAck.mock.calls.map(([event]) => event)).toEqual(['room:join']);
     expect(sockets[0]!.disconnect).not.toHaveBeenCalled();
     demo.close();
     demo.close();
@@ -119,6 +120,35 @@ describe('signaling connection ownership', () => {
     expect(useRoomStore.getState().selfSocketId).toBeNull();
     next.close();
     expect(useRoomStore.getState().roomId).toBeNull();
+  });
+
+  it('sends human moderation commands on its own socket without changing either snapshot', async () => {
+    const host = openSignaling('host-token', 'room', callbacks());
+    connections.push(host);
+    await host.join(joinRequest);
+    sockets[0]!.emit('room:state', snapshot('room'));
+    const hostState = useRoomStore.getState();
+    const own = callbacks();
+    const demo = openIndependentSignaling('demo-token', 'room', own);
+    connections.push(demo);
+    await demo.join({ ...joinRequest, isSyntheticBot: true });
+    await expect(host.promote('guest')).resolves.toEqual({ ok: true });
+    await expect(host.demote('guest')).resolves.toEqual({ ok: true });
+    await expect(
+      host.setLock({ targetSocketId: 'guest', kind: 'audio', locked: true }),
+    ).resolves.toEqual({ ok: true });
+    expect(sockets[0]!.emitWithAck.mock.calls).toEqual([
+      ['room:join', joinRequest],
+      ['stage:promote', { targetSocketId: 'guest' }],
+      ['stage:demote', { targetSocketId: 'guest' }],
+      ['stage:set-lock', { targetSocketId: 'guest', kind: 'audio', locked: true }],
+    ]);
+    expect(sockets[1]!.emitWithAck.mock.calls).toEqual([
+      ['room:join', { ...joinRequest, isSyntheticBot: true }],
+    ]);
+    sockets[1]!.emit('room:state', { ...snapshot('room'), revision: 2 });
+    expect(own.onState).toHaveBeenCalledWith({ ...snapshot('room'), revision: 2 });
+    expect(useRoomStore.getState()).toBe(hostState);
   });
 
   it('delivers early descriptions and candidates after the peer join callback', async () => {

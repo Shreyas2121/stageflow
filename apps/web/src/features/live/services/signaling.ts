@@ -8,6 +8,7 @@ import type {
   MediaPatch,
   RoomSnapshot,
   ServerToClientEvents,
+  StageLockRequest,
 } from '@stageflow/shared';
 import { useRoomStore } from '../stores/room-store';
 import type {
@@ -27,6 +28,9 @@ export type RoomConnection = {
   join: (payload: JoinRoomRequest) => Promise<JoinAck>;
   media: (patch: MediaPatch) => Promise<CommandAck>;
   hand: (raised: boolean) => Promise<CommandAck>;
+  promote: (targetSocketId: string) => Promise<CommandAck>;
+  demote: (targetSocketId: string) => Promise<CommandAck>;
+  setLock: (request: StageLockRequest) => Promise<CommandAck>;
   leave: () => Promise<CommandAck>;
   close: () => void;
 };
@@ -157,6 +161,11 @@ export function openIndependentSignaling(
     description: (payload) => socket.timeout(8000).emitWithAck('webrtc:description', payload),
     candidate: (payload) => socket.timeout(8000).emitWithAck('webrtc:ice-candidate', payload),
     hand: (raised) => socket.timeout(8000).emitWithAck('stage:raise-hand', { raised }),
+    promote: (targetSocketId) =>
+      socket.timeout(8000).emitWithAck('stage:promote', { targetSocketId }),
+    demote: (targetSocketId) =>
+      socket.timeout(8000).emitWithAck('stage:demote', { targetSocketId }),
+    setLock: (request) => socket.timeout(8000).emitWithAck('stage:set-lock', request),
     leave: () => socket.timeout(8000).emitWithAck('room:leave'),
     close() {
       if (closed) return;

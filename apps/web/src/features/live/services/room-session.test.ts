@@ -11,6 +11,7 @@ import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
 import { RoomSession, type RoomMedia } from './room-session';
 import { useRoomStore } from '../stores/room-store';
+import type { RoomConnection } from './signaling';
 
 const room: RoomResponse = {
   id: 'room-1',
@@ -125,6 +126,9 @@ function fakeConnection() {
     ),
     media: vi.fn(() => Promise.resolve({ ok: true as const })),
     hand: vi.fn(() => Promise.resolve({ ok: true as const })),
+    promote: vi.fn<RoomConnection['promote']>(async () => ({ ok: true })),
+    demote: vi.fn<RoomConnection['demote']>(async () => ({ ok: true })),
+    setLock: vi.fn<RoomConnection['setLock']>(async () => ({ ok: true })),
     leave: vi.fn(() => Promise.resolve({ ok: true as const })),
     close: vi.fn(),
   };
@@ -258,6 +262,75 @@ describe('RoomSession', () => {
     finishJoin({ ok: true, selfSocketId: 'self', iceServers: [] });
     await joining;
     expect(session.phase).toBe('joined');
+  });
+
+  it('surfaces failed promote and waits for a higher snapshot revision after successful moderation', async () => {
+    const { session, media, connection } = open({ room: webinar, userId: 'host-user' });
+    media.ready = true;
+    const original: RoomSnapshot = {
+      ...snapshot('self', 'HOST', true, 1),
+      mode: 'WEBINAR',
+      participants: [person('self', 'HOST'), person('guest', 'ATTENDEE')],
+      handSocketIds: ['guest'],
+    };
+    connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive(original);
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await session.join();
+    connection.promote.mockResolvedValueOnce({
+      ok: false,
+      error: 'stage_full',
+      message: 'This meeting already has 4 people on stage.',
+    });
+    await session.promote('guest');
+    expect(connection.promote).toHaveBeenCalledExactlyOnceWith('guest');
+    expect(session.error).toBe('This meeting already has 4 people on stage.');
+    expect(useRoomStore.getState().snapshot).toBe(original);
+    expect(session.mediaPending).toBe(false);
+    await session.promote('guest');
+    expect(session.error).toBe('');
+    expect(useRoomStore.getState().snapshot).toBe(original);
+    const promoted = {
+      ...original,
+      participants: [person('self', 'HOST'), person('guest', 'SPEAKER')],
+      stageSocketIds: ['self', 'guest'],
+      handSocketIds: [],
+    };
+    useRoomStore.getState().receive(promoted);
+    expect(useRoomStore.getState().snapshot).toBe(original);
+    useRoomStore.getState().receive({ ...promoted, revision: 2 });
+    expect(useRoomStore.getState().snapshot?.participants[1]?.role).toBe('SPEAKER');
+    const current = useRoomStore.getState().snapshot;
+    await session.setLock('guest', 'video', true);
+    await session.demote('guest');
+    expect(connection.setLock).toHaveBeenCalledExactlyOnceWith({
+      targetSocketId: 'guest',
+      kind: 'video',
+      locked: true,
+    });
+    expect(connection.demote).toHaveBeenCalledExactlyOnceWith('guest');
+    expect(useRoomStore.getState().snapshot).toBe(current);
+  });
+
+  it('does not send moderation commands before join or as an attendee', async () => {
+    const { session, connection } = open({ room: webinar, userId: 'guest' });
+    await session.promote('other');
+    await session.demote('other');
+    await session.setLock('other', 'audio', true);
+    connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 1));
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await session.join();
+    await session.promote('other');
+    await session.demote('other');
+    await session.setLock('other', 'audio', true);
+    expect(connection.promote).not.toHaveBeenCalled();
+    expect(connection.demote).not.toHaveBeenCalled();
+    expect(connection.setLock).not.toHaveBeenCalled();
   });
 
   it('does not capture media when an attendee is promoted', async () => {
