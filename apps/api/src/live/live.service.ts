@@ -12,6 +12,14 @@ import type { RoomsService } from '../rooms/rooms.service';
 import type { LiveRepository, LiveRoom, LiveResult } from './live.repository';
 import { SerializedOperations, WorkCapacityError } from './serialized-operations';
 import { failure } from './signaling.messages';
+import type { BroadcastsService } from '../broadcasts/broadcasts.service';
+export type BroadcastControl = {
+  service: Pick<BroadcastsService, 'snapshot' | 'start' | 'stopRoom'>;
+  repository: Pick<
+    LiveRepository,
+    'readBroadcast' | 'readParticipant' | 'refreshSnapshot' | 'tryBeginBroadcast' | 'clearBroadcast'
+  >;
+};
 export interface LiveSession {
   id: string;
   user: { id: string; displayName: string };
@@ -41,6 +49,7 @@ export class LiveService {
     private readonly operations: SerializedOperations,
     private readonly availability: { isReady(): boolean } = { isReady: () => true },
     private readonly namespace = 'sf',
+    private readonly broadcasts?: BroadcastControl,
   ) {}
   private execute<T extends CommandAck>(
     client: LiveSession,
@@ -64,7 +73,10 @@ export class LiveService {
       });
   }
 
-  private publish(result: Extract<LiveResult, { ok: true }>, transport: LiveTransport): void {
+  private async publish(
+    result: Extract<LiveResult, { ok: true }>,
+    transport: LiveTransport,
+  ): Promise<void> {
     if (!result.changed) return;
     const { state, revision } = result;
     const snapshot: RoomSnapshot = {
@@ -75,7 +87,15 @@ export class LiveService {
       participants: state.participants,
       stageSocketIds: state.stageSocketIds,
       handSocketIds: state.hands.map((hand) => hand.socketId),
-      broadcast: null,
+      broadcast:
+        this.broadcasts && state.mode === 'WEBINAR'
+          ? await this.broadcasts.service.snapshot(
+              state.roomId,
+              await this.broadcasts.repository.readBroadcast(
+                roomPrefix(state.roomId, this.namespace),
+              ),
+            )
+          : null,
     };
     transport.publish(snapshot);
   }
@@ -113,7 +133,7 @@ export class LiveService {
         if (!result.ok) return failure(result.error);
         client.room = liveRoom;
         await transport.join(client.id, room.id);
-        this.publish(result, transport);
+        await this.publish(result, transport);
         return { ok: true };
       });
     });
@@ -142,18 +162,63 @@ export class LiveService {
             locked: command.locked,
           });
         }
-        this.publish(result, transport);
+        await this.publish(result, transport);
         return { ok: true };
       });
     });
   }
 
-  startBroadcast(): CommandAck {
-    return failure('broadcast_not_available');
+  private async publishBroadcast(room: LiveRoom, transport: LiveTransport): Promise<void> {
+    const prefix = roomPrefix(room.roomId, this.namespace);
+    if (!(await this.live.readStage(prefix)).length) return;
+    await this.publish(await this.broadcasts!.repository.refreshSnapshot(prefix, room), transport);
   }
 
-  stopBroadcast(): CommandAck {
-    return failure('broadcast_not_available');
+  private broadcastCommand(
+    client: LiveSession,
+    transport: LiveTransport,
+    start: boolean,
+  ): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.room;
+      if (!room) return failure('not_joined');
+      return this.operations.run(`room:${room.roomId}`, async () => {
+        if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
+        if (room.mode !== 'WEBINAR') return failure('broadcast_not_available');
+        const broadcasts = this.broadcasts;
+        if (!broadcasts) return failure('broadcast_not_available');
+        const prefix = roomPrefix(room.roomId, this.namespace);
+        const actor = await broadcasts.repository.readParticipant(prefix, client.id);
+        if (actor?.role !== 'HOST') return failure('not_host');
+        if (!start) {
+          await broadcasts.service.stopRoom(room.roomId);
+          return { ok: true };
+        }
+        if (await broadcasts.repository.readBroadcast(prefix)) return failure('broadcast_active');
+        return broadcasts.service.start(room.roomId, client.user.id, {
+          reserve: (id) => broadcasts.repository.tryBeginBroadcast(prefix, id),
+          clear: (id) => broadcasts.repository.clearBroadcast(prefix, id),
+          publish: () => this.publishBroadcast(room, transport),
+          onExit: (action) => {
+            void this.operations
+              .run(`room:${room.roomId}`, action, true)
+              .catch((error: unknown) =>
+                this.logger.error(
+                  error instanceof Error ? error.message : 'Broadcast exit cleanup failed.',
+                ),
+              );
+          },
+        });
+      });
+    });
+  }
+
+  startBroadcast(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
+    return this.broadcastCommand(client, transport, true);
+  }
+
+  stopBroadcast(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
+    return this.broadcastCommand(client, transport, false);
   }
 
   relay(
@@ -184,6 +249,7 @@ export class LiveService {
   private async finishShutdown(room: LiveRoom, transport: LiveTransport): Promise<void> {
     this.ending.add(room.roomId);
     try {
+      await this.broadcasts?.service.stopRoom(room.roomId);
       await this.rooms.end(room.roomId);
       await this.live.deleteRoom(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
@@ -229,13 +295,15 @@ export class LiveService {
           async () => {
             if (client.room !== room) return { ok: true };
             if (!this.ending.has(room.roomId)) {
+              if (client.user.id === room.hostId)
+                await this.broadcasts?.service.stopRoom(room.roomId);
               const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
                 type: 'leave',
                 socketId: client.id,
               });
               if (!result.ok) return failure(result.error);
               if (!result.roomEnded) {
-                this.publish(result, transport);
+                await this.publish(result, transport);
                 await transport.leave(client.id, room.roomId);
                 client.room = undefined;
                 return { ok: true };

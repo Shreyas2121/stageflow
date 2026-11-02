@@ -115,6 +115,7 @@ it('lists only the requested room, newest first, and returns serialized catalog 
   expect(result).toEqual([
     {
       ...ready,
+      playlistUrl: `/api/broadcasts/${ready.id}/hls/index.m3u8`,
       startedAt: ready.startedAt.toISOString(),
       endedAt: ready.endedAt?.toISOString(),
       createdAt: ready.createdAt.toISOString(),

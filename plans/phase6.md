@@ -1,6 +1,6 @@
 # Phase 6 — Broadcast, replay, and the README
 
-**Status:** in progress. P6-C01 is committed; P6-C02 is verified; P6-C03 through P6-C06 remain planned. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
+**Status:** in progress. P6-C01 and P6-C02 are committed; P6-C03 is verified with P6-A05 unverified; P6-C04 through P6-C06 remain planned. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.8`, Sections 1.4, 2.2, 6.3, 6.5, 7.2, 11, 12.2, 13, 14.5, 16 (Phase 6), and 18.\
 **Execution guide:** [phase6/guide.md](phase6/guide.md). That guide owns P6-C01 through P6-C06. This file owns the rules those commits must satisfy.\
@@ -190,16 +190,16 @@ The README states the Section 2.2 script, the 4-person mesh ceiling, the 8–20 
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                                                       | Method                                 | Status  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------- |
-| P6-A01 | `acceptChunk` covers the next sequence, a duplicate hash, a conflicting hash, a future sequence, and an oversize body. `buildHlsArgs` locks Section 5.6 | `pnpm --filter @stageflow/shared test` | passed  |
-| P6-A02 | Owning startup marks in-flight rows `FAILED` with `api restarted`, keeps `READY`, and still clears only that namespace's live keys. Room rows remain    | API test                               | passed  |
-| P6-A03 | A meeting and a second start are rejected with no extra row. A missing FFmpeg binary sets `FAILED`, clears the key, and does not remove stage members   | API service test                       | planned |
-| P6-A04 | A resolved path outside `DATA_ROOT` is rejected. Playlist and segment responses use the Section 5.7 cache and MIME values                               | API test                               | planned |
-| P6-A05 | A few seconds of real FFmpeg output include `#EXT-X-ENDLIST`. A non-zero exit is `FAILED` with a visible error and no player                            | FFmpeg on `PATH`, then the browser     | planned |
-| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                | planned |
-| P6-A07 | The README states every limitation in Section 5.8                                                                                                       | Read `README.md`                       | planned |
-| P6-A08 | Host leave stops the canvas frame, the recorder, the upload loop, and the mix context                                                                   | Web test and browser                   | planned |
+| ID     | Observable result                                                                                                                                       | Method                                 | Status     |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------- |
+| P6-A01 | `acceptChunk` covers the next sequence, a duplicate hash, a conflicting hash, a future sequence, and an oversize body. `buildHlsArgs` locks Section 5.6 | `pnpm --filter @stageflow/shared test` | passed     |
+| P6-A02 | Owning startup marks in-flight rows `FAILED` with `api restarted`, keeps `READY`, and still clears only that namespace's live keys. Room rows remain    | API test                               | passed     |
+| P6-A03 | A meeting and a second start are rejected with no extra row. A missing FFmpeg binary sets `FAILED`, clears the key, and does not remove stage members   | API service test                       | passed     |
+| P6-A04 | A resolved path outside `DATA_ROOT` is rejected. Playlist and segment responses use the Section 5.7 cache and MIME values                               | API test                               | passed     |
+| P6-A05 | A few seconds of real FFmpeg output include `#EXT-X-ENDLIST`. A non-zero exit is `FAILED` with a visible error and no player                            | FFmpeg on `PATH`, then the browser     | unverified |
+| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                | planned    |
+| P6-A07 | The README states every limitation in Section 5.8                                                                                                       | Read `README.md`                       | planned    |
+| P6-A08 | Host leave stops the canvas frame, the recorder, the upload loop, and the mix context                                                                   | Web test and browser                   | planned    |
 
 CAST-01 is A01 and A03. CAST-02 is A03 and A06. CAST-03 is A05. ROOM-03 for broadcasts is A02. SHIP-01 is A07. RTC-05 for the recorder is A08. The Section 2.2 gate is A06.
 

@@ -262,6 +262,8 @@ describe('Redis Lua stage transitions', () => {
     expect(results.filter(Boolean)).toHaveLength(1);
     const activeId = results[0] ? 'broadcast-one' : 'broadcast-two';
     expect(await redis.get(`${value}:broadcast`)).toBe(activeId);
+    await repository.clearBroadcast(value, 'another-broadcast');
+    expect(await repository.readBroadcast(value)).toBe(activeId);
     expect(await repository.tryBeginBroadcast(value, 'broadcast-three')).toBe(false);
     expect(await redis.get(`${value}:broadcast`)).toBe(activeId);
     await repository.clearBroadcast(value);
@@ -269,6 +271,10 @@ describe('Redis Lua stage transitions', () => {
     expect(await stored(value)).toEqual(before);
     await repository.clearBroadcast(value);
     expect(await repository.tryBeginBroadcast(value, 'broadcast-four')).toBe(true);
+    const refreshed = await repository.refreshSnapshot(value, room);
+    expect(refreshed.revision).toBe(before.revision + 1);
+    expect(refreshed.state.participants).toEqual(before.participants);
+    expect(refreshed.state.stageSocketIds).toEqual(before.stage);
     await repository.deleteRoom(value);
     expect(await redis.exists(`${value}:broadcast`)).toBe(0);
   });

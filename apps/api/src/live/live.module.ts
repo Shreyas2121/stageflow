@@ -38,13 +38,24 @@ import { BroadcastsService } from '../broadcasts/broadcasts.service';
     },
     {
       provide: LiveService,
-      inject: [RoomsService, LiveRepository, SerializedOperations, LiveConnection],
+      inject: [
+        RoomsService,
+        LiveRepository,
+        SerializedOperations,
+        LiveConnection,
+        BroadcastsService,
+      ],
       useFactory: (
         rooms: RoomsService,
         live: LiveRepository,
         operations: SerializedOperations,
         connection: LiveConnection,
-      ) => new LiveService(rooms, live, operations, connection, env.LIVE_NAMESPACE),
+        broadcasts: BroadcastsService,
+      ) =>
+        new LiveService(rooms, live, operations, connection, env.LIVE_NAMESPACE, {
+          service: broadcasts,
+          repository: live,
+        }),
     },
     SignalingGateway,
   ],

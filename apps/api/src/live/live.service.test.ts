@@ -1,7 +1,12 @@
 import { expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { applyStageCommand, type LiveState, type RoomSnapshot } from '@stageflow/shared';
-import { LiveService, type LiveSession, type LiveTransport } from './live.service';
+import {
+  LiveService,
+  type BroadcastControl,
+  type LiveSession,
+  type LiveTransport,
+} from './live.service';
 import { SerializedOperations } from './serialized-operations';
 import type { LiveRepository } from './live.repository';
 import type { RoomsService } from '../rooms/rooms.service';
@@ -10,6 +15,7 @@ function fixture(
   availability: { isReady(): boolean } = { isReady: () => true },
   namespace = 'sf',
   operations = new SerializedOperations(),
+  broadcasts?: BroadcastControl,
 ) {
   let state: LiveState = {
     roomId: 'room',
@@ -42,7 +48,14 @@ function fixture(
       catalogStatus = 'ENDED';
     }),
   };
-  const live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'> = {
+  const live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom' | 'refreshSnapshot'> = {
+    refreshSnapshot: vi.fn<LiveRepository['refreshSnapshot']>(async () => ({
+      ok: true,
+      state,
+      revision: ++revision,
+      changed: true,
+      roomEnded: false,
+    })),
     apply: vi.fn(async (_prefix, _room, command) => {
       events.push('apply:' + command.type);
       const result = applyStageCommand(state, command);
@@ -81,7 +94,7 @@ function fixture(
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
-  const service = new LiveService(rooms, live, operations, availability, namespace);
+  const service = new LiveService(rooms, live, operations, availability, namespace, broadcasts);
   const join = (peer: LiveSession) =>
     service.join(
       peer,
@@ -93,6 +106,100 @@ function fixture(
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+
+function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
+  let active: string | null = null;
+  let broadcast: RoomSnapshot['broadcast'] = null;
+  const control: BroadcastControl = {
+    repository: {
+      readBroadcast: vi.fn(async () => active),
+      readParticipant: vi.fn(
+        async (_prefix, id) =>
+          f.snapshots.at(-1)?.participants.find((p) => p.socketId === id) ?? null,
+      ),
+      refreshSnapshot: (_prefix, room) => f.live.refreshSnapshot(_prefix, room),
+      tryBeginBroadcast: vi.fn(async (_prefix, id) => {
+        if (active) return false;
+        active = id;
+        return true;
+      }),
+      clearBroadcast: vi.fn(async () => {
+        active = null;
+      }),
+    },
+    service: {
+      snapshot: vi.fn(async () => broadcast),
+      start: vi.fn<BroadcastControl['service']['start']>(async (_room, _host, hooks) => {
+        await hooks.reserve('broadcast-id');
+        broadcast = { id: 'broadcast-id', status: 'LIVE', playlistUrl: null, errorMessage: null };
+        await hooks.publish();
+        return { ok: true };
+      }),
+      stopRoom: vi.fn(async () => {
+        f.events.push('broadcast:stop');
+        active = null;
+      }),
+    },
+  };
+  const f = fixture(mode, undefined, undefined, undefined, control);
+  return { ...f, control };
+}
+
+it('authorizes webinar broadcast commands from the stored socket role and rejects a second start before another row', async () => {
+  const f = broadcastFixture();
+  const host = f.client('host');
+  const guest = f.client('guest');
+  await f.join(host);
+  await f.join(guest);
+  const before = f.snapshots.at(-1)!;
+  expect(await f.service.startBroadcast(guest, f.transport)).toMatchObject({ error: 'not_host' });
+  expect(await f.service.stopBroadcast(guest, f.transport)).toMatchObject({ error: 'not_host' });
+  expect(f.control.service.start).not.toHaveBeenCalled();
+  expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
+  const after = f.snapshots.at(-1)!;
+  expect(after.revision).toBeGreaterThan(before.revision);
+  expect(after.stageSocketIds).toEqual(before.stageSocketIds);
+  expect(after.participants).toEqual(before.participants);
+  expect(after.broadcast).toMatchObject({ status: 'LIVE' });
+  expect(await f.service.startBroadcast(host, f.transport)).toMatchObject({
+    error: 'broadcast_active',
+  });
+  expect(f.control.service.start).toHaveBeenCalledOnce();
+});
+
+it('does not touch the broadcast catalog or stage when a meeting start is rejected', async () => {
+  const f = broadcastFixture('MEETING');
+  const host = f.client('host');
+  await f.join(host);
+  const before = f.snapshots.at(-1);
+  expect(await f.service.startBroadcast(host, f.transport)).toMatchObject({
+    error: 'broadcast_not_available',
+  });
+  expect(f.control.service.start).not.toHaveBeenCalled();
+  expect(f.control.repository.readParticipant).not.toHaveBeenCalled();
+  expect(f.snapshots.at(-1)).toBe(before);
+});
+
+it('leaves the stage intact after a missing binary and stops the broadcast before host leave deletes presence', async () => {
+  const f = broadcastFixture();
+  const host = f.client('host');
+  await f.join(host);
+  vi.mocked(f.control.service.start).mockResolvedValueOnce({
+    ok: false,
+    error: 'ffmpeg_unavailable',
+    message: 'FFmpeg is not available. The stage is still up.',
+  });
+  const before = f.snapshots.at(-1)!;
+  expect(await f.service.startBroadcast(host, f.transport)).toMatchObject({
+    error: 'ffmpeg_unavailable',
+  });
+  expect(f.snapshots.at(-1)!.stageSocketIds).toEqual(before.stageSocketIds);
+  expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
+  f.events.length = 0;
+  await f.service.leave(host, f.transport);
+  expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('apply:leave'));
+  expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('redis:delete'));
+});
 it('promotes a webinar attendee through only the promote repository command', async () => {
   const f = fixture('WEBINAR');
   const host = f.client('host');
@@ -193,10 +300,12 @@ it.each(['audio', 'video'] as const)(
     expect(f.snapshots).toHaveLength(2);
   },
 );
-it('rejects both broadcast commands before any repository or transport access', () => {
+it('rejects meeting broadcast commands before any repository or transport access', async () => {
   const f = fixture();
+  const host = f.client('host');
+  host.room = { roomId: 'room', hostId: 'host', mode: 'MEETING', status: 'LIVE' };
   for (const action of ['startBroadcast', 'stopBroadcast'] as const) {
-    expect(f.service[action]()).toEqual({
+    expect(await f.service[action](host, f.transport)).toEqual({
       ok: false,
       error: 'broadcast_not_available',
       message: 'Broadcast is not available yet.',

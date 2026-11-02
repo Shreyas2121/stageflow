@@ -305,13 +305,13 @@ export class SignalingGateway
   }
 
   @SubscribeMessage('broadcast:start')
-  startBroadcast(): CommandAck {
-    return this.live.startBroadcast();
+  startBroadcast(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
+    return this.live.startBroadcast(this.session(client), this.transport);
   }
 
   @SubscribeMessage('broadcast:stop')
-  stopBroadcast(): CommandAck {
-    return this.live.stopBroadcast();
+  stopBroadcast(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
+    return this.live.stopBroadcast(this.session(client), this.transport);
   }
 
   @SubscribeMessage('room:leave')

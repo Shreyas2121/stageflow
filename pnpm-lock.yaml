@@ -226,6 +226,9 @@ importers:
       '@stageflow/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      express:
+        specifier: 5.2.1
+        version: 5.2.1(supports-color@8.1.1)
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0(supports-color@8.1.1)

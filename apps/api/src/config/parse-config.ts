@@ -70,6 +70,8 @@ export const apiConfigSchema = databaseSchema
     REDIS_URL: serviceUrl(/^rediss?$/),
     PORT: integer(4000, 1, 65535),
     HOST: ip.default('127.0.0.1'),
+    FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
+    DATA_ROOT: z.string().trim().min(1).default('apps/api/data'),
     LIVE_NAMESPACE: z
       .string()
       .regex(/^[A-Za-z0-9_-]{1,64}$/, 'Use 1 to 64 letters, digits, underscores or hyphens.')

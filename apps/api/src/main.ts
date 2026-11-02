@@ -8,6 +8,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { httpAdmission } from './admission/http-admission';
 import { normalizeAddress } from './config/parse-config';
+import { broadcastChunkParser } from './broadcasts/chunk-parser';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
@@ -17,10 +18,11 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().enableCors({
     origin: env.CORS_ORIGIN,
     methods: ['GET', 'POST'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'x-chunk-sequence'],
     exposedHeaders: ['Retry-After'],
   });
   app.use(httpAdmission(env));
+  app.use('/api/broadcasts/:id/chunks', broadcastChunkParser);
   app.useBodyParser('json', { limit: env.HTTP_BODY_BYTES });
   app.setGlobalPrefix('api');
   app.useWebSocketAdapter(new IoAdapter(app));

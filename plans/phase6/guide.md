@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 is committed; P6-C02 is verified; P6-C03 through P6-C06 are planned.\
+**Status:** in progress. P6-C01 and P6-C02 are committed; P6-C03 is verified with P6-A05 unverified; P6-C04 through P6-C06 are planned.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -89,9 +89,9 @@ pnpm lint
 
 ## 3. P6-C02 — Broadcast catalog and restart
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): store a broadcast and fail in-flight rows`\
-**Actual commit:**
+**Actual commit:** `c7504b3d5270f56b0ce612c23f580becf7c76fbc`
 
 **Why:** Restart and the later supervisor need a row and the live key. Covers P6-A02.
 
@@ -147,7 +147,7 @@ Run the migration against the compose database before the browser slices.
 
 ## 4. P6-C03 — FFmpeg supervisor and HLS serving
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-broadcast): supervise one FFmpeg process and serve HLS`\
 **Actual commit:**
 
@@ -161,12 +161,21 @@ Run the migration against the compose database before the browser slices.
 - `apps/api/src/broadcasts/ffmpeg-supervisor.test.ts`
 - `apps/api/src/broadcasts/hls-path.ts`
 - `apps/api/src/broadcasts/hls-path.test.ts`
+- `apps/api/src/broadcasts/chunk-parser.ts` and `chunk-parser.test.ts`
+- `apps/api/src/broadcasts/broadcasts.runtime.test.ts`
+- `apps/api/src/broadcasts/broadcasts.service.test.ts`
+- `apps/api/src/broadcasts/broadcasts.module.ts`
 - `apps/api/src/broadcasts/broadcasts.controller.ts`
 - `apps/api/src/broadcasts/broadcasts.service.ts`
 - `apps/api/src/live/live.service.ts`
 - `apps/api/src/live/live.service.test.ts`
+- `apps/api/src/live/live.repository.ts` and `live.integration.test.ts`
+- `apps/api/src/live/scripts/snapshot.lua` and `clearBroadcast.lua`
+- `apps/api/src/live/live.module.ts` and `signaling.gateway.ts`
 - `apps/api/src/live/signaling.messages.ts`
 - `apps/api/src/main.ts`
+
+This slice also adds the existing Express version as a direct API dependency (with the lockfile), validates `FFMPEG_PATH` and `DATA_ROOT` in `config/parse-config.ts`, extends the shared REST error union, and updates `scripts/check-artifacts.mjs` for eleven Lua assets. `snapshot.lua` increments the revision for broadcast-only changes without changing participants or stage membership; `common.lua` and all stage commands remain unchanged. The upload controller delegates `acceptChunk` and the guarded stdin write to the broadcast service so that one in-flight write owns the next-expected counter.
 
 **Implementation:**
 
@@ -190,6 +199,12 @@ Service tests cover a meeting rejection, a second start, a missing binary, a pre
 When `ffmpeg` is on `PATH`, feed a few seconds of input through the supervisor and assert that `index.m3u8` contains `#EXT-X-ENDLIST`. When it is not, say so and leave P6-A05 unverified. Do not commit the generated playlist or segments.
 
 **Done when:** P6-A03 and P6-A04 pass, P6-A05 is either verified or explicitly unverified, and the slice is committed.
+
+**Verification record (2026-11-02):** P6-A03 and P6-A04 passed. `pnpm test` passed shared (149), web (105), and API (130); the API suite also passed separately after the final test edits. `pnpm typecheck`, `pnpm lint`, API build, `pnpm check:artifacts --api`, `pnpm smoke:live`, and `pnpm audit:check` passed. Tests cover stored-role authorization, meeting and second-start rejection, failed spawn with stage preservation, premature/nonzero exit, bounded write and stop, clean stop with a playlist, no-playlist failure, shutdown, chunk order/hash/size/concurrency, traversal, symlink confinement, and media headers. Redis integration verifies broadcast revisions without stage changes and conditional key cleanup.
+
+A compiled-controller check used real guest JWT verification, PostgreSQL rows inside a rolled-back transaction, isolated Redis keys, and temporary files. It passed missing-binary failure with unchanged stage membership, one row per start attempt, raw chunk 204/400/403/409/413 behavior including the exact byte limit and duplicate suppression, guarded HLS reads with the correct headers, traversal refusal, monotonic snapshots, and READY/key cleanup using a controlled child. Test keys, rows, and files were cleaned up. No real API startup reset ran against developer presence.
+
+**P6-A05 remains unverified:** `ffmpeg` is absent from `PATH`. The controlled child and fixture playlist do not verify real FFmpeg output or `#EXT-X-ENDLIST`. This slice performs no browser playback check. No media artifacts are committed. Thumbnail generation remains optional and is omitted; `thumbnailPath` stays null.
 
 **Handoff:** The API can accept a broadcast. The browser still does not record or play one.
 

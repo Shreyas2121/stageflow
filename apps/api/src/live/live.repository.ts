@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Redis } from 'ioredis';
-import type { LiveState, StageCommand, StageError } from '@stageflow/shared';
+import type { LiveState, ParticipantState, StageCommand, StageError } from '@stageflow/shared';
 import { liveKeys } from './live.keys';
 
 export type LiveRoom = Pick<LiveState, 'roomId' | 'hostId' | 'mode' | 'status'>;
@@ -19,7 +19,7 @@ const commandTypes = [
   'demote',
   'setHostLock',
 ] as const;
-const scriptNames = [...commandTypes, 'tryBeginBroadcast', 'clearBroadcast'] as const;
+const scriptNames = [...commandTypes, 'tryBeginBroadcast', 'clearBroadcast', 'snapshot'] as const;
 type ScriptName = (typeof scriptNames)[number];
 
 export class LiveRepository {
@@ -49,8 +49,26 @@ export class LiveRepository {
     return (await this.execute('tryBeginBroadcast', prefix, broadcastId)) === 1;
   }
 
-  async clearBroadcast(prefix: string): Promise<void> {
-    await this.execute('clearBroadcast', prefix);
+  async clearBroadcast(prefix: string, id?: string): Promise<void> {
+    await this.execute('clearBroadcast', prefix, ...(id ? [id] : []));
+  }
+
+  async readBroadcast(prefix: string): Promise<string | null> {
+    return this.redis.get(`${prefix}:broadcast`);
+  }
+
+  async readParticipant(prefix: string, socketId: string): Promise<ParticipantState | null> {
+    const value = await this.redis.hget(`${prefix}:participants`, socketId);
+    return value ? (JSON.parse(value) as ParticipantState) : null;
+  }
+
+  async refreshSnapshot(
+    prefix: string,
+    room: LiveRoom,
+  ): Promise<Extract<LiveResult, { ok: true }>> {
+    const result = await this.execute('snapshot', prefix, JSON.stringify({ room }));
+    if (typeof result !== 'string') throw new Error('Invalid Redis snapshot result.');
+    return JSON.parse(result) as Extract<LiveResult, { ok: true }>;
   }
 
   private async execute(name: ScriptName, prefix: string, ...args: string[]): Promise<unknown> {
