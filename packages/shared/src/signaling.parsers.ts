@@ -1,4 +1,10 @@
-import type { DescriptionRequest, IceCandidateRequest, JoinRoomRequest } from './signaling';
+import type {
+  DescriptionRequest,
+  IceCandidateRequest,
+  JoinRoomRequest,
+  StageTargetRequest,
+  StageLockRequest,
+} from './signaling';
 import type { MediaPatch } from './stage';
 import { isUuid } from './identifiers';
 import {
@@ -88,4 +94,24 @@ export function parseMediaPatch(value: unknown): MediaPatch | null {
 }
 export function parseHandRequest(value: unknown): { raised: boolean } | null {
   return record(value) && typeof value.raised === 'boolean' ? { raised: value.raised } : null;
+}
+export function parseStageTargetRequest(value: unknown): StageTargetRequest | null {
+  if (
+    !record(value) ||
+    !socketId(value.targetSocketId) ||
+    Object.keys(value).some((key) => key !== 'targetSocketId')
+  )
+    return null;
+  return { targetSocketId: value.targetSocketId };
+}
+export function parseStageLockRequest(value: unknown): StageLockRequest | null {
+  if (
+    !record(value) ||
+    !socketId(value.targetSocketId) ||
+    (value.kind !== 'audio' && value.kind !== 'video') ||
+    typeof value.locked !== 'boolean' ||
+    Object.keys(value).some((key) => !['targetSocketId', 'kind', 'locked'].includes(key))
+  )
+    return null;
+  return { targetSocketId: value.targetSocketId, kind: value.kind, locked: value.locked };
 }

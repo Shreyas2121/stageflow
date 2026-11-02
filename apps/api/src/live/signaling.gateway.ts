@@ -16,6 +16,8 @@ import {
   parseIceCandidateRequest,
   parseMediaPatch,
   parseHandRequest,
+  parseStageTargetRequest,
+  parseStageLockRequest,
 } from '@stageflow/shared';
 
 import type {
@@ -102,6 +104,9 @@ export class SignalingGateway
     },
     publish: (snapshot) => {
       this.server.to(snapshot.roomId).emit('room:state', snapshot);
+    },
+    forceMute: (socketId, payload) => {
+      this.server.sockets.sockets.get(socketId)?.emit('stage:force-mute', payload);
     },
     peer: (socketId) => {
       const peer = this.server.sockets.sockets.get(socketId);
@@ -243,6 +248,70 @@ export class SignalingGateway
       },
       this.transport,
     );
+  }
+
+  @SubscribeMessage('stage:promote')
+  promote(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<CommandAck> | CommandAck {
+    const request = parseStageTargetRequest(payload);
+    if (!request) return failure('invalid_payload');
+    return this.live.update(
+      this.session(client),
+      {
+        type: 'promote',
+        actorSocketId: client.id,
+        targetSocketId: request.targetSocketId,
+      },
+      this.transport,
+    );
+  }
+
+  @SubscribeMessage('stage:demote')
+  demote(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<CommandAck> | CommandAck {
+    const request = parseStageTargetRequest(payload);
+    if (!request) return failure('invalid_payload');
+    return this.live.update(
+      this.session(client),
+      {
+        type: 'demote',
+        actorSocketId: client.id,
+        targetSocketId: request.targetSocketId,
+      },
+      this.transport,
+    );
+  }
+
+  @SubscribeMessage('stage:set-lock')
+  setLock(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<CommandAck> | CommandAck {
+    const request = parseStageLockRequest(payload);
+    if (!request) return failure('invalid_payload');
+    return this.live.update(
+      this.session(client),
+      {
+        type: 'setHostLock',
+        actorSocketId: client.id,
+        ...request,
+      },
+      this.transport,
+    );
+  }
+
+  @SubscribeMessage('broadcast:start')
+  startBroadcast(): CommandAck {
+    return this.live.startBroadcast();
+  }
+
+  @SubscribeMessage('broadcast:stop')
+  stopBroadcast(): CommandAck {
+    return this.live.stopBroadcast();
   }
 
   @SubscribeMessage('room:leave')

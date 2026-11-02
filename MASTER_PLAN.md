@@ -3,9 +3,11 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; its prerequisite exception remains unresolved (Section 16).\
-**Plan version:** `1.0.6`\
+**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; P5-C01 is authorized with the physical checks retained as follow-up (Section 16). Phase 5 P5-C01 is verified; P5-C02 through P5-C04 remain planned.\
+**Plan version:** `1.0.7`\
 **Last revised:** 2026-11-02
+
+**Revision note (1.0.7):** The Phase 5 contract and guide are written. They start no implementation and do not decide the open Phase 3 prerequisite exception. Phase 6 remains unwritten. No moderation endpoint, media path, or acceptance record changes in this revision.
 
 **Revision note (1.0.6):** C20 defines canonical off-stage media flags, join/demotion normalization, rejected activation, and idempotent safe patches. Stage membership and Demo flags retain their existing authority/display roles. No moderation endpoint, attendee cap, capture guarantee, or physical acceptance waiver is added.
 
@@ -725,11 +727,11 @@ The argument builder test does not spawn FFmpeg. Phase 6's exit also runs one re
 
 Phases are dependency gates. Finish a playable meeting before building the webinar broadcast. Do not start Phase 5 while Phase 4's demo is broken.
 
-**Current delivery state (2026-11-01):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5/6 contracts and guides are not written, and their implementation has not started.
+**Current delivery state (2026-11-02):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5 P5-C01 is verified with API service tests and Redis integration; P5-C02 through P5-C04 remain planned. The Phase 6 contract and guide are not written.
 
 **Outstanding Phase 3 observations:** P3-A03 physical microphone input and human audible output; P3-A05 native screen picker and browser stop control; P3-A06 physical camera indicator after leave. The recorded automated checks remain valid within their scope and do not verify these observations.
 
-**Prerequisite exception — pending product decision:** Phase 4 proceeded while those Phase 3 observations were open. The repository records no explicit product decision accepting that exception. Preserve the completed Phase 4 work and its evidence, but do not infer a waived Phase 3 exit or full Section 2.2 early demo gate from it. Before the next product phase, complete and record the observations or obtain and record an explicit product decision about the gate and remaining obligations here and in the affected phase contract. C01 documentation reconciliation does not make that decision. Independently requested maintenance can proceed under Section 1.3.
+**Prerequisite exception - authorized 2026-11-02:** The user explicitly authorized proceeding with P5-C01 while P3-A03, P3-A05, and P3-A06 remain open. Preserve Phase 4 and its evidence. These physical-device observations remain required follow-up; this decision does not mark Phase 3 exited or verify the full Section 2.2 early demo gate. This authorization covers P5-C01; later slices retain their own verification gates.
 
 ### Phase 1 — Foundation
 

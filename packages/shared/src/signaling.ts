@@ -21,6 +21,7 @@ export type SignalingError =
   | 'server_error'
   | 'rate_limited'
   | 'server_busy'
+  | 'broadcast_not_available'
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
 export type JoinAck =
@@ -43,6 +44,9 @@ export type DescriptionRequest = { toSocketId: string; description: StageDescrip
 export type IceCandidateRequest = { toSocketId: string; candidate: StageIceCandidate | null };
 export type RelayedDescription = DescriptionRequest & { fromSocketId: string };
 export type RelayedIceCandidate = IceCandidateRequest & { fromSocketId: string };
+export type StageTargetRequest = { targetSocketId: string };
+export type StageLockRequest = StageTargetRequest & { kind: 'audio' | 'video'; locked: boolean };
+export type StageForceMute = Pick<StageLockRequest, 'kind' | 'locked'>;
 
 export interface ClientToServerEvents {
   'webrtc:description': (payload: DescriptionRequest, ack: (result: CommandAck) => void) => void;
@@ -51,9 +55,15 @@ export interface ClientToServerEvents {
   'room:leave': (ack: (result: CommandAck) => void) => void;
   'media:state': (payload: MediaPatch, ack: (result: CommandAck) => void) => void;
   'stage:raise-hand': (payload: { raised: boolean }, ack: (result: CommandAck) => void) => void;
+  'stage:promote': (payload: StageTargetRequest, ack: (result: CommandAck) => void) => void;
+  'stage:demote': (payload: StageTargetRequest, ack: (result: CommandAck) => void) => void;
+  'stage:set-lock': (payload: StageLockRequest, ack: (result: CommandAck) => void) => void;
+  'broadcast:start': (ack: (result: CommandAck) => void) => void;
+  'broadcast:stop': (ack: (result: CommandAck) => void) => void;
 }
 
 export interface ServerToClientEvents {
+  'stage:force-mute': (payload: StageForceMute) => void;
   'webrtc:description': (payload: RelayedDescription) => void;
   'webrtc:ice-candidate': (payload: RelayedIceCandidate) => void;
   'room:state': (snapshot: RoomSnapshot) => void;

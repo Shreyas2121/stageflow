@@ -58,6 +58,9 @@ function fixture(
     }),
   };
   const transport: LiveTransport = {
+    forceMute: vi.fn((id) => {
+      events.push('force-mute:' + id);
+    }),
     join: vi.fn(async (id) => {
       expect(sessions.get(id)?.room).toBeDefined();
       events.push('join:' + id);
@@ -90,6 +93,120 @@ function fixture(
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+it('promotes a webinar attendee through only the promote repository command', async () => {
+  const f = fixture('WEBINAR');
+  const host = f.client('host');
+  await f.join(host);
+  await f.join(f.client('guest'));
+  vi.mocked(f.live.apply).mockClear();
+  f.snapshots.length = 0;
+  const command = { type: 'promote', actorSocketId: host.id, targetSocketId: 'guest' } as const;
+  expect(await f.service.update(host, command, f.transport)).toEqual({ ok: true });
+  expect(f.live.apply).toHaveBeenCalledExactlyOnceWith('sf:room:room', host.room, command);
+  expect(f.snapshots).toHaveLength(1);
+  expect(f.snapshots[0]?.participants.find((p) => p.socketId === 'guest')?.role).toBe('SPEAKER');
+  expect(f.transport.forceMute).not.toHaveBeenCalled();
+});
+it('does not publish when the promote script rejects a full stage', async () => {
+  const f = fixture('WEBINAR');
+  const host = f.client('host');
+  await f.join(host);
+  vi.mocked(f.live.apply).mockResolvedValueOnce({ ok: false, error: 'stage_full', revision: 1 });
+  f.snapshots.length = 0;
+  expect(
+    await f.service.update(
+      host,
+      {
+        type: 'promote',
+        actorSocketId: host.id,
+        targetSocketId: 'guest',
+      },
+      f.transport,
+    ),
+  ).toMatchObject({ ok: false, error: 'stage_full' });
+  expect(f.snapshots).toHaveLength(0);
+  expect(f.transport.forceMute).not.toHaveBeenCalled();
+});
+it('rejects demoting the host and a non-host promote without publishing', async () => {
+  const f = fixture('WEBINAR');
+  const host = f.client('host'),
+    guest = f.client('guest');
+  await f.join(host);
+  await f.join(guest);
+  f.snapshots.length = 0;
+  expect(
+    await f.service.update(
+      host,
+      {
+        type: 'demote',
+        actorSocketId: host.id,
+        targetSocketId: host.id,
+      },
+      f.transport,
+    ),
+  ).toMatchObject({ ok: false, error: 'cannot_demote_host' });
+  expect(
+    await f.service.update(
+      guest,
+      {
+        type: 'promote',
+        actorSocketId: guest.id,
+        targetSocketId: guest.id,
+      },
+      f.transport,
+    ),
+  ).toMatchObject({ ok: false, error: 'not_host' });
+  expect(f.snapshots).toHaveLength(0);
+});
+it.each(['audio', 'video'] as const)(
+  'targets changed %s locks before snapshot and suppresses no-ops',
+  async (kind) => {
+    const f = fixture('WEBINAR');
+    const host = f.client('host');
+    await f.join(host);
+    await f.join(f.client('guest'));
+    f.events.length = 0;
+    f.snapshots.length = 0;
+    const command = {
+      type: 'setHostLock',
+      actorSocketId: host.id,
+      targetSocketId: 'guest',
+      kind,
+      locked: true,
+    } as const;
+    expect(await f.service.update(host, command, f.transport)).toEqual({ ok: true });
+    expect(f.transport.forceMute).toHaveBeenCalledExactlyOnceWith('guest', { kind, locked: true });
+    expect(f.events).toEqual(['apply:setHostLock', 'force-mute:guest', 'publish']);
+    expect(f.snapshots).toHaveLength(1);
+    expect(f.snapshots[0]?.participants.find((p) => p.socketId === 'guest')).toMatchObject(
+      kind === 'audio'
+        ? { hostAudioLocked: true, isAudioMuted: true }
+        : { hostVideoLocked: true, isVideoOff: true },
+    );
+    expect(await f.service.update(host, command, f.transport)).toEqual({ ok: true });
+    expect(f.transport.forceMute).toHaveBeenCalledTimes(1);
+    expect(f.snapshots).toHaveLength(1);
+    expect(await f.service.update(host, { ...command, locked: false }, f.transport)).toEqual({
+      ok: true,
+    });
+    expect(f.transport.forceMute).toHaveBeenLastCalledWith('guest', { kind, locked: false });
+    expect(f.snapshots).toHaveLength(2);
+  },
+);
+it('rejects both broadcast commands before any repository or transport access', () => {
+  const f = fixture();
+  for (const action of ['startBroadcast', 'stopBroadcast'] as const) {
+    expect(f.service[action]()).toEqual({
+      ok: false,
+      error: 'broadcast_not_available',
+      message: 'Broadcast is not available yet.',
+    });
+  }
+  for (const repository of [f.live, f.rooms]) {
+    for (const method of Object.values(repository)) expect(method).not.toHaveBeenCalled();
+  }
+  expect(f.events).toEqual([]);
+});
 it('uses the configured namespace for join, media, relay checks and shutdown', async () => {
   const f = fixture('MEETING', { isReady: () => true }, 'preview-blue');
   const host = f.client('host');

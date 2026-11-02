@@ -1,5 +1,6 @@
 import type { CommandAck, SignalingError } from '@stageflow/shared';
 const messages: Record<SignalingError, string> = {
+  broadcast_not_available: 'Broadcast is not available yet.',
   room_ended: 'This room has ended.',
   already_joined: 'This guest is already in the room.',
   host_not_present: 'The host has to join this meeting before anyone else.',

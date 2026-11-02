@@ -5,6 +5,8 @@ import {
   parseIceCandidateRequest,
   parseMediaPatch,
   parseHandRequest,
+  parseStageTargetRequest,
+  parseStageLockRequest,
 } from './signaling.parsers';
 import {
   SDP_MAX_LENGTH,
@@ -20,6 +22,44 @@ const join = {
   isSyntheticBot: false,
 };
 const ice = { candidate: 'candidate', sdpMid: '0', sdpMLineIndex: 0 };
+it('accepts bounded moderation targets and rejects missing targets and unknown keys', () => {
+  expect(parseStageTargetRequest({ targetSocketId: 'peer' })).toEqual({ targetSocketId: 'peer' });
+  expect(
+    parseStageTargetRequest({ targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH) }),
+  ).not.toBeNull();
+  for (const value of [
+    {},
+    { targetSocketId: '' },
+    { targetSocketId: 1 },
+    { targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH + 1) },
+    { targetSocketId: 'peer', role: 'SPEAKER' },
+  ]) {
+    expect(parseStageTargetRequest(value)).toBeNull();
+  }
+});
+it('accepts only audio/video boolean host locks with no extra fields', () => {
+  for (const kind of ['audio', 'video']) {
+    for (const locked of [true, false]) {
+      const request = { targetSocketId: 'peer', kind, locked };
+      expect(parseStageLockRequest(request)).toEqual(request);
+    }
+  }
+  const request = { targetSocketId: 'peer', kind: 'audio', locked: true };
+  for (const value of [
+    {},
+    { kind: 'audio', locked: true },
+    { ...request, targetSocketId: '' },
+    { ...request, targetSocketId: 1 },
+    { ...request, targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH + 1) },
+    { ...request, kind: 'screen' },
+    { ...request, kind: undefined },
+    { ...request, locked: 'true' },
+    { ...request, locked: undefined },
+    { ...request, actorSocketId: 'host' },
+  ]) {
+    expect(parseStageLockRequest(value)).toBeNull();
+  }
+});
 it('copies join fields without accepting invalid identifiers or booleans', () => {
   expect(parseJoinRoomRequest({ ...join, role: 'HOST' })).toEqual(join);
   expect(parseJoinRoomRequest({ ...join, roomId: 'room' })).toBeNull();
@@ -32,6 +72,8 @@ it.each([null, undefined, [], 'text', 42])('rejects non-object payload %j', (val
     parseIceCandidateRequest,
     parseMediaPatch,
     parseHandRequest,
+    parseStageTargetRequest,
+    parseStageLockRequest,
   ])
     expect(parse(value)).toBeNull();
 });

@@ -6,6 +6,7 @@ import {
   type JoinRoomRequest,
   type RoomSnapshot,
   type StageCommand,
+  type StageForceMute,
 } from '@stageflow/shared';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { LiveRepository, LiveRoom, LiveResult } from './live.repository';
@@ -22,6 +23,7 @@ export interface LiveTransport {
   join(socketId: string, roomId: string): Promise<void>;
   leave(socketId: string, roomId: string): Promise<void>;
   publish(snapshot: RoomSnapshot): void;
+  forceMute(socketId: string, payload: StageForceMute): void;
   peer(socketId: string): { connected: boolean; roomId: string | undefined } | undefined;
   end(roomId: string): void | Promise<void>;
 }
@@ -134,10 +136,24 @@ export class LiveService {
           command,
         );
         if (!result.ok) return failure(result.error);
+        if (command.type === 'setHostLock' && result.changed) {
+          transport.forceMute(command.targetSocketId, {
+            kind: command.kind,
+            locked: command.locked,
+          });
+        }
         this.publish(result, transport);
         return { ok: true };
       });
     });
+  }
+
+  startBroadcast(): CommandAck {
+    return failure('broadcast_not_available');
+  }
+
+  stopBroadcast(): CommandAck {
+    return failure('broadcast_not_available');
   }
 
   relay(
