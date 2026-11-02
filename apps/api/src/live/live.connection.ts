@@ -58,6 +58,7 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy, OnApplicat
   constructor(
     redis?: LiveRedisClient,
     private readonly namespace = env.LIVE_NAMESPACE,
+    private readonly failInFlight: () => Promise<void> = async () => {},
   ) {
     this.redis = redis ?? createRedis();
     this.client = this.redis as unknown as Redis;
@@ -111,6 +112,7 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy, OnApplicat
           `Live namespace ${this.namespace} already has an API owner; no presence was cleared.`,
         );
       this.owned = true;
+      await this.failInFlight();
       await this.clearPresence();
       this.ready = true;
     } catch (error) {
@@ -118,7 +120,7 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy, OnApplicat
       this.ready = false;
       this.close();
       throw new Error(
-        `Redis startup failed; the API will not listen. ${error instanceof Error ? error.message : ''}`,
+        `Live startup failed; the API will not listen. ${error instanceof Error ? error.message : ''}`,
         { cause: error },
       );
     }

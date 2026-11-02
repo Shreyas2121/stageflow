@@ -197,7 +197,7 @@ describe('Redis Lua stage transitions', () => {
   const keys = (prefix: string) =>
     ['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`);
   async function remove(value: string) {
-    await redis.del(...keys(value), `${value}:ending`);
+    await redis.del(...keys(value), `${value}:ending`, `${value}:broadcast`);
   }
   function prefix() {
     const value = `sf:itest:${randomUUID()}`;
@@ -249,6 +249,29 @@ describe('Redis Lua stage transitions', () => {
       hands: await redis.zrange(handsKey, 0, '-1', 'WITHSCORES'),
     };
   }
+
+  it('admits one broadcast atomically, preserves the active id, and clears only that key', async () => {
+    const value = prefix();
+    const room = empty('WEBINAR');
+    await repository.apply(value, room, join('host'));
+    const before = await stored(value);
+    const results = await Promise.all([
+      repository.tryBeginBroadcast(value, 'broadcast-one'),
+      repository.tryBeginBroadcast(value, 'broadcast-two'),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    const activeId = results[0] ? 'broadcast-one' : 'broadcast-two';
+    expect(await redis.get(`${value}:broadcast`)).toBe(activeId);
+    expect(await repository.tryBeginBroadcast(value, 'broadcast-three')).toBe(false);
+    expect(await redis.get(`${value}:broadcast`)).toBe(activeId);
+    await repository.clearBroadcast(value);
+    expect(await redis.get(`${value}:broadcast`)).toBeNull();
+    expect(await stored(value)).toEqual(before);
+    await repository.clearBroadcast(value);
+    expect(await repository.tryBeginBroadcast(value, 'broadcast-four')).toBe(true);
+    await repository.deleteRoom(value);
+    expect(await redis.exists(`${value}:broadcast`)).toBe(0);
+  });
 
   it.each(scenarios)(
     '$name matches the pure function at every step',
@@ -465,17 +488,23 @@ describe('Redis Lua stage transitions', () => {
     prefixes.add(other);
     await repository.apply(own, empty(), join('host'));
     await repository.apply(other, empty(), join('host'));
+    await repository.tryBeginBroadcast(own, 'own-broadcast');
+    await repository.tryBeginBroadcast(other, 'other-broadcast');
     const connection = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
     try {
       await connection.open();
       expect(connection.isReady()).toBe(true);
       expect(await redis.exists(...keys(own))).toBe(0);
+      expect(await redis.get(`${own}:broadcast`)).toBeNull();
+      expect(await redis.get(`${other}:broadcast`)).toBe('other-broadcast');
       expect(await redis.hget(`${other}:participants`, 'host')).not.toBeNull();
       expect(await redis.get(`${other}:rev`)).toBe('1');
       await repository.apply(own, empty(), join('host'));
+      await repository.tryBeginBroadcast(own, 'new-broadcast');
       const contender = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
       await expect(contender.open()).rejects.toThrow('already has an API owner');
       expect(await redis.hget(`${own}:participants`, 'host')).not.toBeNull();
+      expect(await redis.get(`${own}:broadcast`)).toBe('new-broadcast');
       expect(await redis.get(`${namespace}:owner`)).not.toBeNull();
     } finally {
       await connection.onApplicationShutdown();

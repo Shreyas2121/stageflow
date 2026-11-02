@@ -19,37 +19,51 @@ const commandTypes = [
   'demote',
   'setHostLock',
 ] as const;
+const scriptNames = [...commandTypes, 'tryBeginBroadcast', 'clearBroadcast'] as const;
+type ScriptName = (typeof scriptNames)[number];
 
 export class LiveRepository {
-  private readonly scripts: Record<StageCommand['type'], { source: string; sha: string }>;
+  private readonly scripts: Record<ScriptName, { source: string; sha: string }>;
 
   constructor(private readonly redis: Redis) {
     // Source assets also work with Nest's compiled dist/live directory.
     const directory = join(__dirname, 'scripts');
     const common = readFileSync(join(directory, 'common.lua'), 'utf8');
     this.scripts = Object.fromEntries(
-      commandTypes.map((type) => {
-        const source = `${common}\n${readFileSync(join(directory, `${type}.lua`), 'utf8')}`;
+      scriptNames.map((type) => {
+        const body = readFileSync(join(directory, `${type}.lua`), 'utf8');
+        const source =
+          type === 'tryBeginBroadcast' || type === 'clearBroadcast' ? body : `${common}\n${body}`;
         return [type, { source, sha: createHash('sha1').update(source).digest('hex') }];
       }),
-    ) as Record<StageCommand['type'], { source: string; sha: string }>;
+    ) as Record<ScriptName, { source: string; sha: string }>;
   }
 
   async apply(prefix: string, room: LiveRoom, command: StageCommand): Promise<LiveResult> {
-    const script = this.scripts[command.type];
+    const result = await this.execute(command.type, prefix, JSON.stringify({ ...command, room }));
+    if (typeof result !== 'string') throw new Error('Invalid Redis stage result.');
+    return JSON.parse(result) as LiveResult;
+  }
+
+  async tryBeginBroadcast(prefix: string, broadcastId: string): Promise<boolean> {
+    return (await this.execute('tryBeginBroadcast', prefix, broadcastId)) === 1;
+  }
+
+  async clearBroadcast(prefix: string): Promise<void> {
+    await this.execute('clearBroadcast', prefix);
+  }
+
+  private async execute(name: ScriptName, prefix: string, ...args: string[]): Promise<unknown> {
+    const script = this.scripts[name];
     const keys = liveKeys(prefix);
-    const payload = JSON.stringify({ ...command, room });
-    let result: unknown;
     try {
-      result = await this.redis.evalsha(script.sha, keys.length, ...keys, payload);
+      return await this.redis.evalsha(script.sha, keys.length, ...keys, ...args);
     } catch (error) {
       // NOSCRIPT guarantees the command did not execute. Never retry ambiguous transport failures
       // or Lua errors, which could otherwise apply a mutation twice.
       if (!(error instanceof Error) || !/^NOSCRIPT\b/.test(error.message)) throw error;
-      result = await this.redis.eval(script.source, keys.length, ...keys, payload);
+      return this.redis.eval(script.source, keys.length, ...keys, ...args);
     }
-    if (typeof result !== 'string') throw new Error('Invalid Redis stage result.');
-    return JSON.parse(result) as LiveResult;
   }
 
   async readStage(prefix: string): Promise<string[]> {

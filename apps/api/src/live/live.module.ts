@@ -9,14 +9,18 @@ import { RoomsModule } from '../rooms/rooms.module';
 import { SessionsModule } from '../sessions/sessions.module';
 import { LiveRepository } from './live.repository';
 import { SignalingGateway } from './signaling.gateway';
+import { BroadcastsModule } from '../broadcasts/broadcasts.module';
+import { BroadcastsService } from '../broadcasts/broadcasts.service';
 
 @Module({
-  imports: [SessionsModule, RoomsModule],
+  imports: [SessionsModule, RoomsModule, BroadcastsModule],
   controllers: [LiveReadinessController],
   providers: [
     {
       provide: LiveConnection,
-      useFactory: () => new LiveConnection(),
+      inject: [BroadcastsService],
+      useFactory: (broadcasts: BroadcastsService) =>
+        new LiveConnection(undefined, env.LIVE_NAMESPACE, () => broadcasts.failInFlight()),
     },
     {
       provide: LiveRepository,

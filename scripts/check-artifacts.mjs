@@ -36,7 +36,7 @@ if (!args.length || args.includes('--api')) {
   }
   const source = join(root, 'apps/api/src/live/scripts');
   const lua = (await readdir(source)).filter((name) => name.endsWith('.lua')).sort();
-  assert.equal(lua.length, 8);
+  assert.equal(lua.length, 10);
   assert.deepEqual(
     (await readdir(join(dist, 'live/scripts'))).filter((name) => name.endsWith('.lua')).sort(),
     lua,
@@ -51,11 +51,11 @@ if (!args.length || args.includes('--api')) {
   const { LiveRepository } = require(join(dist, 'live/live.repository.js'));
   const { roomPrefix, liveKeys } = require(join(dist, 'live/live.keys.js'));
   new LiveRepository({}); // Loads every compiled Lua asset without connecting to a service.
-  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 5);
+  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 6);
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, eight Lua files match source, no emitted tests.',
+    'API artifacts: production modules load, ten Lua files match source, no emitted tests.',
   );
 }
 

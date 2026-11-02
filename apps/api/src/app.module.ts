@@ -8,6 +8,7 @@ import { SessionsModule } from './sessions/sessions.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { HealthController } from './health/health.controller';
 import { LiveModule } from './live/live.module';
+import { BroadcastsModule } from './broadcasts/broadcasts.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { LiveModule } from './live/live.module';
     }),
     SessionsModule,
     RoomsModule,
+    BroadcastsModule,
     LiveModule,
   ],
   controllers: [HealthController],

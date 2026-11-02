@@ -106,7 +106,7 @@ it('stays unready and does not reset sessions when startup cannot reach Redis', 
     const reset = vi.fn();
     connection.whenLost(reset);
     await expect(connection.open()).rejects.toThrow(
-      'Redis startup failed; the API will not listen.',
+      'Live startup failed; the API will not listen.',
     );
     expect(connection.isReady()).toBe(false);
     expect(redis.calls).toContain('disconnect');
@@ -192,10 +192,44 @@ it('schedules one bounded process exit after Redis loss', async () => {
 it('refuses a second owner before any presence reset and preserves the guard on abrupt close', async () => {
   const redis = new FakeRedis();
   redis.owner = 'existing-owner';
-  const connection = new LiveConnection(redis, 'preview');
+  const failInFlight = vi.fn(async () => {});
+  const connection = new LiveConnection(redis, 'preview', failInFlight);
   await expect(connection.open()).rejects.toThrow('already has an API owner');
   expect(redis.patterns).toEqual([]);
   expect(redis.owner).toBe('existing-owner');
+  expect(failInFlight).not.toHaveBeenCalled();
+});
+
+it('waits for broadcast failure before clearing presence or becoming ready', async () => {
+  const redis = new FakeRedis();
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const failInFlight = vi.fn(() => gate);
+  const connection = new LiveConnection(redis, 'preview', failInFlight);
+  const opening = connection.open();
+  await vi.waitFor(() => expect(failInFlight).toHaveBeenCalledOnce());
+  expect(redis.owner).not.toBeNull();
+  expect(redis.patterns).toEqual([]);
+  expect(connection.isReady()).toBe(false);
+  finish();
+  await opening;
+  expect(redis.patterns).toEqual(['preview:room:*']);
+  expect(connection.isReady()).toBe(true);
+});
+
+it('does not clear presence or become ready if broadcast restart cleanup fails', async () => {
+  const redis = new FakeRedis();
+  const connection = new LiveConnection(redis, 'preview', async () => {
+    throw new Error('database unavailable');
+  });
+  await expect(connection.open()).rejects.toThrow('database unavailable');
+  expect(connection.isReady()).toBe(false);
+  expect(redis.patterns).toEqual([]);
+  expect(redis.deleted).toEqual([]);
+  expect(redis.owner).not.toBeNull();
+  expect(redis.status).toBe('end');
 });
 it('releases only its own guard after graceful shutdown, without treating shutdown as loss', async () => {
   const redis = new FakeRedis();

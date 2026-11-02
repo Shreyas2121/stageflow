@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 is implemented; P6-C02 through P6-C06 are planned.\
+**Status:** in progress. P6-C01 is committed; P6-C02 is verified; P6-C03 through P6-C06 are planned.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -44,9 +44,9 @@ Keep the stage cap, the negotiation reducer, demo spawning, and the Phase 5 mode
 
 ## 2. P6-C01 — Chunk decision and HLS arguments
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): decide chunk order and the HLS argument list`\
-**Actual commit:**
+**Actual commit:** `72e2d67bb45c02f63a74f8b703c853777b9d5511`
 
 **Why:** The upload and the process need one decision each, with no browser and no FFmpeg. Covers P6-A01.
 
@@ -89,7 +89,7 @@ pnpm lint
 
 ## 3. P6-C02 — Broadcast catalog and restart
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-broadcast): store a broadcast and fail in-flight rows`\
 **Actual commit:**
 
@@ -111,15 +111,19 @@ pnpm lint
 - `apps/api/src/live/scripts/tryBeginBroadcast.lua`
 - `apps/api/src/live/scripts/clearBroadcast.lua`
 - `apps/api/src/live/live.repository.ts`
+- `apps/api/src/live/live.repository.test.ts`
+- `apps/api/src/live/live.integration.test.ts`
+- `apps/api/src/live/live.module.ts`
 - `apps/api/src/live/live.connection.ts`
 - `apps/api/src/live/live.connection.test.ts`
+- `packages/shared/src/contracts.ts` (`broadcast_not_found` REST error)
 - `scripts/check-artifacts.mjs`
 
 **Implementation:**
 
 1. Add the Section 5.2 table in a migration and register the entity beside `User` and `Room`. Leave `synchronize` off.
 2. Add the broadcast id as the sixth `liveKeys` entry. Leave the five-name unpack in `common.lua` unchanged. `tryBeginBroadcast` sets `KEYS[6]` only when it is absent and rejects when it exists. `clearBroadcast` deletes `KEYS[6]`. Register both scripts on the repository. Do not change join, leave, promote, demote, or lock behavior.
-3. `GET /api/rooms/:slug/broadcasts` and `GET /api/broadcasts/:id` require the guest bearer token and return the catalog fields. They do not serve media bytes.
+3. `GET /api/rooms/:slug/broadcasts` and `GET /api/broadcasts/:id` require the guest bearer token and return the catalog fields. Add `broadcast_not_found` to the shared REST error union for malformed or unknown broadcast ids. They do not serve media bytes.
 4. The startup that acquires the owner marks `STARTING`, `LIVE`, and `STOPPING` rows `FAILED` with `api restarted`, then clears live keys. A startup that loses the owner changes no rows and no keys. `READY` rows stay.
 5. Update the artifact check to the shipped Lua count and to six live keys. `broadcast:start` still returns `broadcast_not_available` in this slice.
 
@@ -136,6 +140,8 @@ The service test inserts one row of each status, runs the owning startup against
 Run the migration against the compose database before the browser slices.
 
 **Done when:** P6-A02 passes and the slice is committed.
+
+**Verification record (2026-11-02):** P6-A02 passed. `pnpm test` passed shared (149), web (105), and API (112), including real Redis integration. Startup tests cover all five broadcast statuses, owner contention, waiting for catalog cleanup, and catalog failure before presence deletion. Redis tests cover concurrent broadcast claims, repeat rejection, clear, room deletion, and namespace isolation. `pnpm typecheck`, `pnpm lint`, API build, `pnpm check:artifacts --api`, and `pnpm smoke:live` passed. `pnpm --filter @stageflow/api migration:run` applied `CreateBroadcasts1793577600000` to the compose database. A compiled-controller HTTP check with real guest JWT verification and transaction-scoped PostgreSQL rows passed list/detail, room isolation and ordering, 401s, 404s, and absence of media serving; its rows were rolled back. The broadcast entity matches its migrated table. Broadcast start/stop still return `broadcast_not_available`.
 
 **Handoff:** The key and the row exist. No process is supervised.
 

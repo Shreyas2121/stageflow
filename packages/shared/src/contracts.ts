@@ -34,6 +34,7 @@ export type ApiErrorBody = {
     | 'invalid_mode'
     | 'unauthorized'
     | 'room_not_found'
+    | 'broadcast_not_found'
     | 'slug_exhausted'
     | 'rate_limited'
     | 'server_busy'
