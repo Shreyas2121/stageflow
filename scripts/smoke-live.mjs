@@ -102,6 +102,8 @@ try {
     for (const [event, method] of [
       ['room:join', 'join'],
       ['room:leave', 'leave'],
+      ['media:state', 'media'],
+      ['stage:raise-hand', 'hand'],
       ['webrtc:description', 'description'],
       ['webrtc:ice-candidate', 'iceCandidate'],
     ]) {
@@ -158,17 +160,35 @@ try {
     return room;
   }
   const meeting = room('MEETING');
-  const join = (socket, room) =>
+  const join = (socket, room, flags = {}) =>
     command(socket, 'room:join', {
       roomId: room.id,
       isAudioMuted: true,
       isVideoOff: true,
       isSyntheticBot: false,
+      ...flags,
     });
   assert.equal((await command(hostSocket, 'room:join', {})).error, 'invalid_payload');
   assert.equal((await join(guestSocket, meeting)).error, 'host_not_present');
   assert.equal((await join(hostSocket, meeting)).ok, true);
   assert.equal((await join(guestSocket, meeting)).ok, true);
+  assert.equal(
+    (
+      await command(hostSocket, 'media:state', {
+        isAudioMuted: false,
+        isVideoOff: false,
+        isScreenSharing: true,
+      })
+    ).ok,
+    true,
+  );
+  const hostMedia = JSON.parse(
+    await redis.hget(`${roomPrefix(meeting.id, namespace)}:participants`, hostSocket.id),
+  );
+  assert.equal(hostMedia.isAudioMuted, false);
+  assert.equal(hostMedia.isVideoOff, false);
+  assert.equal(hostMedia.isScreenSharing, true);
+  assert.equal((await command(hostSocket, 'media:state', { isScreenSharing: false })).ok, true);
   const description = {
     toSocketId: guestSocket.id,
     description: { type: 'offer', sdp: 'v=0\r\n' },
@@ -208,7 +228,45 @@ try {
   assert.equal(await redis.exists(...liveKeys(roomPrefix(meeting.id, namespace))), 0);
   const webinar = room('WEBINAR');
   assert.equal((await join(hostSocket, webinar)).ok, true);
-  assert.equal((await join(replacement, webinar)).ok, true);
+  assert.equal(
+    (
+      await join(replacement, webinar, {
+        isAudioMuted: false,
+        isVideoOff: false,
+        isSyntheticBot: true,
+      })
+    ).ok,
+    true,
+  );
+  assert.equal((await command(replacement, 'stage:raise-hand', { raised: true })).ok, true);
+  const attendeeKey = `${roomPrefix(webinar.id, namespace)}:participants`;
+  const attendeeBefore = await redis.hget(attendeeKey, replacement.id);
+  const attendee = JSON.parse(attendeeBefore);
+  assert.equal(attendee.role, 'ATTENDEE');
+  assert.equal(attendee.isAudioMuted, true);
+  assert.equal(attendee.isVideoOff, true);
+  assert.equal(attendee.isScreenSharing, false);
+  assert.equal(attendee.isSyntheticBot, true);
+  assert.equal(attendee.isHandRaised, true);
+  const revisionBefore = await redis.get(`${roomPrefix(webinar.id, namespace)}:rev`);
+  for (const patch of [
+    { isAudioMuted: false },
+    { isVideoOff: false },
+    { isScreenSharing: true },
+    { isAudioMuted: true, isVideoOff: false, isScreenSharing: false },
+  ]) {
+    assert.equal((await command(replacement, 'media:state', patch)).error, 'not_on_stage');
+    assert.equal(await redis.hget(attendeeKey, replacement.id), attendeeBefore);
+    assert.equal(await redis.get(`${roomPrefix(webinar.id, namespace)}:rev`), revisionBefore);
+  }
+  for (const patch of [{}, { isAudioMuted: true, isVideoOff: true, isScreenSharing: false }]) {
+    assert.equal((await command(replacement, 'media:state', patch)).ok, true);
+    assert.equal(await redis.hget(attendeeKey, replacement.id), attendeeBefore);
+    assert.equal(await redis.get(`${roomPrefix(webinar.id, namespace)}:rev`), revisionBefore);
+  }
+  assert.deepEqual(await redis.smembers(`${roomPrefix(webinar.id, namespace)}:stage`), [
+    hostSocket.id,
+  ]);
   assert.equal(
     (
       await command(replacement, 'webrtc:description', {
@@ -234,7 +292,7 @@ try {
   oversized.emit('room:join', { padding: 'x'.repeat(socketOptions.maxHttpBufferSize + 1) });
   await oversizedClosed;
   console.log(
-    'Live smoke passed: JWT/origin rejection, join, stage relay/ICE, disconnect/rejoin, shutdown retry, attendee denial, event burst/leave admission, oversized-message disconnect, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, disconnect/rejoin, shutdown retry, event budgets, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();

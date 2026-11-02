@@ -2,7 +2,7 @@
 
 **Status:** implementation complete. All four slices are committed; P4-A01 through P4-A06 are verified with synthetic host devices. The Phase 3 prerequisite exception remains unresolved (Section 2).\
 **Last updated:** 2026-11-02.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.5`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4); original execution used version `1.0.2`.\
+**Master plan:** `MASTER_PLAN.md` version `1.0.6`, Sections 1.4, 2.2 (steps 1–5), 10, and 16 (Phase 4); original execution used version `1.0.2`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns P4-C01 through P4-C04. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** DEMO-01, DEMO-02, and RTC-05 after the demo peers are removed.
 
@@ -86,7 +86,7 @@ Only a joined host sees **Spawn demo peer**. The click resumes an `AudioContext`
 2. Opens a Socket.IO connection that is not the human connection.
 3. Draws a 640×360 canvas at 24 frames per second with the name, the role from that peer's own snapshot, a level bar, and a frame counter.
 4. Plays a short low-gain oscillator pulse every 4 seconds from that same click-resumed context.
-5. Joins with `isSyntheticBot: true` and the normal mute flags false.
+5. Requests a join with `isSyntheticBot: true` and the normal mute flags false. Meeting stage joins retain those flags; webinar attendee snapshots normalize microphone/video off and sharing false under master Section 7's off-stage policy. The Demo flag grants no stage privilege.
 
 The human path keeps `openSignaling`, `useRoomStore`, and the host's `selfSocketId`. A demo connection must not call `begin`, `joined`, `receive`, or `clear` on that store, and it must not close the host socket. The host's existing `room:state` events already include the demo peers, so the host mesh connects to them through the current `PeerManager.sync`.
 

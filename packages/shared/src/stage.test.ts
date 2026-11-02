@@ -112,6 +112,86 @@ describe('applyStageCommand', () => {
     expect(state.stageSocketIds).toEqual(['host']);
   });
 
+  it.each(
+    [false, true].flatMap((isAudioMuted) =>
+      [false, true].flatMap((isVideoOff) =>
+        [false, true].map((isSyntheticBot) => ({ isAudioMuted, isVideoOff, isSyntheticBot })),
+      ),
+    ),
+  )('normalizes attendee joins with requested flags %j', (flags) => {
+    const state = step(empty('WEBINAR'), { ...join('guest'), ...flags } as StageCommand);
+    expect(state.participants[0]).toMatchObject({
+      role: 'ATTENDEE',
+      isAudioMuted: true,
+      isVideoOff: true,
+      isScreenSharing: false,
+      isSyntheticBot: flags.isSyntheticBot,
+    });
+    expect(state.stageSocketIds).toEqual([]);
+  });
+
+  it.each([
+    { isAudioMuted: false },
+    { isVideoOff: false },
+    { isScreenSharing: true },
+    { isAudioMuted: true, isVideoOff: false, isScreenSharing: false },
+  ])('rejects active off-stage flags atomically: %j', (patch) => {
+    rejects(
+      step(webinar(), hand('a')),
+      { type: 'patchMedia', socketId: 'a', patch },
+      'not_on_stage',
+    );
+  });
+
+  it.each([
+    {},
+    { isAudioMuted: true },
+    { isVideoOff: true },
+    { isScreenSharing: false },
+    { isAudioMuted: true, isVideoOff: true, isScreenSharing: false },
+  ])('keeps safe attendee patch %j idempotent', (patch) => {
+    const state = step(webinar(), hand('a'));
+    expect(run(state, { type: 'patchMedia', socketId: 'a', patch })).toMatchObject({
+      ok: true,
+      changed: false,
+      state,
+    });
+  });
+
+  it('repairs legacy off-stage flags through a safe patch without granting membership or changing identity/hand/locks', () => {
+    const state = step(webinar(), hand('a'));
+    const legacy = {
+      ...state,
+      participants: state.participants.map((p) =>
+        p.socketId === 'a'
+          ? {
+              ...p,
+              isAudioMuted: false,
+              isVideoOff: false,
+              isScreenSharing: true,
+              isSyntheticBot: true,
+              hostAudioLocked: true,
+            }
+          : { ...p },
+      ),
+    };
+    const repaired = run(legacy, { type: 'patchMedia', socketId: 'a', patch: {} });
+    expect(repaired).toMatchObject({ ok: true, changed: true });
+    if (!repaired.ok) throw new Error(repaired.error);
+    expect(repaired.state.participants.find((p) => p.socketId === 'a')).toEqual({
+      ...legacy.participants.find((p) => p.socketId === 'a'),
+      isAudioMuted: true,
+      isVideoOff: true,
+      isScreenSharing: false,
+    });
+    expect(repaired.state.stageSocketIds).toEqual(state.stageSocketIds);
+    expect(repaired.state.hands).toEqual(state.hands);
+    expect(run(repaired.state, { type: 'patchMedia', socketId: 'a', patch: {} })).toMatchObject({
+      ok: true,
+      changed: false,
+    });
+  });
+
   it('rejects joins to ended rooms', () => {
     rejects({ ...empty(), status: 'ENDED' }, join('host'), 'room_ended');
   });
@@ -206,10 +286,18 @@ describe('applyStageCommand', () => {
     const command: StageCommand = { type: 'demote', actorSocketId: 'host', targetSocketId: 'a' };
     rejects(webinar(), { ...command, targetSocketId: 'host' }, 'cannot_demote_host');
     rejects(webinar(), command, 'not_speaker');
-    const state = step(step(webinar(), promote('a')), command);
+    const active = step(step(webinar(), promote('a')), {
+      type: 'patchMedia',
+      socketId: 'a',
+      patch: { isAudioMuted: false, isVideoOff: false, isScreenSharing: true },
+    });
+    const state = step(active, command);
     expect(state.participants.find((p) => p.socketId === 'a')).toMatchObject({
       role: 'ATTENDEE',
       isHandRaised: false,
+      isAudioMuted: true,
+      isVideoOff: true,
+      isScreenSharing: false,
     });
     expect(state.stageSocketIds).toEqual(['host']);
     expect(state.hands).toEqual([]);
@@ -226,7 +314,7 @@ describe('applyStageCommand', () => {
         kind,
         locked: true,
       };
-      let state = step(webinar(), lock);
+      let state = step(step(webinar(), promote('a')), lock);
       const patch: StageCommand = {
         type: 'patchMedia',
         socketId: 'a',
@@ -245,7 +333,11 @@ describe('applyStageCommand', () => {
   );
 
   it('patches only supplied media flags and avoids bumps for unchanged values', () => {
-    let state = webinar();
+    let state = step(step(webinar(), promote('a')), {
+      type: 'patchMedia',
+      socketId: 'a',
+      patch: { isAudioMuted: false, isVideoOff: false },
+    });
     rejects(state, { type: 'patchMedia', socketId: 'missing', patch: {} }, 'participant_not_found');
     expect(run(state, { type: 'patchMedia', socketId: 'a', patch: {} })).toMatchObject({
       ok: true,

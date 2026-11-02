@@ -15,7 +15,7 @@ if onStage and stageCount() >= 4 then return reject('stage_full') end
 participants[command.socketId] = {
   socketId = command.socketId, userId = command.userId, displayName = command.displayName,
   role = isHost and 'HOST' or (onStage and 'SPEAKER' or 'ATTENDEE'),
-  isAudioMuted = command.isAudioMuted, isVideoOff = command.isVideoOff,
+  isAudioMuted = not onStage or command.isAudioMuted, isVideoOff = not onStage or command.isVideoOff,
   isSyntheticBot = command.isSyntheticBot, joinedAt = command.joinedAt,
   isScreenSharing = false, isHandRaised = false, hostAudioLocked = false, hostVideoLocked = false
 }

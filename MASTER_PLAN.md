@@ -4,8 +4,10 @@
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
 **Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; its prerequisite exception remains unresolved (Section 16).\
-**Plan version:** `1.0.5`\
+**Plan version:** `1.0.6`\
 **Last revised:** 2026-11-02
+
+**Revision note (1.0.6):** C20 defines canonical off-stage media flags, join/demotion normalization, rejected activation, and idempotent safe patches. Stage membership and Demo flags retain their existing authority/display roles. No moderation endpoint, attendee cap, capture guarantee, or physical acceptance waiver is added.
 
 **Revision note (1.0.5):** C19 pauses closed-drawer telemetry, bounds each peer read to 800 ms, and defines timestamp/reset semantics while keeping the one-second visible cadence. Mesh connections, media ownership, product phases, and physical acceptance requirements are unchanged.
 
@@ -291,11 +293,13 @@ Configured HTTP/guest/network authentication rates, per-user socket event rates,
 
 `ParticipantState` fields: `socketId`, `userId`, `displayName`, `role`, `isAudioMuted`, `isVideoOff`, `isScreenSharing`, `isHandRaised`, `isSyntheticBot`, `hostAudioLocked`, `hostVideoLocked`, `joinedAt`.
 
+**Off-stage media policy (C20):** Off-stage participants advertise `isAudioMuted: true`, `isVideoOff: true`, and `isScreenSharing: false`. Webinar attendee joins normalize their requested flags to this state; the Demo display flag grants no stage access. An off-stage media patch that requests an unmuted microphone, video on, or screen sharing is rejected atomically with `not_on_stage`, preserving state, revision, and TTLs. Empty patches and patches that only reaffirm the off state succeed without a revision/TTL change when already canonical. A safe patch repairs legacy noncanonical off-stage flags as one actual change while preserving identity, hands, host locks, and stage membership. Internal demotion also restores these flags; promotion retains the off state until an on-stage media update, subject to host locks. Stage membership is server-owned and is never granted through media or Demo flags. This metadata policy does not prove capture/transmission, and it adds no public promotion/demotion handler.
+
 ### 7.1 Lua is the only writer
 
 Node code loads scripts and passes arguments. It does not `GET` a participant, edit it, and `SET` it back. It does not enforce the 4-slot cap with a separate read.
 
-Each script increments `rev` on success and returns `{ ok, revision, error? }`. The gateway then reads one snapshot and emits it. A failed script returns a stable error code and does not increment `rev`.
+Each changed transition increments `rev`, refreshes live-key TTLs, and returns the atomic snapshot. The gateway publishes changed snapshots. Successful no-ops and rejected transitions preserve revision and TTLs; rejection returns a stable error code. Host-ending retries retain their separate intent-refresh policy.
 
 Required scripts:
 
@@ -303,10 +307,10 @@ Required scripts:
 | ------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `join`              | Participant, and stage membership when the mode and cap allow it | `stage_full`, `room_ended`, `already_joined`                          |
 | `leave`             | Removes participant, stage, and hand                             | Unknown socket is a no-op success                                     |
-| `patchMedia`        | Mute, video, and screen flags                                    | A locked unmute, unknown socket                                       |
+| `patchMedia`        | Stage media flags or safe off-stage normalization                | Off-stage activation, locked activation, unknown socket               |
 | `setHand`           | Add or remove a hand                                             | Non-attendee                                                          |
 | `promote`           | Role and stage                                                   | `stage_full`, target missing, target not attendee, caller is not host |
-| `demote`            | Role and stage                                                   | Target is host or not a speaker                                       |
+| `demote`            | Role, stage, and canonical off-stage media flags                 | Target is host or not a speaker                                       |
 | `setHostLock`       | Lock flags                                                       | Caller is not host                                                    |
 | `tryBeginBroadcast` | Sets the broadcast key if absent                                 | Key already set                                                       |
 | `clearBroadcast`    | Deletes the broadcast key                                        | —                                                                     |

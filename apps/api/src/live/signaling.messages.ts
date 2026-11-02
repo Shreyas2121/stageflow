@@ -17,7 +17,7 @@ const messages: Record<SignalingError, string> = {
   server_error: 'Unable to update the live room. Join again.',
   rate_limited: 'Too many room commands. Try again shortly.',
   server_busy: 'The live server is busy. Try again shortly.',
-  not_on_stage: 'Only people on stage can exchange media.',
+  not_on_stage: 'Only people on stage can enable or exchange media.',
   peer_unavailable: 'That person is no longer on stage.',
 };
 export function failure(error: SignalingError): Extract<CommandAck, { ok: false }> {

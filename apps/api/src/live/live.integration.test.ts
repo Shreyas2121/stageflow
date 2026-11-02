@@ -148,6 +148,8 @@ const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[
     initial: empty('WEBINAR'),
     commands: [
       ...webinarJoins,
+      promote('a'),
+      patch({ isAudioMuted: false, isVideoOff: false }),
       patch({}, 'missing'),
       patch({}),
       patch({ isAudioMuted: true }),
@@ -164,6 +166,7 @@ for (const kind of ['audio', 'video'] as const) {
     initial: empty('WEBINAR'),
     commands: [
       ...webinarJoins,
+      promote('a'),
       lock(kind, true),
       patch({ [flag]: false, isScreenSharing: true }),
       lock(kind, true),
@@ -286,6 +289,153 @@ describe('Redis Lua stage transitions', () => {
     },
   );
 
+  it.each(
+    [false, true].flatMap((isAudioMuted) =>
+      [false, true].flatMap((isVideoOff) =>
+        [false, true].map((isSyntheticBot) => ({ isAudioMuted, isVideoOff, isSyntheticBot })),
+      ),
+    ),
+  )('normalizes attendee join flags %j before persisting a snapshot', async (flags) => {
+    const value = prefix();
+    const result = await repository.apply(value, empty('WEBINAR'), { ...join('guest'), ...flags });
+    expect(result).toMatchObject({
+      ok: true,
+      changed: true,
+      revision: 1,
+      state: {
+        stageSocketIds: [],
+        participants: [
+          {
+            role: 'ATTENDEE',
+            isAudioMuted: true,
+            isVideoOff: true,
+            isScreenSharing: false,
+            isSyntheticBot: flags.isSyntheticBot,
+          },
+        ],
+      },
+    });
+    const persisted = await stored(value);
+    expect(persisted.stage).toEqual([]);
+    expect(persisted.participants).toMatchObject([
+      { role: 'ATTENDEE', isAudioMuted: true, isVideoOff: true, isScreenSharing: false },
+    ]);
+  });
+
+  it('rejects off-stage activation without any write or TTL refresh and preserves canonical no-ops', async () => {
+    const value = prefix(),
+      room = empty('WEBINAR');
+    for (const command of [join('host'), { ...join('a'), isSyntheticBot: true }, hand('a')])
+      await repository.apply(value, room, command);
+    const before = await stored(value);
+    for (const key of keys(value)) await redis.expire(key, 120);
+    for (const flags of [
+      { isAudioMuted: false },
+      { isVideoOff: false },
+      { isScreenSharing: true },
+      { isAudioMuted: true, isVideoOff: false, isScreenSharing: false },
+    ]) {
+      expect(await repository.apply(value, room, patch(flags))).toEqual({
+        ok: false,
+        error: 'not_on_stage',
+        revision: before.revision,
+      });
+      expect(await stored(value)).toEqual(before);
+    }
+    for (const flags of [
+      {},
+      { isAudioMuted: true },
+      { isVideoOff: true },
+      { isScreenSharing: false },
+      { isAudioMuted: true, isVideoOff: true, isScreenSharing: false },
+    ]) {
+      expect(await repository.apply(value, room, patch(flags))).toMatchObject({
+        ok: true,
+        changed: false,
+        revision: before.revision,
+      });
+      expect(await stored(value)).toEqual(before);
+    }
+    for (const key of keys(value)) expect(await redis.ttl(key)).toBeLessThanOrEqual(120);
+  });
+
+  it('repairs legacy off-stage flags exactly once and matches the oracle without changing unrelated state', async () => {
+    const value = prefix(),
+      room = empty('WEBINAR');
+    await repository.apply(value, room, join('host'));
+    await repository.apply(value, room, { ...join('a'), isSyntheticBot: true });
+    const result = await repository.apply(value, room, hand('a'));
+    if (!result.ok) throw new Error(result.error);
+    const legacy: LiveState = {
+      ...result.state,
+      participants: result.state.participants.map((p) =>
+        p.socketId === 'a'
+          ? {
+              ...p,
+              isAudioMuted: false,
+              isVideoOff: false,
+              isScreenSharing: true,
+              hostAudioLocked: true,
+            }
+          : p,
+      ),
+    };
+    const participant = legacy.participants.find((p) => p.socketId === 'a')!;
+    await redis.hset(`${value}:participants`, 'a', JSON.stringify(participant));
+    const before = await stored(value);
+    expect(await repository.apply(value, room, patch({ isAudioMuted: false }))).toEqual({
+      ok: false,
+      error: 'not_on_stage',
+      revision: 3,
+    });
+    expect(await stored(value)).toEqual(before);
+    const expected = applyStageCommand(legacy, patch({}));
+    const repaired = await repository.apply(value, room, patch({}));
+    expect(repaired).toEqual({ ...expected, revision: 4 });
+    expect((await stored(value)).stage).toEqual(before.stage);
+    expect((await stored(value)).hands).toEqual(before.hands);
+    expect(await repository.apply(value, room, patch({}))).toMatchObject({
+      ok: true,
+      changed: false,
+      revision: 4,
+    });
+    await repository.apply(value, room, promote('a'));
+    expect(await repository.apply(value, room, patch({ isAudioMuted: false }))).toMatchObject({
+      ok: false,
+      error: 'audio_locked',
+    });
+  });
+
+  it('normalizes all media flags on internal demotion after ordinary stage activation/sharing', async () => {
+    const value = prefix(),
+      room = empty('WEBINAR');
+    let state = room;
+    let revision = 0;
+    for (const command of [
+      join('host'),
+      join('a'),
+      promote('a'),
+      patch({ isAudioMuted: false, isVideoOff: false, isScreenSharing: true }),
+      demote('a'),
+      patch({ isScreenSharing: true }),
+      patch({ isAudioMuted: true, isVideoOff: true, isScreenSharing: false }),
+    ]) {
+      const expected = applyStageCommand(state, command);
+      if (expected.ok && expected.changed) revision++;
+      const actual = await repository.apply(value, room, command);
+      expect(actual).toEqual({ ...expected, revision });
+      if (expected.ok) state = expected.state;
+    }
+    expect(revision).toBe(5);
+    expect(state.participants.find((p) => p.socketId === 'a')).toMatchObject({
+      role: 'ATTENDEE',
+      isAudioMuted: true,
+      isVideoOff: true,
+      isScreenSharing: false,
+    });
+    expect(state.stageSocketIds).toEqual(['host']);
+  });
+
   it('refreshes all live key TTLs only on changes', async () => {
     const value = prefix();
     const room = empty('WEBINAR');
@@ -295,8 +445,14 @@ describe('Redis Lua stage transitions', () => {
     for (const key of keys(value)) await redis.expire(key, 120);
     await repository.apply(value, room, join('new-socket', 'a'));
     await repository.apply(value, room, { type: 'leave', socketId: 'missing' });
+    await repository.apply(
+      value,
+      room,
+      patch({ isAudioMuted: true, isVideoOff: true, isScreenSharing: false }),
+    );
+    await repository.apply(value, room, patch({ isAudioMuted: false }));
     for (const key of keys(value)) expect(await redis.ttl(key)).toBeLessThanOrEqual(120);
-    await repository.apply(value, room, patch({ isVideoOff: true }));
+    await repository.apply(value, room, patch({ isVideoOff: true }, 'host'));
     for (const key of keys(value)) expect(await redis.ttl(key)).toBeGreaterThan(86390);
     expect(await redis.exists(`${value}:broadcast`)).toBe(0);
   });
@@ -386,9 +542,9 @@ describe('Redis Lua stage transitions', () => {
       );
     }
     try {
-      const mute = await writes(patch({ isAudioMuted: true }));
+      const mute = await writes(patch({ isAudioMuted: true }, 'host'));
       expect(mute.map((args) => args.slice(0, 3))).toEqual([
-        ['HSET', `${value}:participants`, 'a'],
+        ['HSET', `${value}:participants`, 'host'],
       ]);
       expect(await redis.hget(`${value}:participants`, 'b')).toBe(unrelated);
       expect(await redis.zscore(`${value}:hands`, 'b')).toBe('2000');

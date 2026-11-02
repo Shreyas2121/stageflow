@@ -64,6 +64,7 @@ export type StageError =
   | 'participant_not_found'
   | 'audio_locked'
   | 'video_locked'
+  | 'not_on_stage'
   | 'not_attendee'
   | 'not_host'
   | 'cannot_demote_host'
@@ -114,8 +115,8 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       userId: command.userId,
       displayName: command.displayName,
       role: isHost ? 'HOST' : onStage ? 'SPEAKER' : 'ATTENDEE',
-      isAudioMuted: command.isAudioMuted,
-      isVideoOff: command.isVideoOff,
+      isAudioMuted: onStage ? command.isAudioMuted : true,
+      isVideoOff: onStage ? command.isVideoOff : true,
       isScreenSharing: false,
       isHandRaised: false,
       isSyntheticBot: command.isSyntheticBot,
@@ -147,6 +148,22 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     }
     if (!participant) return fail('participant_not_found');
     if (command.type === 'patchMedia') {
+      if (!next.stageSocketIds.includes(participant.socketId)) {
+        if (
+          command.patch.isAudioMuted === false ||
+          command.patch.isVideoOff === false ||
+          command.patch.isScreenSharing === true
+        )
+          return fail('not_on_stage');
+        const changed =
+          participant.isAudioMuted !== true ||
+          participant.isVideoOff !== true ||
+          participant.isScreenSharing !== false;
+        participant.isAudioMuted = true;
+        participant.isVideoOff = true;
+        participant.isScreenSharing = false;
+        return success(changed);
+      }
       if (command.patch.isAudioMuted === false && participant.hostAudioLocked)
         return fail('audio_locked');
       if (command.patch.isVideoOff === false && participant.hostVideoLocked)
@@ -185,6 +202,9 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     if (target.role === 'HOST') return fail('cannot_demote_host');
     if (target.role !== 'SPEAKER') return fail('not_speaker');
     target.role = 'ATTENDEE';
+    target.isAudioMuted = true;
+    target.isVideoOff = true;
+    target.isScreenSharing = false;
     target.isHandRaised = false;
     removeHand(target.socketId);
     next.stageSocketIds = next.stageSocketIds.filter((id) => id !== target.socketId);

@@ -21,7 +21,6 @@ export type SignalingError =
   | 'server_error'
   | 'rate_limited'
   | 'server_busy'
-  | 'not_on_stage'
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
 export type JoinAck =

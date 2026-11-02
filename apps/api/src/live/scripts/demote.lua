@@ -3,6 +3,9 @@ if error then return reject(error) end
 if target.role == 'HOST' then return reject('cannot_demote_host') end
 if target.role ~= 'SPEAKER' then return reject('not_speaker') end
 target.role = 'ATTENDEE'
+target.isAudioMuted = true
+target.isVideoOff = true
+target.isScreenSharing = false
 target.isHandRaised = false
 saveParticipant(target.socketId)
 setHand(target.socketId, nil)
