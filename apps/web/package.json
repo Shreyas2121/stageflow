@@ -13,11 +13,11 @@
     "zustand": "^5.0.16"
   },
   "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "test": "node ../../scripts/shared-build.mjs build && vitest run",
+    "typecheck": "node ../../scripts/shared-build.mjs build && tsc --noEmit",
     "lint": "eslint src vite.config.ts",
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "node ../../scripts/dev.mjs web",
+    "build": "node ../../scripts/shared-build.mjs build && vite build"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

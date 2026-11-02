@@ -10,8 +10,14 @@
     "prepare": "husky",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm --filter @stageflow/shared build && pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "typecheck": "pnpm --filter @stageflow/shared typecheck && pnpm --filter @stageflow/api typecheck && pnpm --filter @stageflow/web typecheck",
+    "lint": "pnpm -r lint",
+    "build": "pnpm --filter @stageflow/api build && pnpm --filter @stageflow/web build",
+    "dev": "node scripts/dev.mjs",
+    "test": "pnpm --filter @stageflow/shared test && pnpm --filter @stageflow/web test && pnpm --filter @stageflow/api test",
+    "test:unit": "pnpm --filter @stageflow/shared test && pnpm --filter @stageflow/web test",
+    "test:integration": "pnpm --filter @stageflow/api test",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build && pnpm format:check"
   },
   "lint-staged": {
     "*": "prettier --write --ignore-unknown"

@@ -662,7 +662,7 @@ From the repo root, the phase guide or requested remediation slice names the exa
 | Dependencies or configuration  | Validate frozen installation and affected checks. Workspace tooling, root lint/config, and lockfile changes can affect every package; run both builds for workspace/toolchain changes |
 | Merge or release               | Full workspace typecheck/lint/tests/format, both builds, isolated Redis integration, artifact checks, and relevant recorded browser/media acceptance                                  |
 
-Until remediation C14 fixes task prerequisites, run `pnpm --filter @stageflow/shared build` explicitly before dependent checks. Affected selection is manual until the tooling/CI slices implement it; the table is policy, not a claim that those entry points exist. Docs-only checks cannot substitute for missing product acceptance. Full merge/release verification remains required after the selected remediation sequence.
+Dependent `dev`, `build`, `test`, and `typecheck` commands compile `@stageflow/shared` before they use it (remediation C14). Root `dev`, `build`, `test`, `test:unit`, `test:integration`, and `check` use that order. `pnpm --filter @stageflow/shared build` remains available. Affected package selection is still manual until the CI slice. Docs-only checks cannot substitute for missing product acceptance. Full merge/release verification remains required after the selected remediation sequence.
 
 A commit that adds a pure function includes its tests. A bug fix includes a behavioral regression when it can be reproduced in a service or adapter; existing relevant tests remain part of the gate.
 

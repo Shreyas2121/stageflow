@@ -21,11 +21,17 @@ pnpm --filter @stageflow/web test
 pnpm --filter @stageflow/api test
 ```
 
-Copy the example only on first setup; keep any existing `.env` values. Keep `.env` out of version control. The root typecheck builds shared output and declarations before checking all three packages. API integration tests load the root `.env`, execute the real Lua scripts against Redis under unique `sf:itest:*` prefixes, and clean up those keys. Missing or unreachable Redis fails the tests.
+Copy the example only on first setup; keep any existing `.env` values. Keep `.env` out of version control. `pnpm typecheck` checks shared, then the API, then the web app. The API and web `typecheck`, `test`, `build`, and `dev` commands compile `@stageflow/shared` first, including when `packages/shared/dist` is missing. `pnpm dev` watches that package and runs both apps. `pnpm build` builds both apps. `pnpm test` runs shared tests, web tests, then the API suite. `pnpm test:unit` is shared and web. `pnpm test:integration` is the API suite. `pnpm check` runs typecheck, lint, test, both builds, and the format check. API tests load the root `.env`, execute the real Lua scripts against Redis under unique `sf:itest:*` prefixes, and clean up those keys. Missing or unreachable Redis fails those tests. The first dev process owns the shared watcher; stopping it stops shared compilation. A build or test started while that watcher is running reuses its output instead of starting a second compiler.
 
 `pnpm install` installs the Husky pre-commit hook through the root `prepare` script. Each commit runs lint-staged to format staged files with Prettier and restage the results; formatting failures block the commit. Unstaged edits are preserved; if they conflict with formatting, the commit fails and lint-staged restores the original changes. Run `pnpm format` to format the repository or `pnpm format:check` to check it without writing changes. Generated output, the lockfile, local API data, and environment files are excluded. Files use LF line endings on every platform.
 
-Start the API and web app in separate PowerShell terminals at the workspace root:
+Start the API and web app together from the workspace root:
+
+```powershell
+pnpm dev
+```
+
+Or use separate PowerShell terminals:
 
 ```powershell
 pnpm --filter @stageflow/api dev
@@ -34,6 +40,8 @@ pnpm --filter @stageflow/api dev
 ```powershell
 pnpm --filter @stageflow/web dev
 ```
+
+The API dev command restarts when shared CommonJS output changes. The web dev server compiles `packages/shared/src` directly, so a shared export edit does not need `vite --force` or a cleared dependency cache.
 
 Open `http://localhost:5173` in current desktop Chrome or Edge. Vite loads the root `.env` and requires port 5173. The API uses `http://localhost:4000/api`; Socket.IO attaches to that same HTTP server at `http://localhost:4000`.
 
@@ -70,4 +78,4 @@ Live scripts receive the five actual Redis key names through `KEYS`. A changed c
 
 The existing migration creates `users` and `rooms`. Schema synchronization and startup migrations are disabled; Phases 3 and 4 add no migration. Accounts, media-file storage, moderation controls, and broadcasts remain outside this build.
 
-Production builds are `pnpm --filter @stageflow/api build` and `pnpm --filter @stageflow/web build`. The API build copies its Lua assets beside compiled code. Shared and API use CommonJS; web uses Vite and ES modules. After changing shared exports during development, run `pnpm --filter @stageflow/shared build` and restart Vite with `pnpm --filter @stageflow/web dev --force` to refresh its dependency cache. Phase 4 verification and acceptance records live in the [phase contract](plans/phase4.md) and [execution guide](plans/phase4/guide.md). Physical-device and native screen-picker observations still awaiting verification are recorded separately in the [Phase 3 contract](plans/phase3.md) and [guide](plans/phase3/guide.md).
+Production builds are `pnpm build`, or `pnpm --filter @stageflow/api build` and `pnpm --filter @stageflow/web build`. Each app build compiles shared first. The API build copies its Lua assets beside compiled code. Shared and the API stay CommonJS; Node loads `packages/shared/dist`. Web production, tests, and the dev server compile the same shared TypeScript source through Vite, so there is no second package export. Phase 4 verification and acceptance records live in the [phase contract](plans/phase4.md) and [execution guide](plans/phase4/guide.md). Physical-device and native screen-picker observations still awaiting verification are recorded separately in the [Phase 3 contract](plans/phase3.md) and [guide](plans/phase3/guide.md).

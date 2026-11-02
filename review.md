@@ -519,14 +519,14 @@ Every tracked file appears below. “Keep” means no separate defect beyond ref
 
 ## 8. Commit-by-commit implementation plan for agents
 
-This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C13 are recorded below; C14 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
+This is the remediation sequence, not permission to start Phase 5/6 features. C01 through C14 are recorded below; C15 through C20 remain **planned**, with no actual commit hashes. Execute only the requested slice(s) and reinspect the repo before execution. C09 moved web live code under `apps/web/src/features/live/`. Slices after C09 use those paths; earlier slices keep the paths they were executed against.
 
 The immediate reliability chain is C03–C08 after C01. Dependency remediation C02 and exposure hardening C18 must precede any public rollout; C18 can run as soon as C03/C06 finish, ahead of UI cleanup. C20 corrects today's attendee state policy after C03 and does not require Phase 5 UI. The remaining slices follow their stated dependencies, so a high-priority fix need not wait for a styling migration.
 
 ### Execution rules
 
 1. Read this report, the master, the current phase handoff, and `git status`. Preserve unrelated edits, especially the existing `plans/README.md` work.
-2. Fix one behavior per commit. Tests for a bug land with its fix. Run affected typecheck/lint and existing relevant tests; shared changes also verify consumers. Until the task graph is fixed, explicitly rebuild shared first.
+2. Fix one behavior per commit. Tests for a bug land with its fix. Run affected typecheck/lint and existing relevant tests; shared changes also verify consumers. Dependent commands compile shared before they run (C14). Affected selection stays manual until the CI slice.
 3. Do not introduce component snapshots, boilerplate controller/entity tests, a permanent Playwright suite, or excluded product capabilities. Focus new tests on parsing, lifecycle services, concurrency, failure recovery, and media adapters. Record this test-policy clarification in C01.
 4. Keep test fixtures isolated. Never start a second API against the user's live Redis just to run a test: its startup clears presence. Do not stop shared containers to simulate outages.
 5. Run browser acceptance for changed media behavior and record failures/gaps. Physical observations stay pending until actually seen.
@@ -811,6 +811,9 @@ The four-participant results are noisy and include a slower optimized round; no 
 
 ### C14 — `fix(tooling): build and watch shared before dependent tasks`
 
+**Status:** verified; awaiting the local commit.\
+**Actual commit:**
+
 **Depends on:** C03. **Addresses:** F11.
 
 **Files:** root/package scripts, `packages/shared/package.json` and TS configs, `apps/web/vite.config.ts`, app scripts, optional `scripts/dev.mjs`, `README.md`.
@@ -818,6 +821,14 @@ The four-participant results are noisy and include a slower optimized round; no 
 Create explicit shared prerequisites for build/dev/test/check. Watch shared source and avoid stale Vite prebundling after export changes. Keep API CJS runtime working. Document root supported commands; avoid recursive script loops. Add subpath/development exports only if necessary and verified in both app runtimes.
 
 **Verify/done:** in a disposable checkout without dist artifacts, documented commands build dependencies automatically; editing/adding a shared export is reflected in API/web/tests without manual --force instructions.
+
+**Implementation/verification record (2026-11-02):** API and web `typecheck`, `test`, `build`, and `dev` compile `@stageflow/shared` before they continue. A one-shot build deletes `packages/shared/dist` and then runs `tsc`, so removed outputs cannot linger. Root `typecheck`, `build`, `dev`, `test`, `test:unit`, `test:integration`, and `check` call those package commands in dependency order. The helper scripts invoke `tsc`, Vite, and Nest directly, not the root script names, so the graph does not call itself. Shared remains one CommonJS package. No development or subpath export was added. Vite resolves `@stageflow/shared` only to `packages/shared/src/index.ts`, excludes that package from dependency prebundling, and watches the shared source directory. The dev server may read the workspace root. Node, including the API and its tests, still loads `packages/shared/dist`.
+
+`pnpm dev` and the API dev command run one shared watcher. An exclusive pid file makes a second dev process attach instead of starting another compiler. After the first successful compile, later successful compiles restart the API. The web dev server compiles shared source, so those edits do not restart Vite or need `--force`. Stopping the process that owns the watcher stops shared compilation. A build or test started while that watcher is alive reuses its output. The API dev command still loads the root `.env` and runs `nest start --watch`.
+
+With `packages/shared/dist` removed, `pnpm --filter @stageflow/web typecheck` compiled shared and passed. The same removal, then `pnpm --filter @stageflow/web test`, compiled shared and passed 81 tests in 12 files. Shared tests passed (119, 7 files). API tests passed (51, 6 files) against the existing Redis test prefixes; no API server was started and developer live keys were not cleared. Root typecheck and workspace lint passed. Another removal, then `pnpm build`, compiled shared, built the API, and built the web app. The API output contains all eight Lua scripts. The web entry is 637.18 kB of JavaScript (Vite estimated gzip 192.36 kB) and 24.70 kB of CSS (6.12 kB estimated gzip), and the existing large-chunk warning remains. `pnpm format:check` passed.
+
+A temporary runtime export, removed before this commit, was visible without `--force`. An existing Vite prebundle was left in place. The dev server resolved `@stageflow/shared` to shared source, and the home page transform did not import `node_modules/.vite/deps/@stageflow_shared.js`. Editing the export updated the loaded module; Vite logged a client update and a shared-source reload. A new dev server, started without `--force`, loaded the edited export. Fresh Node processes required the CommonJS build and saw each rebuild. The API dev supervisor restarted after the watcher reported a successful compile, and the replacement process printed the new export. No physical media acceptance was rerun. C14 carries C13's post-commit hash. Record C14's actual hash after commit for the next requested slice.
 
 ### C15 — `perf(build): exclude API tests and defer the room route`
 

@@ -21,11 +21,11 @@
     "typeorm": "^1.1.2"
   },
   "scripts": {
-    "test": "dotenv -e ../../.env -- vitest run",
-    "typecheck": "tsc --noEmit",
+    "test": "node ../../scripts/shared-build.mjs build && dotenv -e ../../.env -- vitest run",
+    "typecheck": "node ../../scripts/shared-build.mjs build && tsc --noEmit",
     "lint": "eslint src",
-    "dev": "dotenv -e ../../.env -- nest start --watch",
-    "build": "nest build",
+    "dev": "node ../../scripts/dev.mjs api",
+    "build": "node ../../scripts/shared-build.mjs build && nest build",
     "migration:run": "dotenv -e ../../.env -- typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts"
   },
   "devDependencies": {

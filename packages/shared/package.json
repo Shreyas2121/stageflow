@@ -13,7 +13,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ../../scripts/shared-build.mjs build",
+    "dev": "node ../../scripts/shared-build.mjs watch",
     "lint": "eslint src",
     "test": "vitest run"
   },
