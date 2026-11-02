@@ -1,4 +1,5 @@
 import type { RoomMode, RoomStatus } from './contracts';
+import type { BroadcastStatus } from './broadcast';
 import type { MediaPatch, ParticipantState, StageError } from './stage';
 
 export type RoomSnapshot = {
@@ -9,7 +10,12 @@ export type RoomSnapshot = {
   participants: ParticipantState[];
   stageSocketIds: string[];
   handSocketIds: string[];
-  broadcast: null;
+  broadcast: {
+    id: string;
+    status: BroadcastStatus;
+    playlistUrl: string | null;
+    errorMessage: string | null;
+  } | null;
 };
 
 export type IceServer = { urls: string | string[]; username?: string; credential?: string };
@@ -22,6 +28,8 @@ export type SignalingError =
   | 'rate_limited'
   | 'server_busy'
   | 'broadcast_not_available'
+  | 'broadcast_active'
+  | 'ffmpeg_unavailable'
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
 export type JoinAck =
