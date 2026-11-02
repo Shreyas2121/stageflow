@@ -11,7 +11,7 @@ import type { Repository } from 'typeorm';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { Broadcast } from './broadcast.entity';
 import { BroadcastsService, type BroadcastHooks } from './broadcasts.service';
-import { FfmpegSupervisor } from './ffmpeg-supervisor';
+import { FfmpegSupervisor, PRODUCER_IDLE_MS } from './ffmpeg-supervisor';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -109,6 +109,29 @@ it('inserts STARTING and reserves before spawn, then marks LIVE and publishes', 
   expect(f.rows[0]).toMatchObject({ status: 'FAILED', errorMessage: 'FFmpeg exited before stop.' });
   expect(f.hooks.clear).toHaveBeenCalledWith(f.rows[0]!.id);
   expect(f.spawn).toHaveBeenCalledOnce();
+});
+
+it('finalizes producer loss once, clears its reservation, and publishes FAILED', async () => {
+  const f = await fixture();
+  expect(await f.start()).toEqual({ ok: true });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    // Renew under the controlled clock; the startup timer was created before it.
+    await f.service.upload(f.rows[0]!.id, 'host', 0, Buffer.from('webm'));
+    await vi.advanceTimersByTimeAsync(PRODUCER_IDLE_MS);
+    await Promise.all(f.tasks);
+    expect(f.rows[0]).toMatchObject({
+      status: 'FAILED',
+      errorMessage: 'Broadcast producer stopped sending media.',
+    });
+    expect(f.hooks.clear).toHaveBeenCalledExactlyOnceWith(f.rows[0]!.id);
+    expect(f.hooks.publish).toHaveBeenCalledTimes(3);
+    f.child.emit('close', 0);
+    await f.service.stopRoom(f.rows[0]!.roomId);
+    expect(f.hooks.clear).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('records missing-binary failure, clears the key, and names the binary', async () => {

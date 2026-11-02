@@ -19,7 +19,8 @@ export type StageSource = {
   screenSharing: boolean;
 };
 
-export type RecorderFinish = { ok: true } | { ok: false; reason: 'timeout' | 'upload' | 'aborted' };
+export type RecorderFinish =
+  { ok: true } | { ok: false; reason: 'timeout' | 'upload' | 'aborted' | 'recorder' };
 
 export type BroadcastRecorder = {
   start(): void;
@@ -32,6 +33,7 @@ export type BroadcastRecorder = {
 
 /** Bounds the final-blob wait and, separately, the ordered upload that follows it. */
 export const RECORDER_FINISH_MS = 8_000;
+export const RECORDER_INPUT_MS = 12_000;
 
 type FrameRect = { x: number; y: number; width: number; height: number };
 
@@ -79,7 +81,7 @@ function audibleTracks(sources: readonly StageSource[]): MediaStreamTrack[] {
 export type StageRecorderOptions = {
   broadcastId: string;
   token: string;
-  /** The upload held 8 blobs, or a chunk was refused. The caller stops the broadcast. */
+  /** Terminal producer failure. The caller stops the broadcast, preserving room media. */
   onCap: () => void;
   send?: ChunkSender;
   createCanvas?: () => HTMLCanvasElement;
@@ -116,6 +118,9 @@ export class StageRecorder implements BroadcastRecorder {
   private inputSealed = false;
   private finishTask: Promise<RecorderFinish> | null = null;
   private settleCollect: ((result: RecorderFinish) => void) | null = null;
+  private inputTimer: ReturnType<typeof setTimeout> | undefined;
+  private failure: 'upload' | 'recorder' | undefined;
+  private hasMedia = false;
 
   constructor(private readonly options: StageRecorderOptions) {
     this.upload = new ChunkUpload(
@@ -163,11 +168,17 @@ export class StageRecorder implements BroadcastRecorder {
         videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
       });
       this.mediaRecorder = recorder;
+      recorder.onerror = () => this.fail('recorder');
+      recorder.onstop = () => this.fail('recorder');
       recorder.ondataavailable = (event) => {
         if (this.stopped || this.inputSealed) return;
+        if (event.data.size === 0) return;
+        this.hasMedia = true;
+        this.watchInput();
         this.upload.push(event.data);
       };
       recorder.start(CHUNK_INTERVAL_MS);
+      this.watchInput();
       this.frame = this.requestFrame(this.draw);
     } catch (error) {
       this.stop();
@@ -196,6 +207,7 @@ export class StageRecorder implements BroadcastRecorder {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    clearTimeout(this.inputTimer);
     const settle = this.settleCollect;
     this.settleCollect = null;
     try {
@@ -206,7 +218,14 @@ export class StageRecorder implements BroadcastRecorder {
       if (recorder) {
         recorder.ondataavailable = null;
         recorder.onstop = null;
-        if (recorder.state !== 'inactive') recorder.stop();
+        recorder.onerror = null;
+        if (recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+          } catch {
+            // Native failure must not prevent upload cancellation and track release.
+          }
+        }
       }
       this.upload.stop();
       this.disconnectMix();
@@ -244,13 +263,25 @@ export class StageRecorder implements BroadcastRecorder {
   }
 
   private overflow(): void {
+    this.fail('upload');
+  }
+
+  private watchInput(): void {
+    clearTimeout(this.inputTimer);
+    if (this.finishing || this.stopped) return;
+    this.inputTimer = setTimeout(() => this.fail('recorder'), RECORDER_INPUT_MS);
+  }
+
+  private fail(reason: 'upload' | 'recorder'): void {
+    if (this.stopped) return;
+    this.failure = reason;
     this.stop();
     if (!this.finishing) this.options.onCap();
   }
 
   private async runFinish(): Promise<RecorderFinish> {
     const collected = await this.collectFinal();
-    if (this.stopped) return { ok: false, reason: 'aborted' };
+    if (this.stopped) return { ok: false, reason: this.failure ?? 'aborted' };
     if (!collected.ok) {
       this.stop();
       return collected;
@@ -260,13 +291,14 @@ export class StageRecorder implements BroadcastRecorder {
       if (!this.stopped) this.stop();
       return { ok: false, reason: drained.reason };
     }
-    if (this.stopped) return { ok: false, reason: 'aborted' };
+    if (this.stopped) return { ok: false, reason: this.failure ?? 'aborted' };
     this.stop();
     return { ok: true };
   }
 
   /** The final dataavailable event is delivered before the recorder's stop event. */
   private collectFinal(): Promise<RecorderFinish> {
+    clearTimeout(this.inputTimer);
     if (this.stopped) return Promise.resolve({ ok: false, reason: 'aborted' });
     if (this.frame !== null) {
       this.cancelFrame(this.frame);
@@ -301,7 +333,7 @@ export class StageRecorder implements BroadcastRecorder {
       recorder.onstop = () => {
         this.inputSealed = true;
         this.upload.seal();
-        finish({ ok: true });
+        finish(this.hasMedia ? { ok: true } : { ok: false, reason: 'recorder' });
       };
       try {
         recorder.stop();

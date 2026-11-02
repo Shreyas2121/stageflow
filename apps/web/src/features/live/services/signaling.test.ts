@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
 import type { RoomSnapshot } from '@stageflow/shared';
-import { openIndependentSignaling, openSignaling, type RoomConnection } from './signaling';
+import {
+  BROADCAST_STOP_MS,
+  openIndependentSignaling,
+  openSignaling,
+  type RoomConnection,
+} from './signaling';
 import { useRoomStore } from '../stores/room-store';
 
 vi.mock('socket.io-client', () => ({ io: vi.fn() }));
@@ -15,9 +20,10 @@ class FakeSocket extends EventEmitter {
   connect() {
     queueMicrotask(() => this.emit('connect'));
   }
-  timeout() {
+  timeout = vi.fn((milliseconds: number) => {
+    expect(milliseconds).toBeGreaterThan(0);
     return this;
-  }
+  });
   disconnect = vi.fn();
   emitWithAck = vi.fn(async (event: string) => {
     if (event === 'room:join') {
@@ -73,6 +79,72 @@ afterEach(() => {
 });
 
 describe('signaling connection ownership', () => {
+  it('allows the server stop deadline to complete after the ordinary eight-second ack budget', async () => {
+    vi.useFakeTimers();
+    try {
+      const connection = openIndependentSignaling('token', 'room', callbacks());
+      connections.push(connection);
+      sockets[0]!.emitWithAck.mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 10_000)),
+      );
+      const stopping = connection.stopBroadcast();
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(sockets[0]!.timeout).toHaveBeenCalledWith(BROADCAST_STOP_MS);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await stopping).toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['READY', 'FAILED', 'LIVE', 'STOPPING'] as const)(
+    'reconciles a lost stop acknowledgement with %s for the same attempt',
+    async (status) => {
+      const connection = openIndependentSignaling('token', 'room', callbacks());
+      connections.push(connection);
+      const socket = sockets[0]!;
+      socket.emit('room:state', {
+        ...snapshot('room'),
+        broadcast: { id: 'cast', status: 'LIVE', playlistUrl: null, errorMessage: null },
+      });
+      socket.emitWithAck.mockImplementationOnce(async () => {
+        socket.emit('room:state', {
+          ...snapshot('room'),
+          revision: 2,
+          broadcast: { id: 'cast', status, playlistUrl: null, errorMessage: 'producer lost' },
+        });
+        throw new Error('ack lost');
+      });
+      const result = await connection.stopBroadcast();
+      expect(result.ok).toBe(status === 'READY');
+      if (!result.ok)
+        expect(result.message).toBe(
+          status === 'FAILED'
+            ? 'producer lost'
+            : 'Broadcast stop is not confirmed. Check its status before trying again.',
+        );
+    },
+  );
+
+  it('does not treat a newer attempt as confirmation of an older stop', async () => {
+    const connection = openIndependentSignaling('token', 'room', callbacks());
+    connections.push(connection);
+    const socket = sockets[0]!;
+    socket.emit('room:state', {
+      ...snapshot('room'),
+      broadcast: { id: 'old', status: 'LIVE', playlistUrl: null, errorMessage: null },
+    });
+    socket.emitWithAck.mockImplementationOnce(async () => {
+      socket.emit('room:state', {
+        ...snapshot('room'),
+        revision: 2,
+        broadcast: { id: 'new', status: 'READY', playlistUrl: null, errorMessage: null },
+      });
+      throw new Error('ack lost');
+    });
+    expect(await connection.stopBroadcast()).toMatchObject({ ok: false });
+  });
+
   it('keeps an independent socket and its snapshots outside the host store', async () => {
     const host = openSignaling('host-token', 'room', callbacks());
     connections.push(host);

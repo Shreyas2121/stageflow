@@ -22,6 +22,8 @@ import type {
 const PENDING_EVENT_LIMIT = 32;
 const PENDING_BYTE_LIMIT = 256 * 1024;
 const PENDING_TIMEOUT_MS = 8_000;
+/** Server stop allows 10 seconds for FFmpeg, plus persistence/publication time. */
+export const BROADCAST_STOP_MS = 15_000;
 
 export type RoomConnection = {
   description: (payload: DescriptionRequest) => Promise<CommandAck>;
@@ -172,7 +174,32 @@ export function openIndependentSignaling(
       socket.timeout(8000).emitWithAck('stage:demote', { targetSocketId }),
     setLock: (request) => socket.timeout(8000).emitWithAck('stage:set-lock', request),
     startBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:start'),
-    stopBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:stop'),
+    async stopBroadcast() {
+      const id = latestSnapshot?.broadcast?.id;
+      const terminal = (): CommandAck | undefined => {
+        const broadcast = latestSnapshot?.broadcast;
+        if (closed || !id || broadcast?.id !== id) return;
+        if (broadcast.status === 'READY') return { ok: true };
+        if (broadcast.status === 'FAILED')
+          return {
+            ok: false,
+            error: 'server_error',
+            message: broadcast.errorMessage ?? 'The broadcast failed.',
+          };
+      };
+      try {
+        const result = await socket.timeout(BROADCAST_STOP_MS).emitWithAck('broadcast:stop');
+        return terminal() ?? result;
+      } catch {
+        return (
+          terminal() ?? {
+            ok: false,
+            error: 'server_error',
+            message: 'Broadcast stop is not confirmed. Check its status before trying again.',
+          }
+        );
+      }
+    },
     leave: () => socket.timeout(8000).emitWithAck('room:leave'),
     close() {
       if (closed) return;

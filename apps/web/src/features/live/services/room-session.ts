@@ -924,7 +924,9 @@ export class RoomSession {
       const recorder = this.createRecorder({
         broadcastId: broadcast.id,
         token: this.token,
-        onCap: () => this.onRecorderCap(),
+        onCap: () => {
+          if (this.recorder === recorder) this.onRecorderCap();
+        },
       });
       this.recorder = recorder;
       recorder.start();
@@ -936,12 +938,17 @@ export class RoomSession {
       const active = this.connection;
       if (active && this.state.phase === 'joined')
         void active.stopBroadcast().catch(() => undefined);
+      this.state.error = 'The broadcast recorder could not start. Room media is still available.';
+      this.emit();
     }
   }
 
   private onRecorderCap(): void {
     this.stopRecorder();
-    void this.moderate((active) => active.stopBroadcast());
+    const active = this.connection;
+    this.state.error = 'The broadcast producer failed. Room media is still available.';
+    this.emit();
+    if (active && this.state.phase === 'joined') void active.stopBroadcast().catch(() => undefined);
   }
 
   /** Uploads the final blob before the caller sends broadcast:stop. */
@@ -989,7 +996,8 @@ export class RoomSession {
   }
 }
 
-function unfinishedRecordingMessage(reason: 'timeout' | 'upload'): string {
+function unfinishedRecordingMessage(reason: 'timeout' | 'upload' | 'recorder'): string {
+  if (reason === 'recorder') return 'The broadcast recorder failed before recording finished.';
   return reason === 'timeout'
     ? 'The broadcast stopped before the last of the recording uploaded.'
     : 'The broadcast stopped before every recorded chunk was accepted.';

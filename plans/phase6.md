@@ -132,6 +132,8 @@ A normal Stop broadcast finishes the recorder before `broadcast:stop`. The recor
 
 Leave, room end, and page unload abort instead. They cancel the canvas frame, drop unsent chunks, release owned tracks, and close the mix without waiting for an upload. Leave still stops the camera and the peer connections.
 
+RC06 producer health: native recorder errors, unexpected stops, and 12 seconds without a nonempty blob use one local failure path. Room media stays available. A finish with no media reports recorder failure. FFmpeg bounds first input and later inactivity to 20 seconds; only a completed nonempty write renews that deadline. Empty chunks are rejected and duplicate uploads do not renew it. Producer loss aborts the child and finalizes FAILED through the existing reservation-clear/publication path. Normal stop cancels the input deadline and retains the 10-second child exit bound. The client allows 15 seconds for a stop acknowledgement and reconciles READY/FAILED snapshots for the same attempt if the acknowledgement is lost. An unresolved stop reports that confirmation is pending. Producers do not restart automatically.
+
 Stage members keep the mesh tiles. They do not play HLS of themselves.
 
 ### 5.5 Chunks

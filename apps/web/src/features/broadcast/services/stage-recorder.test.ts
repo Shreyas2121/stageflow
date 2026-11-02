@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   StageRecorder,
   RECORDER_FINISH_MS,
+  RECORDER_INPUT_MS,
   type StageSource,
   VIDEO_BITS_PER_SECOND,
   RECORDER_MIME,
@@ -69,6 +70,7 @@ describe('StageRecorder', () => {
     state: RecordingState = 'inactive';
     ondataavailable: ((event: BlobEvent) => void) | null = null;
     onstop: (() => void) | null = null;
+    onerror: (() => void) | null = null;
     timeslice: number | undefined;
     constructor(
       readonly stream: MediaStream,
@@ -205,7 +207,70 @@ describe('StageRecorder', () => {
     vi.stubGlobal('MediaStream', FakeStream);
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it.each(['error', 'stop', 'silence', 'empty'] as const)(
+    'fails once on producer %s and releases only owned media',
+    async (kind) => {
+      vi.useFakeTimers();
+      const onCap = vi.fn();
+      const send = vi.fn(async () => 204);
+      const stage = recorder(send, onCap);
+      const mic = track();
+      stage.update([source({ audioTrack: mic })]);
+      stage.start();
+      const native = recorders[0]!;
+      if (kind === 'error') native.onerror?.();
+      if (kind === 'stop') {
+        native.state = 'inactive';
+        native.onstop?.();
+      }
+      if (kind === 'empty') native.emit(new Blob());
+      await vi.advanceTimersByTimeAsync(RECORDER_INPUT_MS);
+      expect(onCap).toHaveBeenCalledOnce();
+      expect(captureTrack.stop).toHaveBeenCalledOnce();
+      expect(mixedTrack.stop).toHaveBeenCalledOnce();
+      expect(mic.stop).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      stage.stop();
+    },
+  );
+
+  it('renews the input deadline for nonempty media and cancels it on abort', async () => {
+    vi.useFakeTimers();
+    const onCap = vi.fn();
+    const stage = recorder(async () => 204, onCap);
+    stage.start();
+    await vi.advanceTimersByTimeAsync(RECORDER_INPUT_MS - 1);
+    recorders[0]!.emit(new Blob(['media']));
+    await vi.advanceTimersByTimeAsync(RECORDER_INPUT_MS - 1);
+    expect(onCap).not.toHaveBeenCalled();
+    stage.stop();
+    await vi.advanceTimersByTimeAsync(RECORDER_INPUT_MS);
+    expect(onCap).not.toHaveBeenCalled();
+  });
+
+  it('reports native failure during final collection without reporting a clean finish', async () => {
+    const onCap = vi.fn();
+    const stage = recorder(async () => 204, onCap);
+    stage.start();
+    recorders[0]!.stop = () => {
+      recorders[0]!.state = 'inactive';
+      recorders[0]!.onerror?.();
+    };
+    expect(await stage.finish()).toEqual({ ok: false, reason: 'recorder' });
+    expect(onCap).not.toHaveBeenCalled();
+  });
+
+  it('fails a finish that produced no media at all', async () => {
+    const stage = recorder(async () => 204);
+    stage.start();
+    expect(await stage.finish()).toEqual({ ok: false, reason: 'recorder' });
+    expect(captureTrack.readyState).toBe('ended');
+  });
 
   it('draws a 2×2 stage and leaves the empty cell as the background', () => {
     const people = [

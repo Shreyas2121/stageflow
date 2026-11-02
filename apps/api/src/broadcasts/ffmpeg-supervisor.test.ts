@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
-import { FfmpegSupervisor, type SpawnFfmpeg } from './ffmpeg-supervisor';
+import { FfmpegSupervisor, PRODUCER_IDLE_MS, type SpawnFfmpeg } from './ffmpeg-supervisor';
 import { buildHlsArgs } from '@stageflow/shared';
 
 function fixture() {
@@ -21,6 +21,27 @@ function fixture() {
   return { child, spawn, supervisor };
 }
 afterEach(() => vi.useRealTimers());
+
+it.each([false, true])('fails an abandoned producer after first input: %s', async (withInput) => {
+  const { supervisor, child } = fixture();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  await supervisor.start('unused');
+  if (withInput) {
+    await vi.advanceTimersByTimeAsync(PRODUCER_IDLE_MS - 1);
+    await supervisor.write(Buffer.from('media'));
+  }
+  await vi.advanceTimersByTimeAsync(PRODUCER_IDLE_MS - 1);
+  expect(supervisor.outcome).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await supervisor.done).toMatchObject({
+    code: null,
+    premature: true,
+    error: 'Broadcast producer stopped sending media.',
+  });
+  expect(child.kill).toHaveBeenCalledOnce();
+  child.emit('close', 0);
+  expect(supervisor.outcome?.premature).toBe(true);
+});
 
 it('starts one child, writes stdin bytes, and closes stdin on clean stop', async () => {
   const { supervisor, child, spawn } = fixture();

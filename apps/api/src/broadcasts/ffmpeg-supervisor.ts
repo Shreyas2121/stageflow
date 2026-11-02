@@ -3,6 +3,7 @@ import { buildHlsArgs, type ChunkHistory } from '@stageflow/shared';
 
 export type FfmpegExit = { code: number | null; error: string; premature: boolean };
 export type SpawnFfmpeg = (binary: string, args: string[]) => ChildProcessWithoutNullStreams;
+export const PRODUCER_IDLE_MS = 20_000;
 
 /** One instance owns one child. It can never restart that child. */
 export class FfmpegSupervisor {
@@ -13,6 +14,7 @@ export class FfmpegSupervisor {
   private started = false;
   private stopping = false;
   private stderr = '';
+  private producerTimer: ReturnType<typeof setTimeout> | undefined;
   private complete!: (exit: FfmpegExit) => void;
   readonly done = new Promise<FfmpegExit>((resolve) => {
     this.complete = resolve;
@@ -24,10 +26,12 @@ export class FfmpegSupervisor {
       spawn(binary, args, { windowsHide: true }),
     private readonly stopTimeoutMs = 10_000,
     private readonly writeTimeoutMs = 5_000,
+    private readonly producerTimeoutMs = PRODUCER_IDLE_MS,
   ) {}
 
   private settle(code: number | null): void {
     if (this.outcome) return;
+    clearTimeout(this.producerTimer);
     this.outcome = { code, error: this.stderr, premature: !this.stopping };
     this.complete(this.outcome);
   }
@@ -50,6 +54,7 @@ export class FfmpegSupervisor {
       });
       child.once('spawn', () => {
         clearTimeout(timer);
+        this.watchProducer();
         resolve();
       });
       child.on('error', (error) => {
@@ -84,11 +89,23 @@ export class FfmpegSupervisor {
         else resolve();
       });
     });
+    if (bytes.length > 0) this.watchProducer();
+  }
+
+  /** Only a completed nonempty write extends the producer lease. */
+  private watchProducer(): void {
+    clearTimeout(this.producerTimer);
+    if (this.stopping || this.outcome) return;
+    this.producerTimer = setTimeout(() => {
+      this.abort('Broadcast producer stopped sending media.');
+    }, this.producerTimeoutMs);
+    this.producerTimer.unref();
   }
 
   async stop(): Promise<FfmpegExit> {
     if (this.outcome) return this.outcome;
     this.stopping = true;
+    clearTimeout(this.producerTimer);
     const timer = setTimeout(() => {
       this.stderr = 'FFmpeg did not exit after stop.';
       this.child?.kill('SIGKILL');

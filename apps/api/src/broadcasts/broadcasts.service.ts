@@ -294,7 +294,12 @@ export class BroadcastsService {
       throw new ApiException(409, 'broadcast_not_active', 'The broadcast is not accepting chunks.');
     if (userId !== entry.hostId)
       throw new ApiException(403, 'not_host', 'Only the host can upload chunks.');
-    if (!Number.isSafeInteger(sequence) || sequence < 0 || !Buffer.isBuffer(bytes))
+    if (
+      !Number.isSafeInteger(sequence) ||
+      sequence < 0 ||
+      !Buffer.isBuffer(bytes) ||
+      bytes.length === 0
+    )
       throw new ApiException(400, 'invalid_chunk', 'Invalid chunk metadata or body.');
     if (entry.supervisor.writing)
       throw new ApiException(409, 'chunk_conflict', 'A chunk is still being written.');
