@@ -92,6 +92,8 @@ One row per attempt. Add it with a TypeORM migration. `synchronize` stays off.
 
 The room snapshot's `broadcast` field becomes the master Section 7.2 object or null. It carries the in-flight attempt, or the newest attempt when none is in flight, so a `FAILED` or `READY` result is visible. It does not carry the thumbnail. Null remains the value before the first attempt.
 
+The API keeps that projection with the attempt. A `STARTING` row is projected only after its Redis reservation succeeds. A successful save of `LIVE`, `STOPPING`, `READY`, or `FAILED` replaces it. Ordinary stage publication reuses the projection and does not read the catalog again. The first publication for a room reads the catalog once, including a room with no row. A broadcast lifecycle publication refreshes the projection before Redis assigns the next revision. If publication fails after a revision is committed, that revision stays pending. The next command in the room queue delivers it, including an unchanged retry, and the retry does not create a revision. A join that fails during publication leaves the caller joined. Repeating that join delivers the pending snapshot and acknowledges success without applying join again. A joined caller with nothing pending still receives `already_joined`.
+
 Set `LIVE` only after the process is running. Set `STOPPING` when a stop begins. Do not spawn a replacement if the process exits first. Mark `FAILED`, clear the key, and emit the snapshot.
 
 ### 5.3 Startup and leave

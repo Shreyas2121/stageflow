@@ -177,6 +177,8 @@ it('does not touch the broadcast catalog or stage when a meeting start is reject
   });
   expect(f.control.service.start).not.toHaveBeenCalled();
   expect(f.control.repository.readParticipant).not.toHaveBeenCalled();
+  expect(f.control.service.snapshot).not.toHaveBeenCalled();
+  expect(f.control.repository.readBroadcast).not.toHaveBeenCalled();
   expect(f.snapshots.at(-1)).toBe(before);
 });
 
@@ -370,6 +372,75 @@ it('uses trusted session identity, joins before snapshot, and suppresses no-op p
   await f.service.update(host, { type: 'patchMedia', socketId: host.id, patch: {} }, f.transport);
   expect(f.snapshots).toHaveLength(1);
   expect(await f.join(host)).toMatchObject({ ok: false, error: 'already_joined' });
+});
+it('delivers a committed join after broadcast enrichment fails once', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = broadcastFixture();
+    const host = f.client('host');
+    vi.mocked(f.control.service.snapshot).mockRejectedValueOnce(new Error('catalog down'));
+    expect(await f.join(host)).toMatchObject({ ok: false, error: 'server_error' });
+    expect(host.room?.roomId).toBe('room');
+    expect(f.transport.join).toHaveBeenCalledTimes(1);
+    expect(f.snapshots).toHaveLength(0);
+    const applies = vi.mocked(f.live.apply).mock.calls.length;
+    expect(await f.join(host)).toEqual({ ok: true });
+    expect(vi.mocked(f.live.apply).mock.calls.length).toBe(applies);
+    expect(f.transport.join).toHaveBeenCalledTimes(1);
+    expect(f.snapshots).toHaveLength(1);
+    expect(f.snapshots[0]).toMatchObject({
+      revision: 1,
+      participants: [expect.objectContaining({ socketId: 'host', role: 'HOST' })],
+    });
+    expect(await f.join(host)).toMatchObject({ ok: false, error: 'already_joined' });
+    expect(f.snapshots).toHaveLength(1);
+    expect(vi.mocked(f.live.apply).mock.calls.length).toBe(applies);
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('delivers a committed media change after publication fails without another catalog read', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = broadcastFixture();
+    const host = f.client('host');
+    await f.join(host);
+    expect(f.control.service.snapshot).toHaveBeenCalledTimes(1);
+    expect(f.control.repository.readBroadcast).toHaveBeenCalledTimes(1);
+    vi.mocked(f.transport.publish).mockImplementationOnce(() => {
+      throw new Error('socket down');
+    });
+    const patch = { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: true } } as const;
+    expect(await f.service.update(host, patch, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(f.snapshots).toHaveLength(1);
+    expect(f.control.service.snapshot).toHaveBeenCalledTimes(1);
+    expect(f.control.repository.readBroadcast).toHaveBeenCalledTimes(1);
+    const applies = vi.mocked(f.live.apply).mock.calls.length;
+    expect(await f.service.update(host, patch, f.transport)).toEqual({ ok: true });
+    expect(vi.mocked(f.live.apply).mock.calls.length).toBe(applies + 1);
+    expect(f.snapshots).toHaveLength(2);
+    expect(f.snapshots[1]).toMatchObject({
+      revision: 2,
+      participants: [expect.objectContaining({ socketId: 'host', isAudioMuted: true })],
+    });
+    expect(f.control.service.snapshot).toHaveBeenCalledTimes(1);
+    expect(f.control.repository.readBroadcast).toHaveBeenCalledTimes(1);
+    expect(
+      await f.service.update(
+        host,
+        { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: false } },
+        f.transport,
+      ),
+    ).toEqual({ ok: true });
+    expect(f.snapshots.at(-1)?.participants[0]).toMatchObject({ isAudioMuted: false });
+    expect(f.control.service.snapshot).toHaveBeenCalledTimes(1);
+    expect(f.control.repository.readBroadcast).toHaveBeenCalledTimes(1);
+  } finally {
+    logger.mockRestore();
+  }
 });
 it('enforces stage-only relay and checks live target association', async () => {
   const f = fixture('WEBINAR');

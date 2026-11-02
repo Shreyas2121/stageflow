@@ -52,6 +52,8 @@ function catalog(row: Broadcast): BroadcastCatalog {
 export class BroadcastsService {
   private readonly logger = new Logger(BroadcastsService.name);
   private readonly running = new Map<string, RunningBroadcast>();
+  // Last projection for a room. A missing key is not loaded; null means no attempt was found.
+  private readonly views = new Map<string, RoomSnapshot['broadcast']>();
   private closing = false;
   constructor(
     @InjectRepository(Broadcast) private readonly broadcasts: Repository<Broadcast>,
@@ -61,12 +63,23 @@ export class BroadcastsService {
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
+    if (this.views.has(roomId)) return this.views.get(roomId) ?? null;
     const row = activeId
       ? await this.broadcasts.findOneBy({ id: activeId, roomId })
       : await this.broadcasts.findOne({
           where: { roomId },
           order: { createdAt: 'DESC', id: 'DESC' },
         });
+    const view = this.projection(row);
+    this.views.set(roomId, view);
+    return view;
+  }
+
+  private remember(row: Broadcast): void {
+    this.views.set(row.roomId, this.projection(row));
+  }
+
+  private projection(row: Broadcast | null): RoomSnapshot['broadcast'] {
     return row
       ? {
           id: row.id,
@@ -94,6 +107,7 @@ export class BroadcastsService {
       await this.broadcasts.delete(row.id);
       return failure('broadcast_active');
     }
+    this.remember(row);
     const entry: RunningBroadcast = {
       row,
       hostId,
@@ -113,6 +127,7 @@ export class BroadcastsService {
       row.status = 'LIVE';
       row.playlistPath = `broadcasts/${row.id}/index.m3u8`;
       await this.broadcasts.save(row);
+      this.remember(row);
       entry.starting = false;
       if (entry.supervisor.outcome) {
         await this.finish(entry, entry.supervisor.outcome);
@@ -155,6 +170,7 @@ export class BroadcastsService {
             ).slice(-2000),
       });
       await this.broadcasts.save(entry.row);
+      this.remember(entry.row);
       await entry.hooks.clear(entry.row.id);
       await entry.hooks.publish();
       this.running.delete(entry.row.id);
@@ -171,6 +187,7 @@ export class BroadcastsService {
     entry.stopping = true;
     entry.row.status = 'STOPPING';
     await this.broadcasts.save(entry.row);
+    this.remember(entry.row);
     await entry.hooks.publish();
     await this.finish(entry, await entry.supervisor.stop());
   }

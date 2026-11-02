@@ -71,14 +71,36 @@ async function fixture(stdin = new PassThrough()) {
   return { root, rows, events, repository, child, spawn, supervisor, service, hooks, tasks, start };
 }
 
+it('loads an unknown room projection once and does not keep a reservation that failed', async () => {
+  const f = await fixture();
+  expect(await f.service.snapshot('room-1', null)).toBeNull();
+  expect(f.repository.findOne).toHaveBeenCalledTimes(1);
+  expect(f.repository.findOneBy).not.toHaveBeenCalled();
+  expect(await f.service.snapshot('room-1', null)).toBeNull();
+  expect(f.repository.findOne).toHaveBeenCalledTimes(1);
+  vi.mocked(f.hooks.reserve).mockResolvedValueOnce(false);
+  expect(await f.service.start('room-2', 'host', f.hooks)).toMatchObject({
+    error: 'broadcast_active',
+  });
+  expect(f.repository.delete).toHaveBeenCalledOnce();
+  expect(f.repository.findOneBy).not.toHaveBeenCalled();
+  await f.service.snapshot('room-2', null);
+  expect(f.repository.findOne).toHaveBeenCalledTimes(2);
+});
+
 it('inserts STARTING and reserves before spawn, then marks LIVE and publishes', async () => {
   const f = await fixture();
   expect(await f.start()).toEqual({ ok: true });
   expect(f.events).toEqual(['STARTING', 'reserve', 'LIVE']);
+  expect(f.repository.findOne).not.toHaveBeenCalled();
+  expect(f.repository.findOneBy).not.toHaveBeenCalled();
   expect(await f.service.snapshot(f.rows[0]!.roomId, f.rows[0]!.id)).toMatchObject({
     status: 'LIVE',
     playlistUrl: `/api/broadcasts/${f.rows[0]!.id}/hls/index.m3u8`,
   });
+  expect(await f.service.snapshot(f.rows[0]!.roomId, null)).toMatchObject({ status: 'LIVE' });
+  expect(f.repository.findOne).not.toHaveBeenCalled();
+  expect(f.repository.findOneBy).not.toHaveBeenCalled();
   f.child.emit('close', 1);
   await vi.waitFor(() => expect(f.tasks).toHaveLength(1));
   await Promise.all(f.tasks);

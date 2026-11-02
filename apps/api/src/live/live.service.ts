@@ -39,6 +39,10 @@ export class LiveService {
   private readonly logger = new Logger(LiveService.name);
   // Rooms whose host shutdown has not finished catalog end, key deletion, and notification.
   private readonly ending = new Set<string>();
+  // Known broadcast projection. A missing key is not loaded; null means no attempt.
+  private readonly broadcastView = new Map<string, RoomSnapshot['broadcast']>();
+  // Revisions Redis already committed whose room snapshot was not published.
+  private readonly unpublished = new Map<string, Extract<LiveResult, { ok: true }>>();
   private readonly leaving = new Map<
     string,
     { task: Promise<CommandAck>; followup?: Promise<CommandAck> }
@@ -77,9 +81,25 @@ export class LiveService {
     result: Extract<LiveResult, { ok: true }>,
     transport: LiveTransport,
   ): Promise<void> {
-    if (!result.changed) return;
+    const roomId = result.state.roomId;
+    const pending = this.unpublished.get(roomId);
+    // A changed command supersedes an older unpublished revision. An unchanged retry delivers it.
+    const delivery = result.changed ? result : pending;
+    if (!delivery) return;
+    try {
+      transport.publish(await this.roomSnapshot(delivery));
+      const stored = this.unpublished.get(roomId);
+      if (stored && stored.revision <= delivery.revision) this.unpublished.delete(roomId);
+    } catch (error) {
+      const stored = this.unpublished.get(roomId);
+      if (!stored || stored.revision <= delivery.revision) this.unpublished.set(roomId, delivery);
+      throw error;
+    }
+  }
+
+  private async roomSnapshot(result: Extract<LiveResult, { ok: true }>): Promise<RoomSnapshot> {
     const { state, revision } = result;
-    const snapshot: RoomSnapshot = {
+    return {
       roomId: state.roomId,
       mode: state.mode,
       status: state.status,
@@ -87,17 +107,21 @@ export class LiveService {
       participants: state.participants,
       stageSocketIds: state.stageSocketIds,
       handSocketIds: state.hands.map((hand) => hand.socketId),
-      broadcast:
-        this.broadcasts && state.mode === 'WEBINAR'
-          ? await this.broadcasts.service.snapshot(
-              state.roomId,
-              await this.broadcasts.repository.readBroadcast(
-                roomPrefix(state.roomId, this.namespace),
-              ),
-            )
-          : null,
+      broadcast: await this.broadcastProjection(state),
     };
-    transport.publish(snapshot);
+  }
+
+  private async broadcastProjection(
+    state: Extract<LiveResult, { ok: true }>['state'],
+  ): Promise<RoomSnapshot['broadcast']> {
+    if (!this.broadcasts || state.mode !== 'WEBINAR') return null;
+    if (this.broadcastView.has(state.roomId)) return this.broadcastView.get(state.roomId) ?? null;
+    const view = await this.broadcasts.service.snapshot(
+      state.roomId,
+      await this.broadcasts.repository.readBroadcast(roomPrefix(state.roomId, this.namespace)),
+    );
+    this.broadcastView.set(state.roomId, view);
+    return view;
   }
 
   join(
@@ -107,9 +131,17 @@ export class LiveService {
   ): Promise<CommandAck> {
     return this.execute(client, async (): Promise<CommandAck> => {
       if (!client.connected) return failure('not_joined');
-      if (client.room) return failure('already_joined');
+      if (client.room && client.room.roomId !== request.roomId) return failure('already_joined');
       return this.operations.run(`room:${request.roomId}`, async (): Promise<CommandAck> => {
         if (this.ending.has(request.roomId)) return failure('room_ended');
+        // Publication failure leaves membership in place. The same join delivers that revision
+        // from this queue and does not apply join again.
+        if (client.room) {
+          const pending = this.unpublished.get(request.roomId);
+          if (!pending) return failure('already_joined');
+          await this.publish({ ...pending, changed: false }, transport);
+          return { ok: true };
+        }
         const room = await this.rooms.getById(request.roomId);
         if (!room) return failure('room_not_found');
         if (room.status === 'ENDED') return failure('room_ended');
@@ -171,7 +203,16 @@ export class LiveService {
   private async publishBroadcast(room: LiveRoom, transport: LiveTransport): Promise<void> {
     const prefix = roomPrefix(room.roomId, this.namespace);
     if (!(await this.live.readStage(prefix)).length) return;
-    await this.publish(await this.broadcasts!.repository.refreshSnapshot(prefix, room), transport);
+    const broadcasts = this.broadcasts!;
+    // Refresh before the lifecycle revision. A failed read must not commit a stale snapshot.
+    this.broadcastView.set(
+      room.roomId,
+      await broadcasts.service.snapshot(
+        room.roomId,
+        await broadcasts.repository.readBroadcast(prefix),
+      ),
+    );
+    await this.publish(await broadcasts.repository.refreshSnapshot(prefix, room), transport);
   }
 
   private broadcastCommand(
@@ -254,6 +295,8 @@ export class LiveService {
       await this.live.deleteRoom(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
       this.ending.delete(room.roomId);
+      this.broadcastView.delete(room.roomId);
+      this.unpublished.delete(room.roomId);
     } catch (error: unknown) {
       const detail = error instanceof Error ? error.message : 'unknown failure';
       throw new Error(`Incomplete shutdown for room ${room.roomId}: ${detail}`, { cause: error });
