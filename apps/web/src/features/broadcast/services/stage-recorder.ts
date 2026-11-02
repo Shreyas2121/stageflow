@@ -99,6 +99,7 @@ export class StageRecorder implements BroadcastRecorder {
   private audio: AudioContext | null = null;
   private destination: MediaStreamAudioDestinationNode | null = null;
   private mediaRecorder: MediaRecorder | null = null;
+  private ownedStreams: MediaStream[] = [];
   private frame: number | null = null;
   private lastDraw = Number.NEGATIVE_INFINITY;
   private started = false;
@@ -127,27 +128,33 @@ export class StageRecorder implements BroadcastRecorder {
       const canvas = this.createCanvas();
       canvas.width = STAGE_WIDTH;
       canvas.height = STAGE_HEIGHT;
+      this.canvas = canvas;
       const drawing = canvas.getContext('2d');
       if (!drawing) throw new Error('Unable to draw the stage.');
-      this.canvas = canvas;
       this.drawing = drawing;
       const audio = this.createAudioContext();
       this.audio = audio;
       this.destination = audio.createMediaStreamDestination();
       void audio.resume().catch(() => undefined);
       this.rebuildMix(true);
-      const video = canvas.captureStream(STAGE_FPS).getVideoTracks()[0];
-      const mixed = this.destination.stream.getAudioTracks()[0];
+      const capture = canvas.captureStream(STAGE_FPS);
+      this.ownedStreams.push(capture);
+      const video = capture.getVideoTracks()[0];
+      const mixedStream = this.destination.stream;
+      this.ownedStreams.push(mixedStream);
+      const mixed = mixedStream.getAudioTracks()[0];
       if (!video || !mixed) throw new Error('Unable to capture the stage.');
-      const recorder = this.createRecorder(new MediaStream([video, mixed]), {
+      const output = new MediaStream([video, mixed]);
+      this.ownedStreams.push(output);
+      const recorder = this.createRecorder(output, {
         mimeType: RECORDER_MIME,
         videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
       });
+      this.mediaRecorder = recorder;
       recorder.ondataavailable = (event) => {
         if (!this.stopped) this.upload.push(event.data);
       };
       recorder.start(CHUNK_INTERVAL_MS);
-      this.mediaRecorder = recorder;
       this.frame = this.requestFrame(this.draw);
     } catch (error) {
       this.stop();
@@ -160,20 +167,41 @@ export class StageRecorder implements BroadcastRecorder {
     if (this.audio && !this.stopped) this.rebuildMix(false);
   }
 
-  /** Cancels the canvas frame, stops the recorder, drops unsent chunks, and closes the mix. */
+  /** Cancels the canvas frame, stops the recorder, drops unsent chunks, and releases owned media. */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
-    if (this.frame !== null) this.cancelFrame(this.frame);
-    this.frame = null;
-    const recorder = this.mediaRecorder;
-    this.mediaRecorder = null;
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.ondataavailable = null;
-      recorder.stop();
+    try {
+      if (this.frame !== null) this.cancelFrame(this.frame);
+      this.frame = null;
+      const recorder = this.mediaRecorder;
+      this.mediaRecorder = null;
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.ondataavailable = null;
+        recorder.stop();
+      }
+      this.upload.stop();
+      this.disconnectMix();
+    } finally {
+      this.releaseOwnedMedia();
     }
-    this.upload.stop();
-    this.disconnectMix();
+  }
+
+  /**
+   * Stops tracks this recorder created. Microphone and camera tracks borrowed from
+   * stage members are not in these streams and stay live for the room.
+   */
+  private releaseOwnedMedia(): void {
+    const streams = this.ownedStreams;
+    this.ownedStreams = [];
+    const released = new Set<MediaStreamTrack>();
+    for (const stream of streams) {
+      for (const track of stream.getTracks()) {
+        if (released.has(track) || track.readyState === 'ended') continue;
+        released.add(track);
+        track.stop();
+      }
+    }
     const audio = this.audio;
     this.audio = null;
     this.destination = null;

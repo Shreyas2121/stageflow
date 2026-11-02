@@ -14,8 +14,14 @@ function video(): HTMLVideoElement {
   return { readyState: 2 } as HTMLVideoElement;
 }
 
-function track(): MediaStreamTrack {
-  return { readyState: 'live' } as MediaStreamTrack;
+function track(): MediaStreamTrack & { stop: ReturnType<typeof vi.fn> } {
+  const media = {
+    readyState: 'live' as MediaStreamTrackState,
+    stop: vi.fn(() => {
+      media.readyState = 'ended';
+    }),
+  };
+  return media as unknown as MediaStreamTrack & { stop: ReturnType<typeof vi.fn> };
 }
 
 function source(patch: Partial<StageSource> = {}): StageSource {
@@ -40,9 +46,22 @@ describe('StageRecorder', () => {
   let nodes: MixNode[];
   let closeContext: ReturnType<typeof vi.fn<() => Promise<void>>>;
   let recorders: FakeRecorder[];
+  let captureTrack: ReturnType<typeof track>;
+  let mixedTrack: ReturnType<typeof track>;
+  let videoTracks: MediaStreamTrack[];
+  let audioTracks: MediaStreamTrack[];
 
   class FakeStream {
     constructor(readonly tracks: MediaStreamTrack[]) {}
+    getTracks(): MediaStreamTrack[] {
+      return [...this.tracks];
+    }
+    getAudioTracks(): MediaStreamTrack[] {
+      return [...this.tracks];
+    }
+    getVideoTracks(): MediaStreamTrack[] {
+      return [...this.tracks];
+    }
   }
 
   class FakeRecorder {
@@ -87,9 +106,18 @@ describe('StageRecorder', () => {
     callback(now);
   }
 
+  function mediaStream(tracks: readonly MediaStreamTrack[]): MediaStream {
+    return {
+      getTracks: () => [...tracks],
+      getAudioTracks: () => [...tracks],
+      getVideoTracks: () => [...tracks],
+    } as unknown as MediaStream;
+  }
+
   function recorder(
     send: (request: ChunkRequest) => Promise<number>,
     onCap = vi.fn(),
+    patch: Partial<ConstructorParameters<typeof StageRecorder>[0]> = {},
   ): StageRecorder {
     return new StageRecorder({
       broadcastId: 'broadcast-1',
@@ -102,7 +130,7 @@ describe('StageRecorder', () => {
           resume: () => Promise.resolve(),
           close: closeContext,
           createMediaStreamDestination: () => ({
-            stream: { getAudioTracks: () => [track()] },
+            stream: mediaStream(audioTracks),
           }),
           createMediaStreamSource: (stream: MediaStream) => {
             const node = {
@@ -118,6 +146,7 @@ describe('StageRecorder', () => {
         new FakeRecorder(stream, options) as unknown as MediaRecorder,
       requestFrame,
       cancelFrame,
+      ...patch,
     });
   }
 
@@ -130,6 +159,10 @@ describe('StageRecorder', () => {
     captureRate = -1;
     nodes = [];
     recorders = [];
+    captureTrack = track();
+    mixedTrack = track();
+    videoTracks = [captureTrack];
+    audioTracks = [mixedTrack];
     closeContext = vi.fn(() => Promise.resolve());
     cancelFrame.mockClear();
     canvas = {
@@ -158,7 +191,7 @@ describe('StageRecorder', () => {
         }) as unknown as CanvasRenderingContext2D,
       captureStream: (rate?: number) => {
         captureRate = rate ?? 0;
-        return { getVideoTracks: () => [track()] } as unknown as MediaStream;
+        return mediaStream(videoTracks);
       },
     } as unknown as HTMLCanvasElement;
     vi.stubGlobal('MediaStream', FakeStream);
@@ -330,5 +363,107 @@ describe('StageRecorder', () => {
     await Promise.resolve();
     expect(sent).toHaveLength(1);
     expect(sent[0]?.sequence).toBe(0);
+  });
+
+  it('ends owned capture and mix tracks once and leaves borrowed stage tracks live', () => {
+    const mic = track();
+    const stage = recorder(() => Promise.resolve(204));
+    stage.update([source({ audioTrack: mic })]);
+    stage.start();
+    expect(nodes[0]?.track).toBe(mic);
+    stage.stop();
+    stage.stop();
+    expect(captureTrack.stop).toHaveBeenCalledOnce();
+    expect(mixedTrack.stop).toHaveBeenCalledOnce();
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+    expect(mic.stop).not.toHaveBeenCalled();
+    expect(mic.readyState).toBe('live');
+  });
+
+  it('zeroes the canvas when the drawing context is missing', () => {
+    const stage = recorder(() => Promise.resolve(204));
+    canvas.getContext = () => null;
+    expect(() => stage.start()).toThrow('Unable to draw the stage.');
+    expect(canvas.width).toBe(0);
+    expect(captureTrack.stop).not.toHaveBeenCalled();
+    expect(mixedTrack.stop).not.toHaveBeenCalled();
+    expect(closeContext).not.toHaveBeenCalled();
+    stage.stop();
+  });
+
+  it('zeroes the canvas when the audio context cannot be created', () => {
+    const stage = recorder(() => Promise.resolve(204), vi.fn(), {
+      createAudioContext: () => {
+        throw new Error('no audio');
+      },
+    });
+    expect(() => stage.start()).toThrow('no audio');
+    expect(canvas.width).toBe(0);
+    expect(captureTrack.stop).not.toHaveBeenCalled();
+    expect(mixedTrack.stop).not.toHaveBeenCalled();
+    expect(closeContext).not.toHaveBeenCalled();
+  });
+
+  it('releases the mix track when the canvas capture has no video track', () => {
+    videoTracks = [];
+    const stage = recorder(() => Promise.resolve(204));
+    expect(() => stage.start()).toThrow('Unable to capture the stage.');
+    expect(mixedTrack.readyState).toBe('ended');
+    expect(captureTrack.stop).not.toHaveBeenCalled();
+    expect(canvas.width).toBe(0);
+    expect(closeContext).toHaveBeenCalledOnce();
+    stage.stop();
+    expect(mixedTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('releases the capture track when the mix has no audio track', () => {
+    audioTracks = [];
+    const stage = recorder(() => Promise.resolve(204));
+    expect(() => stage.start()).toThrow('Unable to capture the stage.');
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.stop).not.toHaveBeenCalled();
+    expect(canvas.width).toBe(0);
+    expect(closeContext).toHaveBeenCalledOnce();
+    stage.stop();
+    expect(captureTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('releases owned tracks when the recorder cannot be constructed or started', () => {
+    const cannotConstruct = recorder(() => Promise.resolve(204), vi.fn(), {
+      createRecorder: () => {
+        throw new Error('no encoder');
+      },
+    });
+    expect(() => cannotConstruct.start()).toThrow('no encoder');
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+    expect(closeContext).toHaveBeenCalledOnce();
+    expect(canvas.width).toBe(0);
+    cannotConstruct.stop();
+    expect(captureTrack.stop).toHaveBeenCalledOnce();
+    expect(mixedTrack.stop).toHaveBeenCalledOnce();
+
+    captureTrack = track();
+    mixedTrack = track();
+    videoTracks = [captureTrack];
+    audioTracks = [mixedTrack];
+    closeContext.mockClear();
+    const cannotStart = recorder(() => Promise.resolve(204), vi.fn(), {
+      createRecorder: (stream, options) => {
+        const created = new FakeRecorder(stream, options);
+        created.start = () => {
+          created.state = 'recording';
+          throw new Error('start failed');
+        };
+        return created as unknown as MediaRecorder;
+      },
+    });
+    expect(() => cannotStart.start()).toThrow('start failed');
+    expect(recorders[0]?.state).toBe('inactive');
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+    expect(closeContext).toHaveBeenCalledOnce();
+    expect(canvas.width).toBe(0);
   });
 });
