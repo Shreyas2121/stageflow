@@ -9,6 +9,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { httpAdmission } from './admission/http-admission';
 import { normalizeAddress } from './config/parse-config';
 import { broadcastChunkParser } from './broadcasts/chunk-parser';
+import { bindDevShutdown } from './dev-shutdown';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
@@ -28,6 +29,12 @@ async function bootstrap(): Promise<void> {
   app.useWebSocketAdapter(new IoAdapter(app));
   app.useGlobalFilters(new ApiExceptionFilter());
   app.enableShutdownHooks();
+  // The channel is open before the process acquires the owner guard, so a dev restart can
+  // close Nest instead of force-killing a process that has not released ownership.
+  await bindDevShutdown(async () => {
+    await app.close();
+    process.exit(0);
+  });
   await app.listen(env.PORT, env.HOST);
   // Redis loss exits after sockets are dropped. A PostgreSQL health failure must not exit.
   bindLiveResetExit(app.get(LiveConnection), (code) => process.exit(code));
