@@ -268,6 +268,7 @@ async function supervise(mode, options = {}) {
     shared: {
       owned: !directory,
       ready: Promise.resolve(),
+      waitForReady: options.sharedWaitForReady,
       async stop() {},
     },
     onApi: (child) => generations.push({ child, output: track(child) }),
@@ -424,5 +425,52 @@ test('graceful shutdown never deletes a foreign owner token', async () => {
         if (alive(generation.child.pid)) killTree(generation.child);
       }
     }
+  });
+});
+
+test('API startup and restarts wait for the current successful shared generation', async () => {
+  await withRedis(async ({ redis, namespace }) => {
+    let valid = false;
+    let checks = 0;
+    const supervised = await supervise('release', {
+      namespace,
+      compiler: true,
+      sharedWaitForReady: async () => {
+        checks++;
+        if (!valid) throw new Error('Expected shared compile failure');
+      },
+    });
+    const compile = () => supervised.session.compiler.stdin.write('compile\n');
+    const waitChecks = async (count) => {
+      const deadline = Date.now() + 5000;
+      while (checks < count && Date.now() < deadline) await delay(20);
+      assert.equal(checks, count);
+    };
+    try {
+      compile();
+      await waitChecks(1);
+      assert.equal(supervised.generations.length, 0);
+      assert.equal(await redis.get(`${namespace}:owner`), null);
+      valid = true;
+      compile();
+      const first = await waitGeneration(supervised.generations, 0);
+      const owned = ownerToken(first.output.lines);
+      valid = false;
+      compile();
+      await waitChecks(3);
+      assert.equal(first.child.exitCode, null);
+      assert.equal(await redis.get(`${namespace}:owner`), owned);
+      valid = true;
+      compile();
+      const next = await waitGeneration(supervised.generations, 1);
+      assert.equal(first.child.exitCode, 0);
+      assert.notEqual(ownerToken(next.output.lines), owned);
+      assert.deepEqual(supervised.forces, []);
+    } finally {
+      await supervised.session.stop();
+      for (const generation of supervised.generations)
+        if (alive(generation.child.pid)) killTree(generation.child);
+    }
+    assert.equal(await redis.get(`${namespace}:owner`), null);
   });
 });

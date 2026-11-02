@@ -311,7 +311,7 @@ export async function runDev(mode = 'all', options = {}) {
     if (!visible.includes('0 errors')) return;
     if (!compilerStarted) {
       compilerStarted = true;
-      startApi();
+      scheduleApiRestart(quickDelay, 'API build ready');
       return;
     }
     scheduleApiRestart(quickDelay, 'API build updated');
@@ -386,14 +386,21 @@ export async function runDev(mode = 'all', options = {}) {
   async function restartApi(reason) {
     if (stopping) return;
     restarting = true;
-    console.log(`[stageflow] ${reason}; restarting the API.`);
-    await stopApi();
-    if (!stopping && !needsOwnerRecovery) startApi();
-    else if (needsOwnerRecovery) announceRecovery();
-    restarting = false;
-    if (pendingRestart) {
-      pendingRestart = false;
-      scheduleApiRestart(restartDelay, reason);
+    try {
+      await shared.waitForReady?.();
+      if (stopping) return;
+      console.log(`[stageflow] ${reason}; restarting the API.`);
+      await stopApi();
+      if (!stopping && !needsOwnerRecovery) startApi();
+      else if (needsOwnerRecovery) announceRecovery();
+    } catch (error) {
+      console.error(`[stageflow] Shared output is unavailable: ${error.message}`);
+    } finally {
+      restarting = false;
+      if (pendingRestart) {
+        pendingRestart = false;
+        scheduleApiRestart(restartDelay, reason);
+      }
     }
   }
 
@@ -455,7 +462,8 @@ export async function runDev(mode = 'all', options = {}) {
   if (usesCompiler) startCompiler();
   else if (wantsApi) startApi();
   if (wantsWeb) startWeb();
-  if (wantsApi && !shared.owned) watchDist();
+  // Real shared followers observe successful compile generations, not partial file writes.
+  if (wantsApi && !shared.owned && !shared.protocol) watchDist();
 
   return {
     api: apiChild,
