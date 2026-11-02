@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 through P6-C05 are committed; P6-A05 remains unverified; P6-A06 is unverified; P6-A08's browser half remains open; P6-C06 is planned.\
+**Status:** in progress. P6-C01 through P6-C06 are committed. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. The Phase 3 physical observations remain open.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -261,7 +261,7 @@ The search prints nothing. Recorder tests cover the 2×2 layout, the screen-shar
 
 **Status:** committed\
 **Proposed commit message:** `feat(web-broadcast): play the live playlist and the replay`\
-**Actual commit:**
+**Actual commit:** `c247d10732b7a31ef77d950de0527c324c2b0730`
 
 **Why:** The attendee window and the replay route are the broadcast the host just produced. Covers P6-A06 and the visible half of P6-A05.
 
@@ -325,7 +325,7 @@ Record any failed step. A still screenshot does not verify A05 or A06. If `ffmpe
 
 ## 7. P6-C06 — README
 
-**Status:** planned\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): state the broadcast limits and the demo script`\
 **Actual commit:**
 
@@ -353,5 +353,7 @@ pnpm exec prettier --write README.md
 Read `README.md` and check each sentence in phase Section 5.8. This slice does not claim a new browser run. Do not mark A05 or A06 from this commit.
 
 **Done when:** P6-A07 passes and the slice is committed.
+
+**Verification record (2026-11-02):** `pnpm exec prettier --write README.md` left the file unchanged. `README.md` was read against every sentence in phase Section 5.8. The two-window steps state the webinar, the attendee window, the live broadcast, and the replay, and the earlier steps state the Section 2.2 meeting mesh. The limits paragraph states the 4-person mesh, the 8–20 second delay, `api restarted` for `STARTING`, `LIVE`, and `STOPPING`, survival of `READY` playlist files, current Chrome or Edge on Windows, STUN with local loopback, optional TURN, and growth of the directory under `DATA_ROOT`. A missing FFmpeg binary fails the broadcast and leaves the mesh usable. Each attempt keeps its HLS playlist and segments. The artifact sentence now says eleven Lua files, matching `scripts/check-artifacts.mjs`. The README does not add a ladder, a queue, object storage, or a retention job. No application code changed. This slice claims no new browser run. P6-A05 and P6-A06 are not marked. P6-A07 passed.
 
 **Handoff:** Phase 6 has no following feature. The open Phase 3 physical observations stay in their own record.
