@@ -1,6 +1,6 @@
 # Phase 5 — Webinar moderation
 
-**Status:** P5-C01 through P5-C03 committed; P5-C04 verified. P5-A01 through P5-A06 passed with synthetic browser devices. P5-C01 through P5-C04 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
+**Status:** Complete. All four slices committed. P5-A01 through P5-A06 passed with synthetic browser devices. P5-C01 through P5-C04 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.7`, Sections 1.4, 5.2, 5.3, 7, 8, 9.1 through 9.4, 10.1, 13, and 16 (Phase 5).\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns P5-C01 through P5-C04. This file owns the rules those commits must satisfy.\
@@ -213,4 +213,4 @@ The complete guide Section 5 browser sequence passed in Chrome 156.0.8078.74 on 
 8. A spawned demo attendee made no device-capture call and had no peer connection. Promotion opened its two connected endpoints and decoded video. Camera lock disabled its canvas track; demotion closed both endpoints.
 9. Promoting three demo peers filled the four-person stage and connected all 12 mesh endpoints. Promoting Sam then showed the existing `stage_full` sentence. Sam remained an attendee, the stage stayed at four, and the complete snapshot and revision were unchanged.
 
-No browser step failed and no page error occurred. Attendee, connected-stage, demoted-attendee, and full-stage screenshots were inspected. P5-A01 through P5-A06 passed within this synthetic-device scope. Phase 5's four slices are verified; committing P5-C04 and recording its hash completes the phase. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up under master Section 16. Phase 6 can replace the explicit broadcast rejection; this phase supplies no player or broadcast media.
+No browser step failed and no page error occurred. Attendee, connected-stage, demoted-attendee, and full-stage screenshots were inspected. P5-A01 through P5-A06 passed within this synthetic-device scope. Phase 5's four slices are committed; the guide records the final slice hash. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up under master Section 16. Phase 6 can replace the explicit broadcast rejection; this phase supplies no player or broadcast media.

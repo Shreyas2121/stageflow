@@ -1,6 +1,6 @@
 # Guide 5 — Phase 5, commit by commit
 
-**Status:** P5-C01 through P5-C03 committed; P5-C04 verified. P5-A01 through P5-A06 passed with synthetic browser devices.\
+**Status:** All four slices committed. P5-A01 through P5-A06 passed with synthetic browser devices.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.7`.\
@@ -194,9 +194,9 @@ Session tests cover: promotion does not call `getUserMedia` until consent; conse
 
 ## 5. P5-C04 — Missing broadcast and the two-window check
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): tell attendees that broadcast is not available`\
-**Actual commit:**
+**Actual commit:** `966957cf7aaf81ebb403b685621b24e0df13e322`
 
 **Why:** An attendee can see why there is no video, and the host can see that broadcast is not live. Closes P5-A02 through P5-A06 in the browser.
 
