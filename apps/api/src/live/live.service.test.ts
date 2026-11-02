@@ -9,6 +9,7 @@ function fixture(
   mode: LiveState['mode'] = 'MEETING',
   availability: { isReady(): boolean } = { isReady: () => true },
   namespace = 'sf',
+  operations = new SerializedOperations(),
 ) {
   let state: LiveState = {
     roomId: 'room',
@@ -77,7 +78,7 @@ function fixture(
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
-  const service = new LiveService(rooms, live, new SerializedOperations(), availability, namespace);
+  const service = new LiveService(rooms, live, operations, availability, namespace);
   const join = (peer: LiveSession) =>
     service.join(
       peer,
@@ -405,4 +406,45 @@ it('rejects a queued guest update after host leave clears its association', asyn
   expect(await ending).toEqual({ ok: true });
   expect(await updating).toMatchObject({ ok: false, error: 'room_ended' });
   expect(f.events).not.toContain('apply:patchMedia');
+});
+
+it('rejects a burst early while allowing disconnected-host cleanup through reserved capacity', async () => {
+  const queue = new SerializedOperations({ maxPending: 1, maxPerKey: 1, cleanupReserve: 1 });
+  const f = fixture('MEETING', { isReady: () => true }, 'burst', queue);
+  const host = f.client('host'),
+    guest = f.client('guest');
+  await f.join(host);
+  await f.join(guest);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  vi.mocked(f.live.apply).mockImplementationOnce(async (...args) => {
+    await gate;
+    return apply(...args);
+  });
+  const active = f.service.update(
+    host,
+    { type: 'patchMedia', socketId: host.id, patch: { isVideoOff: true } },
+    f.transport,
+  );
+  await vi.waitFor(() => expect(f.live.apply).toHaveBeenCalledTimes(3));
+  const burst = await Promise.all(
+    Array.from({ length: 50 }, () =>
+      f.service.update(guest, { type: 'patchMedia', socketId: guest.id, patch: {} }, f.transport),
+    ),
+  );
+  expect(burst.every((result) => !result.ok && result.error === 'server_busy')).toBe(true);
+  expect(f.live.apply).toHaveBeenCalledTimes(3);
+  Object.defineProperty(host, 'connected', { value: false });
+  const leaving = f.service.leave(host, f.transport);
+  const retry = f.service.leave(host, f.transport);
+  expect(f.service.leave(host, f.transport)).toBe(retry);
+  release();
+  expect(await active).toEqual({ ok: true });
+  expect(await leaving).toEqual({ ok: true });
+  expect(await retry).toEqual({ ok: true });
+  expect(f.transport.end).toHaveBeenCalledTimes(1);
+  expect(guest.room).toBeUndefined();
 });

@@ -5,19 +5,28 @@ import { AppModule } from './app.module';
 import { bindLiveResetExit, LiveConnection } from './live/live.connection';
 import { ApiExceptionFilter } from './http/api-exception.filter';
 import { IoAdapter } from '@nestjs/platform-socket.io';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { httpAdmission } from './admission/http-admission';
+import { normalizeAddress } from './config/parse-config';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api');
-  app.useWebSocketAdapter(new IoAdapter(app));
-  app.useGlobalFilters(new ApiExceptionFilter());
-  app.enableCors({
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  app.set('trust proxy', (address: string) =>
+    env.TRUSTED_PROXIES.includes(normalizeAddress(address)),
+  );
+  app.getHttpAdapter().enableCors({
     origin: env.CORS_ORIGIN,
     methods: ['GET', 'POST'],
     allowedHeaders: ['Authorization', 'Content-Type'],
+    exposedHeaders: ['Retry-After'],
   });
+  app.use(httpAdmission(env));
+  app.useBodyParser('json', { limit: env.HTTP_BODY_BYTES });
+  app.setGlobalPrefix('api');
+  app.useWebSocketAdapter(new IoAdapter(app));
+  app.useGlobalFilters(new ApiExceptionFilter());
   app.enableShutdownHooks();
-  await app.listen(env.PORT);
+  await app.listen(env.PORT, env.HOST);
   // Redis loss exits after sockets are dropped. A PostgreSQL health failure must not exit.
   bindLiveResetExit(app.get(LiveConnection), (code) => process.exit(code));
 }

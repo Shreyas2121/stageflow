@@ -23,7 +23,15 @@ import { SignalingGateway } from './signaling.gateway';
       inject: [LiveConnection],
       useFactory: (connection: LiveConnection) => new LiveRepository(connection.client),
     },
-    SerializedOperations,
+    {
+      provide: SerializedOperations,
+      useFactory: () =>
+        new SerializedOperations({
+          maxPending: env.LIVE_PENDING_LIMIT,
+          maxPerKey: env.LIVE_PENDING_PER_KEY,
+          cleanupReserve: env.LIVE_CLEANUP_RESERVE,
+        }),
+    },
     {
       provide: LiveService,
       inject: [RoomsService, LiveRepository, SerializedOperations, LiveConnection],

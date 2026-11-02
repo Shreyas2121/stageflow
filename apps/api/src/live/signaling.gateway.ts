@@ -4,6 +4,7 @@ import {
   MessageBody,
   OnGatewayDisconnect,
   OnGatewayInit,
+  OnGatewayConnection,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -31,6 +32,9 @@ import { LiveConnection } from './live.connection';
 import type { LiveRoom } from './live.repository';
 import { LiveService, type LiveSession, type LiveTransport } from './live.service';
 import { failure } from './signaling.messages';
+import { socketOptions } from './socket-options';
+import { WindowBudget } from '../admission/window-budget';
+import { networkIdentity } from '../admission/network-identity';
 
 type SocketData = { user: User; room?: LiveRoom };
 type GuestSocket = Socket<
@@ -45,10 +49,23 @@ type RoomServer = Server<
   Record<string, never>,
   SocketData
 >;
-@WebSocketGateway({ cors: { origin: env.CORS_ORIGIN } })
-export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnModuleDestroy {
+@WebSocketGateway(socketOptions)
+export class SignalingGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
+{
   @WebSocketServer() server: RoomServer;
   private shuttingDown = false;
+  private pendingAuth = 0;
+  private readonly connections = new WindowBudget(
+    env.SOCKET_CONNECT_RATE_LIMIT,
+    env.RATE_WINDOW_MS,
+    env.RATE_KEYS_MAX,
+  );
+  private readonly events = new WindowBudget(
+    env.SOCKET_EVENT_RATE_LIMIT,
+    env.RATE_WINDOW_MS,
+    env.RATE_KEYS_MAX,
+  );
   private readonly iceServers: IceServer[] = [
     ...(env.STUN_URL ? [{ urls: env.STUN_URL }] : []),
     ...(env.TURN_URL
@@ -104,13 +121,35 @@ export class SignalingGateway implements OnGatewayInit, OnGatewayDisconnect, OnM
       server.disconnectSockets(true);
     });
     server.use((socket, next) => {
+      if (
+        this.pendingAuth >= env.AUTH_PENDING_LIMIT ||
+        !this.connections.consume(networkIdentity(socket.request, env.TRUSTED_PROXIES))
+      ) {
+        next(new Error('Too many connection attempts. Try again shortly.'));
+        return;
+      }
+      this.pendingAuth++;
       void this.sessions
         .verifyToken(socket.handshake.auth?.token)
         .then((user) => {
           socket.data.user = user;
           next();
         })
-        .catch(() => next(new Error('Sign in as a guest before calling this route.')));
+        .catch(() => next(new Error('Sign in as a guest before calling this route.')))
+        .finally(() => {
+          this.pendingAuth--;
+        });
+    });
+  }
+
+  handleConnection(client: GuestSocket): void {
+    client.use((packet, next) => {
+      if (packet[0] === 'room:leave' || this.events.consume(client.data.user.id)) {
+        next();
+        return;
+      }
+      const ack: unknown = packet.at(-1);
+      if (typeof ack === 'function') ack(failure('rate_limited'));
     });
   }
 

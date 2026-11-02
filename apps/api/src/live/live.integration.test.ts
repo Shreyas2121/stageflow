@@ -5,6 +5,9 @@ import { applyStageCommand, type LiveState, type StageCommand } from '@stageflow
 import { LiveRepository } from './live.repository';
 import { LiveConnection } from './live.connection';
 import { roomPrefix } from './live.keys';
+import { Module } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { SerializedOperations } from './serialized-operations';
 
 function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
   return {
@@ -313,9 +316,52 @@ describe('Redis Lua stage transitions', () => {
       expect(await redis.exists(...keys(own))).toBe(0);
       expect(await redis.hget(`${other}:participants`, 'host')).not.toBeNull();
       expect(await redis.get(`${other}:rev`)).toBe('1');
+      await repository.apply(own, empty(), join('host'));
+      const contender = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
+      await expect(contender.open()).rejects.toThrow('already has an API owner');
+      expect(await redis.hget(`${own}:participants`, 'host')).not.toBeNull();
+      expect(await redis.get(`${namespace}:owner`)).not.toBeNull();
     } finally {
-      connection.close();
+      await connection.onApplicationShutdown();
     }
+    expect(await redis.get(`${namespace}:owner`)).toBeNull();
+    const replacement = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
+    try {
+      await replacement.open();
+      expect(await redis.exists(...keys(own))).toBe(0);
+    } finally {
+      await replacement.onApplicationShutdown();
+    }
+  });
+
+  it('keeps namespace ownership until Nest shutdown has drained active live work', async () => {
+    const namespace = `sf_itest_${randomUUID()}`;
+    const connection = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
+    const operations = new SerializedOperations();
+    class OwnershipTestModule {}
+    Module({
+      providers: [
+        { provide: LiveConnection, useValue: connection },
+        { provide: SerializedOperations, useValue: operations },
+      ],
+    })(OwnershipTestModule);
+    const app = await NestFactory.createApplicationContext(OwnershipTestModule, { logger: false });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const work = operations.run('room:pending', () => gate);
+    const shutdown = app.close();
+    try {
+      await vi.waitFor(() => expect(connection.isReady()).toBe(false));
+      expect(await redis.get(`${namespace}:owner`)).not.toBeNull();
+      const contender = new LiveConnection(redis.duplicate({ lazyConnect: true }), namespace);
+      await expect(contender.open()).rejects.toThrow('already has an API owner');
+    } finally {
+      release();
+      await Promise.all([work, shutdown]);
+    }
+    expect(await redis.get(`${namespace}:owner`)).toBeNull();
   });
 
   it('writes only the affected participant, stage membership and hand entry', async () => {

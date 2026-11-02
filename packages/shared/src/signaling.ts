@@ -19,6 +19,8 @@ export type SignalingError =
   | 'invalid_payload'
   | 'not_joined'
   | 'server_error'
+  | 'rate_limited'
+  | 'server_busy'
   | 'not_on_stage'
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };

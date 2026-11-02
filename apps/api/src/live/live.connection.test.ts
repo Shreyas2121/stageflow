@@ -10,6 +10,17 @@ class FakeRedis implements LiveRedisClient {
   readonly deleted: string[][] = [];
   failConnect = false;
   failPing = false;
+  owner: string | null = null;
+  async set(_key: string, token: string): Promise<'OK' | null> {
+    if (this.owner) return null;
+    this.owner = token;
+    return 'OK';
+  }
+  async eval(_script: string, _count: number, _key: string, token: string): Promise<number> {
+    if (this.owner !== token) return 0;
+    this.owner = null;
+    return 1;
+  }
   pages: [string, string[]][] = [['0', []]];
   private readonly listeners = new Map<string, ((error?: Error) => void)[]>();
 
@@ -176,4 +187,32 @@ it('schedules one bounded process exit after Redis loss', async () => {
   } finally {
     logger.mockRestore();
   }
+});
+
+it('refuses a second owner before any presence reset and preserves the guard on abrupt close', async () => {
+  const redis = new FakeRedis();
+  redis.owner = 'existing-owner';
+  const connection = new LiveConnection(redis, 'preview');
+  await expect(connection.open()).rejects.toThrow('already has an API owner');
+  expect(redis.patterns).toEqual([]);
+  expect(redis.owner).toBe('existing-owner');
+});
+it('releases only its own guard after graceful shutdown, without treating shutdown as loss', async () => {
+  const redis = new FakeRedis();
+  const connection = new LiveConnection(redis);
+  await connection.open();
+  connection.onModuleDestroy();
+  expect(connection.isReady()).toBe(false);
+  expect(redis.owner).not.toBeNull();
+  await connection.onApplicationShutdown();
+  expect(redis.owner).toBeNull();
+  expect(redis.status).toBe('end');
+});
+it('does not delete a replacement guard during graceful shutdown', async () => {
+  const redis = new FakeRedis();
+  const connection = new LiveConnection(redis);
+  await connection.open();
+  redis.owner = 'replacement';
+  await connection.onApplicationShutdown();
+  expect(redis.owner).toBe('replacement');
 });

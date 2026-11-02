@@ -34,7 +34,10 @@ export type ApiErrorBody = {
     | 'invalid_mode'
     | 'unauthorized'
     | 'room_not_found'
-    | 'slug_exhausted';
+    | 'slug_exhausted'
+    | 'rate_limited'
+    | 'server_busy'
+    | 'origin_not_allowed';
   message: string;
 };
 

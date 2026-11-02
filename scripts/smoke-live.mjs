@@ -13,6 +13,7 @@ process.env.JWT_SECRET = `smoke-${randomUUID()}`;
 process.env.DATABASE_URL = 'postgresql://unused:unused@127.0.0.1:1/unused';
 process.env.CORS_ORIGIN = 'http://127.0.0.1';
 process.env.LIVE_NAMESPACE = 'sf_smoke';
+process.env.SOCKET_EVENT_RATE_LIMIT = '16';
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const webRequire = createRequire(new URL('../apps/web/package.json', import.meta.url));
 const { Redis } = require('ioredis');
@@ -25,6 +26,7 @@ const { SignalingGateway } = require(`${dist}live/signaling.gateway.js`);
 const { LiveService } = require(`${dist}live/live.service.js`);
 const { LiveRepository } = require(`${dist}live/live.repository.js`);
 const { SerializedOperations } = require(`${dist}live/serialized-operations.js`);
+const { socketOptions } = require(`${dist}live/socket-options.js`);
 const { liveKeys, roomPrefix } = require(`${dist}live/live.keys.js`);
 const namespace = `sf:itest:smoke:${randomUUID()}`;
 const redis = new Redis(process.env.REDIS_URL, {
@@ -35,7 +37,7 @@ const redis = new Redis(process.env.REDIS_URL, {
 });
 redis.on('error', () => {}); // Connection failures are asserted by connect/ping below.
 const http = createServer();
-const server = new Server(http);
+const server = new Server(http, socketOptions);
 const clients = [];
 const roomIds = [];
 let gateway;
@@ -96,6 +98,7 @@ try {
   gateway.server = server;
   gateway.afterInit(server);
   server.on('connection', (socket) => {
+    gateway.handleConnection(socket);
     for (const [event, method] of [
       ['room:join', 'join'],
       ['room:leave', 'leave'],
@@ -112,13 +115,14 @@ try {
   });
   await new Promise((resolve) => http.listen(0, '127.0.0.1', resolve));
   const address = `http://127.0.0.1:${http.address().port}`;
-  function client(token) {
+  function client(token, origin) {
     const socket = io(address, {
       auth: { token },
       autoConnect: false,
       reconnection: false,
       transports: ['websocket'],
       forceNew: true,
+      ...(origin ? { extraHeaders: { Origin: origin } } : {}),
     });
     clients.push(socket);
     return socket;
@@ -135,6 +139,11 @@ try {
   rejected.connect();
   await denied;
   assert.equal(rejected.connected, false);
+  const wrongOrigin = client(await jwt.signAsync({ sub: host.id }), 'http://other.invalid');
+  const originDenied = once(wrongOrigin, 'connect_error');
+  wrongOrigin.connect();
+  await originDenied;
+  assert.equal(wrongOrigin.connected, false);
   const missingUser = client(await jwt.signAsync({ sub: randomUUID() }));
   const missingDenied = once(missingUser, 'connect_error');
   missingUser.connect();
@@ -215,8 +224,17 @@ try {
   await eventually(() => webinar.status === 'ENDED');
   assert.equal(await redis.exists(...liveKeys(roomPrefix(webinar.id, namespace))), 0);
   assert.equal(server.sockets.sockets.get(webinarId), undefined);
+  const burst = await Promise.all(
+    Array.from({ length: 32 }, () => command(replacement, 'room:join', {})),
+  );
+  assert(burst.some((result) => result.error === 'rate_limited'));
+  assert.equal((await command(replacement, 'room:leave')).ok, true);
+  const oversized = await connect(guest);
+  const oversizedClosed = once(oversized, 'disconnect');
+  oversized.emit('room:join', { padding: 'x'.repeat(socketOptions.maxHttpBufferSize + 1) });
+  await oversizedClosed;
   console.log(
-    'Live smoke passed: JWT rejection/lookup, join, stage relay/ICE, disconnect/rejoin, failed shutdown retry, attendee relay rejection, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, join, stage relay/ICE, disconnect/rejoin, shutdown retry, attendee denial, event burst/leave admission, oversized-message disconnect, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();

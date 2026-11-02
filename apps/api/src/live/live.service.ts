@@ -9,7 +9,7 @@ import {
 } from '@stageflow/shared';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { LiveRepository, LiveRoom, LiveResult } from './live.repository';
-import { SerializedOperations } from './serialized-operations';
+import { SerializedOperations, WorkCapacityError } from './serialized-operations';
 import { failure } from './signaling.messages';
 export interface LiveSession {
   id: string;
@@ -29,6 +29,10 @@ export class LiveService {
   private readonly logger = new Logger(LiveService.name);
   // Rooms whose host shutdown has not finished catalog end, key deletion, and notification.
   private readonly ending = new Set<string>();
+  private readonly leaving = new Map<
+    string,
+    { task: Promise<CommandAck>; followup?: Promise<CommandAck> }
+  >();
   constructor(
     private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
     private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
@@ -39,13 +43,20 @@ export class LiveService {
   private execute<T extends CommandAck>(
     client: LiveSession,
     action: () => Promise<T>,
+    cleanup = false,
   ): Promise<T | Extract<CommandAck, { ok: false }>> {
     return this.operations
-      .run(`socket:${client.id}`, async () => {
-        if (!this.availability.isReady()) return failure('server_error');
-        return action();
-      })
+      .run(
+        `socket:${client.id}`,
+        async () => {
+          if (!this.availability.isReady()) return failure('server_error');
+          if (!cleanup && !client.connected) return failure('not_joined');
+          return action();
+        },
+        cleanup,
+      )
       .catch((error: unknown) => {
+        if (error instanceof WorkCapacityError) return failure('server_busy');
         this.logger.error(error instanceof Error ? error.message : 'Live room command failed.');
         return failure('server_error');
       });
@@ -168,28 +179,60 @@ export class LiveService {
   }
 
   leave(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
-    return this.execute(client, async () => {
-      const room = client.room;
-      if (!room) return { ok: true };
-      return this.operations.run(`room:${room.roomId}`, async () => {
-        if (client.room !== room) return { ok: true };
-        if (!this.ending.has(room.roomId)) {
-          const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
-            type: 'leave',
-            socketId: client.id,
-          });
-          if (!result.ok) return failure(result.error);
-          if (!result.roomEnded) {
-            this.publish(result, transport);
-            await transport.leave(client.id, room.roomId);
+    const pending = this.leaving.get(client.id);
+    if (pending) {
+      if (!pending.followup) {
+        pending.followup = pending.task.then((result) =>
+          result.ok ? result : this.performLeave(client, transport),
+        );
+        void pending.followup.then(() => {
+          if (this.leaving.get(client.id) === pending) this.leaving.delete(client.id);
+        });
+      }
+      return pending.followup;
+    }
+    const entry = {
+      task: this.performLeave(client, transport),
+      followup: undefined as Promise<CommandAck> | undefined,
+    };
+    this.leaving.set(client.id, entry);
+    void entry.task.then(() => {
+      if (!entry.followup && this.leaving.get(client.id) === entry) this.leaving.delete(client.id);
+    });
+    return entry.task;
+  }
+
+  private performLeave(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
+    return this.execute(
+      client,
+      async () => {
+        const room = client.room;
+        if (!room) return { ok: true };
+        return this.operations.run(
+          `room:${room.roomId}`,
+          async () => {
+            if (client.room !== room) return { ok: true };
+            if (!this.ending.has(room.roomId)) {
+              const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
+                type: 'leave',
+                socketId: client.id,
+              });
+              if (!result.ok) return failure(result.error);
+              if (!result.roomEnded) {
+                this.publish(result, transport);
+                await transport.leave(client.id, room.roomId);
+                client.room = undefined;
+                return { ok: true };
+              }
+            }
+            await this.finishShutdown(room, transport);
             client.room = undefined;
             return { ok: true };
-          }
-        }
-        await this.finishShutdown(room, transport);
-        client.room = undefined;
-        return { ok: true };
-      });
-    });
+          },
+          true,
+        );
+      },
+      true,
+    );
   }
 }

@@ -4,8 +4,10 @@
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
 **Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; its prerequisite exception remains unresolved (Section 16).\
-**Plan version:** `1.0.3`\
-**Last revised:** 2026-11-01
+**Plan version:** `1.0.4`\
+**Last revised:** 2026-11-02
+
+**Revision note (1.0.4):** C18 makes environment validation, network admission, bounded live queues, and one-owner namespace enforcement explicit. Startup acquires ownership before resetting live presence; graceful shutdown drains work before releasing ownership, and an unclean stop requires confirmed operator recovery. The stage cap, guest JWT lifetime, attendee policy, product phases, and physical acceptance requirements are unchanged.
 
 **Revision note (1.0.3):** Reconcile the completed Phase 4 implementation with the still-open Phase 3 physical acceptance and the unrecorded prerequisite exception. Adopt feature-local media services, affected checks, and behavioral service-regression tests for requested remediation in `review.md`. This documentation revision changes no media behavior and grants no phase-gate waiver. Section 16 records the pending product decision; earlier verification records retain their original scope.
 
@@ -263,7 +265,7 @@ Use TypeORM migrations from the first schema commit. `synchronize` is forbidden.
 On API listen:
 
 1. Mark every `STARTING`, `LIVE`, or `STOPPING` broadcast as `FAILED` with the message `api restarted`.
-2. Delete Redis keys for live rooms (`sf:room:*`).
+2. Acquire the configured namespace's owner guard, then delete only that namespace's live room keys (`<LIVE_NAMESPACE>:room:*`). A conflicting owner prevents cleanup and listening.
 
 Clients treat the next socket drop as a leave. The UI says the live room reset and offers a fresh join. Do not rebuild peer connections from Redis after a restart.
 
@@ -271,7 +273,11 @@ Clients treat the next socket drop as a leave. The UI says the live room reset a
 
 Redis is the live room. PostgreSQL is the catalog. Losing Redis empties presence and must not corrupt the catalog.
 
-Key prefix `sf:`. Every successful mutation refreshes a 24-hour TTL on that room's keys.
+The configured namespace defaults to `sf_<NODE_ENV>` and may be explicitly set per environment. `sf:` below is an illustrative prefix. Every successful mutation refreshes a 24-hour TTL on that room's keys.
+
+One active API owns each namespace through a non-expiring `<LIVE_NAMESPACE>:owner` guard, acquired atomically before presence cleanup. Graceful shutdown drops readiness, drains admitted live work, closes the server, and releases only its own token. A crash, failed partial startup, or connection loss can retain the guard. Recovery requires stopping the previous API and supervisor, confirming that owner is gone, and administratively removing only that namespace's guard before starting one replacement. There is no automatic takeover or multi-instance failover. Different environments must use separate namespaces and catalog databases.
+
+Configured HTTP/guest/network authentication rates, per-user socket event rates, pending authentication/guest work, and socket/room queues bound public work. Rejections are explicit HTTP 429/503 or socket `rate_limited`/`server_busy` responses. Leave bypasses event rates, receives reserved queue capacity, and runs before waiting normal work at queue boundaries; active mutations retain their order. These engineering budgets do not introduce an attendee maximum or change the four-member stage or 12-hour guest token lifetime. The README and `.env.example` record deployment defaults, trusted proxy handling, limits, and operator recovery.
 
 | Key                             | Type                                    | Meaning                                              |
 | ------------------------------- | --------------------------------------- | ---------------------------------------------------- |

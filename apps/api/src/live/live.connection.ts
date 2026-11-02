@@ -1,4 +1,11 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { env } from '../config/env';
 
@@ -15,6 +22,8 @@ export interface LiveRedisClient {
     countValue: number,
   ): Promise<[string, string[]]>;
   del(...keys: string[]): Promise<number>;
+  set(key: string, value: string, condition: 'NX'): Promise<'OK' | null>;
+  eval(script: string, count: number, key: string, token: string): Promise<unknown>;
   disconnect(): void;
   on(event: 'error' | 'close' | 'end', listener: (error?: Error) => void): void;
 }
@@ -25,13 +34,15 @@ function createRedis(): LiveRedisClient {
   return new Redis(env.REDIS_URL, {
     lazyConnect: true,
     connectTimeout: 3000,
+    commandTimeout: 3000,
+    enableOfflineQueue: false,
     maxRetriesPerRequest: 0,
     retryStrategy: () => null,
   });
 }
 
 @Injectable()
-export class LiveConnection implements OnModuleInit, OnModuleDestroy {
+export class LiveConnection implements OnModuleInit, OnModuleDestroy, OnApplicationShutdown {
   private readonly logger = new Logger(LiveConnection.name);
   private readonly redis: LiveRedisClient;
   // The repository needs the ioredis instance used in production. Tests pass a fake client.
@@ -40,6 +51,9 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   private ready = false;
   private lost = false;
   private closing = false;
+  private disconnected = false;
+  private owned = false;
+  private readonly ownerToken = `${process.pid}:${randomUUID()}`;
 
   constructor(
     redis?: LiveRedisClient,
@@ -60,7 +74,23 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
-    this.close();
+    this.ready = false;
+    this.closing = true;
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    try {
+      if (this.owned && this.redis.status === 'ready') {
+        await this.redis.eval(
+          "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+          1,
+          `${this.namespace}:owner`,
+          this.ownerToken,
+        );
+      }
+    } finally {
+      this.close();
+    }
   }
 
   isReady(): boolean {
@@ -76,19 +106,28 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy {
     try {
       await this.redis.connect();
       await this.redis.ping();
+      if ((await this.redis.set(`${this.namespace}:owner`, this.ownerToken, 'NX')) !== 'OK')
+        throw new Error(
+          `Live namespace ${this.namespace} already has an API owner; no presence was cleared.`,
+        );
+      this.owned = true;
       await this.clearPresence();
       this.ready = true;
     } catch (error) {
       this.closing = true;
       this.ready = false;
-      this.redis.disconnect();
-      throw new Error('Redis startup failed; the API will not listen.', { cause: error });
+      this.close();
+      throw new Error(
+        `Redis startup failed; the API will not listen. ${error instanceof Error ? error.message : ''}`,
+        { cause: error },
+      );
     }
   }
 
   // Local teardown. Disconnect does not wait for Redis, and it must not look like a runtime loss.
   close(): void {
-    if (this.closing) return;
+    if (this.disconnected) return;
+    this.disconnected = true;
     this.closing = true;
     this.ready = false;
     this.redis.disconnect();

@@ -15,6 +15,8 @@ const messages: Record<SignalingError, string> = {
   invalid_payload: 'The room command is invalid.',
   not_joined: 'Join the room first.',
   server_error: 'Unable to update the live room. Join again.',
+  rate_limited: 'Too many room commands. Try again shortly.',
+  server_busy: 'The live server is busy. Try again shortly.',
   not_on_stage: 'Only people on stage can exchange media.',
   peer_unavailable: 'That person is no longer on stage.',
 };

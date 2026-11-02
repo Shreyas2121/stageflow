@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import type { DataSourceOptions } from 'typeorm';
-import { env } from '../config/env';
+import { parseDatabaseConfig } from '../config/parse-config';
 import { User } from '../users/user.entity';
 import { Room } from '../rooms/room.entity';
 import { CreateUsersAndRooms1730332800000 } from '../migrations/1730332800000-CreateUsersAndRooms';
 
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
-  url: env.DATABASE_URL,
+  url: parseDatabaseConfig(process.env).DATABASE_URL,
   uuidExtension: 'pgcrypto',
   installExtensions: false,
   entities: [User, Room],

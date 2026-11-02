@@ -4,9 +4,16 @@ import { LiveConnection, type LiveRedisClient } from './live.connection';
 import { SignalingGateway } from './signaling.gateway';
 import type { LiveService } from './live.service';
 import type { SessionsService } from '../sessions/sessions.service';
+import { env } from '../config/env';
 
 class ClosingRedis {
   status = 'wait';
+  async set(): Promise<'OK'> {
+    return 'OK';
+  }
+  async eval(): Promise<number> {
+    return 1;
+  }
   private closeListener: (() => void) | undefined;
 
   async connect(): Promise<void> {
@@ -66,4 +73,41 @@ it('drops sockets on Redis loss without trying to end catalog rooms', async () =
   } finally {
     logger.mockRestore();
   }
+});
+
+it('bounds concurrent authentication before starting additional user lookups', async () => {
+  let release!: (user: { id: string }) => void;
+  const gate = new Promise<{ id: string }>((resolve) => {
+    release = resolve;
+  });
+  const verifyToken = vi.fn(() => gate);
+  const gateway = new SignalingGateway(
+    { verifyToken } as unknown as SessionsService,
+    {} as LiveService,
+    { whenLost: () => {} } as unknown as LiveConnection,
+  );
+  let middleware!: (socket: unknown, next: (error?: Error) => void) => void;
+  gateway.afterInit({
+    use: (handler: typeof middleware) => {
+      middleware = handler;
+    },
+  } as never);
+  const callbacks = Array.from({ length: env.AUTH_PENDING_LIMIT }, () => vi.fn());
+  for (const [index, next] of callbacks.entries())
+    middleware(
+      {
+        handshake: { auth: { token: 'token' } },
+        request: { socket: { remoteAddress: `10.0.0.${index + 1}` }, headers: {} },
+        data: {},
+      },
+      next,
+    );
+  const excess = vi.fn();
+  middleware({ request: { socket: { remoteAddress: '10.0.1.1' }, headers: {} } }, excess);
+  expect(excess).toHaveBeenCalledWith(expect.any(Error));
+  expect(verifyToken).toHaveBeenCalledTimes(env.AUTH_PENDING_LIMIT);
+  release({ id: 'user' });
+  await vi.waitFor(() =>
+    expect(callbacks.every((next) => next.mock.calls.length === 1)).toBe(true),
+  );
 });

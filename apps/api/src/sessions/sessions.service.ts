@@ -7,9 +7,11 @@ import { parseDisplayName } from '@stageflow/shared';
 import type { GuestSessionResponse } from '@stageflow/shared';
 import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
+import { env } from '../config/env';
 
 @Injectable()
 export class SessionsService {
+  private pendingGuests = 0;
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly jwt: JwtService,
@@ -45,10 +47,17 @@ export class SessionsService {
   async createGuest(input: unknown): Promise<GuestSessionResponse> {
     const parsed = parseDisplayName(input);
     if (!parsed.ok) throw new ApiException(400, parsed.error, parsed.message);
-    const user = await this.users.save(
-      this.users.create({ displayName: parsed.value, isGuest: true }),
-    );
-    const token = await this.jwt.signAsync({ sub: user.id });
-    return { token, userId: user.id, displayName: user.displayName };
+    if (this.pendingGuests >= env.GUEST_PENDING_LIMIT)
+      throw new ApiException(503, 'server_busy', 'Guest creation is busy. Try again shortly.');
+    this.pendingGuests++;
+    try {
+      const user = await this.users.save(
+        this.users.create({ displayName: parsed.value, isGuest: true }),
+      );
+      const token = await this.jwt.signAsync({ sub: user.id });
+      return { token, userId: user.id, displayName: user.displayName };
+    } finally {
+      this.pendingGuests--;
+    }
   }
 }
