@@ -4,6 +4,9 @@ import type {
   ParticipantRole,
   ParticipantState,
   RoomResponse,
+  StageForceMute,
+  RelayedDescription,
+  RelayedIceCandidate,
 } from '@stageflow/shared';
 import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
@@ -17,6 +20,9 @@ import { openSignaling, type RoomConnection } from './signaling';
 import { useRoomStore } from '../stores/room-store';
 
 export type ConnectionPhase = 'lobby' | 'joining' | 'joined' | 'leaving';
+type PendingStageEvent =
+  | { type: 'description'; payload: RelayedDescription }
+  | { type: 'candidate'; payload: RelayedIceCandidate };
 
 export type RoomMedia = TrackSource & {
   readonly ready: boolean;
@@ -62,6 +68,13 @@ export type RoomSessionOptions = {
  * Promotion asks for device consent. Demotion releases capture.
  */
 export class RoomSession {
+  private activationPending = false;
+  private forcedAudio = false;
+  private forcedVideo = false;
+  private forceRevision = -1;
+  private pendingStageEvents: PendingStageEvent[] = [];
+  private pendingStageBytes = 0;
+  private consentSignalingFailed = false;
   readonly media: RoomMedia;
   readonly share: ScreenShareController;
   readonly demos: DemoRegistry;
@@ -210,7 +223,7 @@ export class RoomSession {
     return this.state.preparing;
   }
   get mediaPending(): boolean {
-    return this.state.mediaPending;
+    return this.state.mediaPending || this.activationPending;
   }
   get sharePending(): boolean {
     return this.state.sharePending;
@@ -257,6 +270,12 @@ export class RoomSession {
   get sharing(): boolean {
     return this.state.sharing;
   }
+  get audioLocked(): boolean {
+    return this.forcedAudio || Boolean(this.selfParticipant()?.hostAudioLocked);
+  }
+  get videoLocked(): boolean {
+    return this.forcedVideo || Boolean(this.selfParticipant()?.hostVideoLocked);
+  }
   get role(): ParticipantRole | null {
     return this.state.role;
   }
@@ -298,8 +317,10 @@ export class RoomSession {
 
   async prepare(video: HTMLVideoElement, nextChoices = this.state.choices): Promise<void> {
     if (this.catalogAttendee && !this.state.needsCaptureConsent) return;
+    if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
     const token = ++this.prepareToken;
     const generation = this.generation;
+    const promoted = this.state.phase === 'joined' && this.state.needsCaptureConsent;
     this.state.preparing = true;
     this.state.ready = false;
     this.state.error = '';
@@ -307,6 +328,7 @@ export class RoomSession {
     this.state.choices = nextChoices;
     this.emit();
     try {
+      this.applyLocalFlags();
       const prepared = await this.media.prepare(video, nextChoices);
       if (token !== this.prepareToken || generation !== this.generation) {
         if (prepared) this.media.stop();
@@ -326,9 +348,42 @@ export class RoomSession {
       this.state.ready = this.media.ready;
       this.applyLocalFlags();
       if (this.state.phase === 'joined' && this.media.ready) {
+        if (!this.state.onStage) return;
+        this.activationPending = promoted;
         this.state.needsCaptureConsent = false;
         this.media.releaseLobby();
         this.syncFromStore();
+        if (promoted && this.connection) {
+          const active = this.connection;
+          let accepted = false;
+          try {
+            const result = await active.media({
+              isAudioMuted: this.state.isAudioMuted || this.audioLocked,
+              isVideoOff: this.state.isVideoOff || this.videoLocked,
+            });
+            if (
+              token !== this.prepareToken ||
+              generation !== this.generation ||
+              this.connection !== active
+            )
+              return;
+            accepted = result.ok;
+            if (!result.ok) this.state.error = result.message;
+          } catch {
+            if (token === this.prepareToken && this.connection === active)
+              this.state.error = 'Unable to update the room. Try again.';
+          } finally {
+            if (
+              token === this.prepareToken &&
+              generation === this.generation &&
+              this.connection === active
+            ) {
+              this.activationPending = false;
+              if (accepted) this.applyLocalFlags();
+              else this.media.applyFlags(true, true);
+            }
+          }
+        }
       }
     } catch (failure) {
       if (token === this.prepareToken && generation === this.generation) {
@@ -375,8 +430,9 @@ export class RoomSession {
     let active: RoomConnection | null = null;
     try {
       active = this.open(this.token, this.room.id, {
-        onDescription: (payload) => this.peers?.description(payload),
-        onCandidate: (payload) => this.peers?.candidate(payload),
+        onForceMute: (payload) => this.forceMute(payload),
+        onDescription: (payload) => this.receiveStage({ type: 'description', payload }),
+        onCandidate: (payload) => this.receiveStage({ type: 'candidate', payload }),
         onEnded: () => {
           if (opened.current) this.finishEnded(opened.current);
         },
@@ -443,6 +499,7 @@ export class RoomSession {
   }
 
   toggleAudio(): void {
+    if (this.audioLocked || this.activationPending) return;
     const self = this.selfParticipant();
     if (self && this.connection && this.state.phase === 'joined') {
       void this.send((active) => active.media({ isAudioMuted: !self.isAudioMuted }));
@@ -454,6 +511,7 @@ export class RoomSession {
   }
 
   toggleVideo(): void {
+    if (this.videoLocked || this.activationPending) return;
     const self = this.selfParticipant();
     if (self && this.connection && this.state.phase === 'joined') {
       void this.send((active) => active.media({ isVideoOff: !self.isVideoOff }));
@@ -554,6 +612,11 @@ export class RoomSession {
 
   /** Stops local work and keeps the socket for the caller to close. */
   private teardownLocal(): void {
+    this.consentSignalingFailed = false;
+    this.clearPendingStage();
+    this.activationPending = false;
+    this.forcedAudio = this.forcedVideo = false;
+    this.forceRevision = -1;
     this.generation += 1;
     this.prepareToken += 1;
     this.share.invalidate();
@@ -582,6 +645,9 @@ export class RoomSession {
 
   private syncFromStore(): void {
     const { selfSocketId, snapshot, iceServers } = useRoomStore.getState();
+    if (snapshot && snapshot.revision > this.forceRevision) {
+      this.forcedAudio = this.forcedVideo = false;
+    }
     const self = snapshot?.participants.find(
       (participant) => participant.socketId === selfSocketId,
     );
@@ -589,9 +655,15 @@ export class RoomSession {
       this.observeRole(self.role, snapshot.stageSocketIds.includes(selfSocketId));
     }
     const onStage = Boolean(selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId));
-    if (!selfSocketId || !onStage || !this.media.ready) this.closePeers();
+    if (!selfSocketId || !onStage || !this.media.ready || this.state.needsCaptureConsent)
+      this.closePeers();
     else if (this.connection && snapshot)
       this.ensurePeers(selfSocketId, snapshot.stageSocketIds, iceServers);
+    if (this.peers) {
+      const pending = this.pendingStageEvents;
+      this.clearPendingStage();
+      for (const event of pending) this.receiveStage(event);
+    }
     this.applyLocalFlags();
     this.syncSpeaker();
     this.emit();
@@ -615,6 +687,10 @@ export class RoomSession {
 
   /** Phase 5 demotion lands here. Local camera, microphone, and screen tracks stop. */
   private onDemoted(): void {
+    this.consentSignalingFailed = false;
+    this.clearPendingStage();
+    this.activationPending = false;
+    this.state.preparing = false;
     const wasSharing = this.state.sharing;
     this.share.invalidate();
     this.prepareToken += 1;
@@ -662,10 +738,53 @@ export class RoomSession {
 
   private applyLocalFlags(): void {
     const self = this.selfParticipant();
+    const waiting = this.state.needsCaptureConsent || this.activationPending;
     this.media.applyFlags(
-      self?.isAudioMuted ?? this.state.isAudioMuted,
-      self?.isVideoOff ?? this.state.isVideoOff,
+      waiting || this.audioLocked || (self?.isAudioMuted ?? this.state.isAudioMuted),
+      waiting || this.videoLocked || (self?.isVideoOff ?? this.state.isVideoOff),
     );
+  }
+
+  private forceMute({ kind, locked }: StageForceMute): void {
+    if (!locked) return;
+    this.forceRevision = useRoomStore.getState().snapshot?.revision ?? -1;
+    if (kind === 'audio') this.forcedAudio = true;
+    else this.forcedVideo = true;
+    this.applyLocalFlags();
+    this.emit();
+  }
+
+  private clearPendingStage(): void {
+    this.pendingStageEvents = [];
+    this.pendingStageBytes = 0;
+  }
+
+  private receiveStage(event: PendingStageEvent): void {
+    const { snapshot, selfSocketId } = useRoomStore.getState();
+    if (
+      !selfSocketId ||
+      event.payload.toSocketId !== selfSocketId ||
+      !snapshot?.stageSocketIds.includes(selfSocketId) ||
+      !snapshot.stageSocketIds.includes(event.payload.fromSocketId)
+    )
+      return;
+    if (this.peers) {
+      if (event.type === 'description') this.peers.description(event.payload);
+      else this.peers.candidate(event.payload);
+      return;
+    }
+    if (!this.state.needsCaptureConsent || this.consentSignalingFailed) return;
+    const bytes = JSON.stringify(event).length;
+    if (this.pendingStageEvents.length >= 32 || this.pendingStageBytes + bytes > 256 * 1024) {
+      this.clearPendingStage();
+      this.consentSignalingFailed = true;
+      this.state.error =
+        'Stage signaling overflowed while waiting for device consent. Leave and join again.';
+      this.emit();
+      return;
+    }
+    this.pendingStageEvents.push(event);
+    this.pendingStageBytes += bytes;
   }
 
   private syncSpeaker(): void {

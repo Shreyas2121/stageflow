@@ -166,14 +166,26 @@ describe('signaling connection ownership', () => {
     const peer = openIndependentSignaling('token', 'room', own);
     connections.push(peer);
     sockets[0]!.beforeAck = () => {
-      sockets[0]!.emit('webrtc:description', { description: { type: 'offer', sdp: 'test' } });
-      sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
+      sockets[0]!.emit('room:state', {
+        ...snapshot('room'),
+        stageSocketIds: ['socket-0', 'other'],
+      });
+      sockets[0]!.emit('webrtc:description', {
+        toSocketId: 'socket-0',
+        fromSocketId: 'other',
+        description: { type: 'offer', sdp: 'test' },
+      });
+      sockets[0]!.emit('webrtc:ice-candidate', {
+        toSocketId: 'socket-0',
+        fromSocketId: 'other',
+        candidate: null,
+      });
     };
     await peer.join(joinRequest);
     expect(delivery).toEqual(['joined', 'description', 'candidate']);
     sockets[0]!.emit('room:state', snapshot('other-room'));
     sockets[0]!.emit('room:ended', { roomId: 'other-room' });
-    expect(own.onState).not.toHaveBeenCalled();
+    expect(own.onState).toHaveBeenCalledTimes(1);
     expect(own.onEnded).not.toHaveBeenCalled();
     sockets[0]!.emit('room:ended', { roomId: 'room' });
     expect(own.onEnded).toHaveBeenCalledOnce();
@@ -192,6 +204,38 @@ describe('signaling connection ownership', () => {
     await expect(peer.join(joinRequest)).rejects.toThrow('Live signaling overflowed before join.');
     expect(own.onCandidate).not.toHaveBeenCalled();
     expect(own.onJoined).not.toHaveBeenCalled();
+  });
+
+  it('does not replay an off-stage description or candidate after a later stage gain', async () => {
+    const own = { ...callbacks(), onForceMute: vi.fn() };
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    sockets[0]!.beforeAck = () => {
+      sockets[0]!.emit('room:state', snapshot('room'));
+      sockets[0]!.emit('webrtc:description', {
+        toSocketId: 'socket-0',
+        fromSocketId: 'host',
+        description: { type: 'offer', sdp: 'old' },
+      });
+      sockets[0]!.emit('webrtc:ice-candidate', {
+        toSocketId: 'socket-0',
+        fromSocketId: 'host',
+        candidate: null,
+      });
+      sockets[0]!.emit('room:state', {
+        ...snapshot('room'),
+        revision: 2,
+        stageSocketIds: ['socket-0', 'host'],
+      });
+    };
+    await peer.join(joinRequest);
+    expect(own.onDescription).not.toHaveBeenCalled();
+    expect(own.onCandidate).not.toHaveBeenCalled();
+    sockets[0]!.emit('stage:force-mute', { kind: 'video', locked: true });
+    expect(own.onForceMute).toHaveBeenCalledExactlyOnceWith({ kind: 'video', locked: true });
+    peer.close();
+    sockets[0]!.emit('stage:force-mute', { kind: 'audio', locked: true });
+    expect(own.onForceMute).toHaveBeenCalledTimes(1);
   });
 
   it('rejects the join when one pre-join event exceeds the byte budget', async () => {

@@ -1,6 +1,6 @@
 # Guide 5 — Phase 5, commit by commit
 
-**Status:** P5-C01 committed; P5-C02 verified; P5-C03 and P5-C04 are not implemented.\
+**Status:** P5-C01 and P5-C02 committed; P5-C03 verified; P5-C04 is not implemented.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.7`.\
@@ -10,7 +10,7 @@
 
 Read the phase contract before editing code. Planning-time `HEAD` was `8fcf04051bd52b255cf4dd951d1a5890c767c103`. Recheck the worktree.
 
-Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. The user subsequently requested P5-C02 under the same exception. Later slices retain their own verification gates.
+Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. The user subsequently requested P5-C02 and P5-C03 under the same exception. Later slices retain their own verification gates.
 
 When implementation is authorized:
 
@@ -97,9 +97,9 @@ The existing Redis integration test still covers the Lua promote and demote case
 
 ## 3. P5-C02 — Host controls
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): give the host a hand queue and stage controls`\
-**Actual commit:**
+**Actual commit:** `d9c926e742bab2e7a0950ab1836848fca384e747`
 
 **Why:** The host can cause the transitions from P5-C01. Prepares P5-A02.
 
@@ -143,7 +143,7 @@ With the API running, join a webinar as host and confirm the queue and buttons r
 
 ## 4. P5-C03 — Stage membership and locks
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-stage): open the mesh only for current stage members`\
 **Actual commit:**
 
@@ -160,6 +160,8 @@ With the API running, join a webinar as host and confirm the queue and buttons r
 - `apps/web/src/features/live/services/demo-peer.ts`
 - `apps/web/src/features/live/services/demo-peer.test.ts`
 - `apps/web/src/features/live/services/signaling.ts`
+- `apps/web/src/features/live/services/signaling.test.ts`
+- `apps/web/src/features/live/components/live-room.tsx` (lock-control props)
 - `apps/web/src/features/live/components/room-controls.tsx`
 
 **Implementation:**
@@ -169,7 +171,7 @@ With the API running, join a webinar as host and confirm the queue and buttons r
 3. While `hostAudioLocked` or `hostVideoLocked` is true, keep that track disabled and do not send an enabling patch. Disable the matching unmute or camera-on control and keep the existing lock sentence available from a rejected command. Clearing a lock does not itself unmute.
 4. Handle `stage:force-mute` on the human socket and on a demo socket by disabling that kind immediately. The next higher snapshot still wins.
 5. A demo peer still constructs no `RTCPeerConnection` while it is absent from `stageSocketIds`. On the first snapshot that places it on stage, sync the mesh and send one `{ isAudioMuted: false, isVideoOff: false }` patch. On demotion, sync closes those connections. Apply mute and video flags from its own snapshot to the canvas and tone tracks.
-6. Do not replay queued descriptions from before the socket was on stage. `PeerManager.sync` remains the only place that creates and disposes connections.
+6. Do not replay queued descriptions from before the socket was on stage. Retain only current-stage descriptions and candidates received during capture consent, bounded to 32 events / 256 KiB, and discard them on demotion or leave. This preserves a current-stage initial offer until consent without opening a connection early. `PeerManager.sync` remains the only place that creates and disposes connections.
 
 **Verification:**
 
@@ -183,6 +185,8 @@ rg -n "getUserMedia|getDisplayMedia" apps/web/src/features/live/services/demo-pe
 The search prints nothing.
 
 Session tests cover: promotion does not call `getUserMedia` until consent; consent then syncs peers and sends one on-stage media patch; a locked microphone does not send an unmute; demotion stops tracks, closes peers, and leaves the socket joined. Demo tests cover: an attendee snapshot creates no peer connection; a later speaker snapshot syncs the stage ids and sends one unmuted patch; demotion disposes those connections.
+
+**Verification result (2026-11-02):** Workspace tests (shared 141, web 102, API 105 including Redis), workspace typecheck/lint, and formatting passed. Demo source has no device-capture API calls. Chrome 156 on Windows verified consent-gated two-window media, audio/video lock behavior, demotion cleanup with signaling retained, and promoted demo media without device capture. The final P5-C04 sequence and full acceptance records remain pending. See phase Section 12 for scope and evidence.
 
 **Done when:** Those tests pass and the slice is committed.
 

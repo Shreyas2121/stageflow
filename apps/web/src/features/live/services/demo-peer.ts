@@ -22,6 +22,8 @@ export class DemoPeer implements TrackSource {
   private stopped = false;
   private readonly guestRequest = new AbortController();
   private started = false;
+  private onStage = false;
+  private stageVersion = 0;
 
   constructor(
     readonly name: string,
@@ -42,7 +44,35 @@ export class DemoPeer implements TrackSource {
 
   private sync(): void {
     if (this.stopped || !this.selfSocketId || !this.snapshot) return;
+    const wasOnStage = this.onStage;
+    this.onStage = this.snapshot.stageSocketIds.includes(this.selfSocketId);
+    if (wasOnStage !== this.onStage) this.stageVersion++;
     this.manager?.sync(this.selfSocketId, this.snapshot.stageSocketIds, this.iceServers);
+    const self = this.snapshot.participants.find((p) => p.socketId === this.selfSocketId);
+    if (this.audio)
+      this.audio.enabled = this.onStage && !!self && !self.isAudioMuted && !self.hostAudioLocked;
+    if (this.video)
+      this.video.enabled = this.onStage && !!self && !self.isVideoOff && !self.hostVideoLocked;
+    if (this.onStage && !wasOnStage && this.connection) {
+      const version = this.stageVersion;
+      void this.connection
+        .media({
+          isAudioMuted: Boolean(self?.hostAudioLocked),
+          isVideoOff: Boolean(self?.hostVideoLocked),
+        })
+        .then((result) => {
+          if (this.stopped || version !== this.stageVersion || result.ok) return;
+          if (this.audio) this.audio.enabled = false;
+          if (this.video) this.video.enabled = false;
+          this.onError(result.message);
+        })
+        .catch(() => {
+          if (this.stopped || version !== this.stageVersion) return;
+          if (this.audio) this.audio.enabled = false;
+          if (this.video) this.video.enabled = false;
+          this.onError('Unable to update demo media. Try again.');
+        });
+    }
   }
 
   async start(roomId: string): Promise<void> {
@@ -56,6 +86,11 @@ export class DemoPeer implements TrackSource {
       const guest = await createGuest(this.name, this.guestRequest.signal);
       if (this.stopped) throw new Error('Demo peer start was cancelled.');
       const connection = openIndependentSignaling(guest.token, roomId, {
+        onForceMute: ({ kind, locked }) => {
+          if (this.stopped || !locked) return;
+          const track = kind === 'audio' ? this.audio : this.video;
+          if (track) track.enabled = false;
+        },
         onJoined: (ack) => {
           this.selfSocketId = ack.selfSocketId;
           this.iceServers = ack.iceServers;
@@ -96,9 +131,11 @@ export class DemoPeer implements TrackSource {
     if (!drawing) throw new Error('Unable to draw a demo peer in this browser.');
     this.video = canvas.captureStream(24).getVideoTracks()[0] ?? null;
     if (!this.video) throw new Error('Unable to capture the demo canvas.');
+    this.video.enabled = false;
     const destination = this.context.createMediaStreamDestination();
     this.audio = destination.stream.getAudioTracks()[0] ?? null;
     if (!this.audio) throw new Error('Unable to create demo audio.');
+    this.audio.enabled = false;
     this.oscillator = this.context.createOscillator();
     this.gain = this.context.createGain();
     this.gain.gain.value = 0;

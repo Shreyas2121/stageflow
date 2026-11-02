@@ -137,6 +137,8 @@ export function LiveRoom({
         needsCaptureConsent={live.needsCaptureConsent}
         audioMuted={audioMuted}
         videoOff={videoOff}
+        audioLocked={live.audioLocked}
+        videoLocked={live.videoLocked}
         sharing={share.sharing}
         handRaised={self?.isHandRaised ?? false}
         showHand={self?.role === 'ATTENDEE'}

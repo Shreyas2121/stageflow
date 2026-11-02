@@ -11,6 +11,8 @@ export function RoomControls({
   needsCaptureConsent,
   audioMuted,
   videoOff,
+  audioLocked,
+  videoLocked,
   sharing,
   handRaised,
   showHand,
@@ -33,6 +35,8 @@ export function RoomControls({
   needsCaptureConsent: boolean;
   audioMuted: boolean;
   videoOff: boolean;
+  audioLocked: boolean;
+  videoLocked: boolean;
   sharing: boolean;
   handRaised: boolean;
   showHand: boolean;
@@ -56,7 +60,7 @@ export function RoomControls({
           <Button
             type="button"
             id="toggle-audio"
-            disabled={mediaLocked}
+            disabled={mediaLocked || audioLocked}
             aria-pressed={audioMuted}
             onClick={onToggleAudio}
           >
@@ -65,7 +69,7 @@ export function RoomControls({
           <Button
             type="button"
             id="toggle-video"
-            disabled={mediaLocked}
+            disabled={mediaLocked || videoLocked}
             aria-pressed={videoOff}
             onClick={onToggleVideo}
           >

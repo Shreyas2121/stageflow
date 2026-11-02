@@ -6,6 +6,7 @@ import type {
   RelayedDescription,
   RoomResponse,
   RoomSnapshot,
+  StageForceMute,
 } from '@stageflow/shared';
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
@@ -83,7 +84,7 @@ class FakeMedia implements RoomMedia {
   releaseLobby(): void {
     this.lobbyReleased += 1;
   }
-  applyFlags(): void {}
+  applyFlags = vi.fn<RoomMedia['applyFlags']>();
   setSpeaker(): Promise<{ ok: boolean; supported: boolean; deviceId: string; message: string }> {
     return Promise.resolve({ ok: true, supported: false, deviceId: '', message: '' });
   }
@@ -124,7 +125,7 @@ function fakeConnection() {
     join: vi.fn<() => Promise<JoinAck>>(() =>
       Promise.resolve({ ok: true, selfSocketId: 'self', iceServers: [] }),
     ),
-    media: vi.fn(() => Promise.resolve({ ok: true as const })),
+    media: vi.fn<RoomConnection['media']>(async () => ({ ok: true })),
     hand: vi.fn(() => Promise.resolve({ ok: true as const })),
     promote: vi.fn<RoomConnection['promote']>(async () => ({ ok: true })),
     demote: vi.fn<RoomConnection['demote']>(async () => ({ ok: true })),
@@ -145,6 +146,7 @@ function harness(options?: {
   const connection = fakeConnection();
   const speaker = { sync: vi.fn(), close: vi.fn() };
   let callbacks: {
+    onForceMute?: (payload: StageForceMute) => void;
     onDescription: (payload: RelayedDescription) => void;
     onEnded: () => void;
     onDisconnect: () => void;
@@ -206,7 +208,9 @@ describe('RoomSession', () => {
       description: { type: 'offer', sdp: 'v=0' },
     };
     connection.join.mockImplementation(async () => {
-      useRoomStore.getState().receive(snapshot('self', 'HOST', true, 1));
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'HOST', true, 1), stageSocketIds: ['self', 'other'] });
       useRoomStore.getState().joined('self', []);
       order.push('after-store');
       callbacks()?.onDescription(description);
@@ -376,6 +380,187 @@ describe('RoomSession', () => {
     expect(connection.close).not.toHaveBeenCalled();
     expect(session.phase).toBe('joined');
     expect(session.needsCaptureConsent).toBe(false);
+  });
+
+  async function promotedAttendee(locked = false) {
+    const h = open({ room: webinar, userId: 'guest' });
+    const offStage = {
+      ...snapshot('self', 'ATTENDEE', false, 1),
+      mode: 'WEBINAR' as const,
+      participants: [
+        {
+          ...person('self', 'ATTENDEE'),
+          isAudioMuted: true,
+          isVideoOff: true,
+          hostAudioLocked: locked,
+        },
+      ],
+    };
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive(offStage);
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await h.session.join();
+    const promoted: RoomSnapshot = {
+      ...offStage,
+      revision: 2,
+      stageSocketIds: ['self', 'host'],
+      participants: [{ ...offStage.participants[0]!, role: 'SPEAKER' }, person('host', 'HOST')],
+    };
+    useRoomStore.getState().receive(promoted);
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.peers.sync).not.toHaveBeenCalled();
+    expect(h.connection.media).not.toHaveBeenCalled();
+    return { ...h, promoted };
+  }
+
+  it('opens peers only after consent and sends one on-stage patch with green-room intentions', async () => {
+    const h = await promotedAttendee();
+    h.connection.media.mockImplementation(async (patch) => {
+      expect(useRoomStore.getState().snapshot?.stageSocketIds).toContain('self');
+      expect(h.peers.sync).toHaveBeenCalledWith('self', ['self', 'host'], []);
+      expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
+      useRoomStore.getState().receive({
+        ...h.promoted,
+        revision: 3,
+        participants: [{ ...h.promoted.participants[0]!, ...patch }, person('host', 'HOST')],
+      });
+      expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
+      return { ok: true };
+    });
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.media.prepareCalls).toBe(1);
+    expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({
+      isAudioMuted: false,
+      isVideoOff: false,
+    });
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(false, false);
+    expect(h.session.needsCaptureConsent).toBe(false);
+  });
+
+  it('keeps tracks disabled and surfaces the server sentence when the activation patch fails', async () => {
+    const h = await promotedAttendee();
+    h.connection.media.mockResolvedValue({
+      ok: false,
+      error: 'audio_locked',
+      message: 'The host has muted your microphone.',
+    });
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.session.error).toBe('The host has muted your microphone.');
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
+    expect(h.session.phase).toBe('joined');
+  });
+
+  it('keeps a permission-denied speaker joined without connections or an activation patch', async () => {
+    const h = await promotedAttendee();
+    h.media.prepareImpl = async () => {
+      throw new Error('Unable to use your microphone. Allow microphone permission.');
+    };
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.session.error).toContain('microphone permission');
+    expect(h.session.needsCaptureConsent).toBe(true);
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.role).toBe('SPEAKER');
+    expect(h.peers.sync).not.toHaveBeenCalled();
+    expect(h.connection.media).not.toHaveBeenCalled();
+    expect(h.connection.close).not.toHaveBeenCalled();
+  });
+
+  it('retains only current-stage signaling during consent and discards it on demotion', async () => {
+    const h = await promotedAttendee();
+    const description: RelayedDescription = {
+      toSocketId: 'self',
+      fromSocketId: 'host',
+      description: { type: 'offer', sdp: 'on-stage' },
+    };
+    h.callbacks()?.onDescription(description);
+    expect(h.peers.description).not.toHaveBeenCalled();
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.peers.description).toHaveBeenCalledExactlyOnceWith(description);
+    useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 3));
+    h.peers.description.mockClear();
+    h.callbacks()?.onDescription({
+      ...description,
+      description: { type: 'offer', sdp: 'off-stage' },
+    });
+    useRoomStore.getState().receive({ ...h.promoted, revision: 4 });
+    h.callbacks()?.onDescription(description);
+    useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 5));
+    useRoomStore.getState().receive({ ...h.promoted, revision: 6 });
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.peers.description).not.toHaveBeenCalled();
+  });
+
+  it('bounds signaling retained while consent is pending', async () => {
+    const h = await promotedAttendee();
+    for (let i = 0; i < 33; i++)
+      h.callbacks()?.onDescription({
+        toSocketId: 'self',
+        fromSocketId: 'host',
+        description: { type: 'offer', sdp: 'pending' },
+      });
+    expect(h.session.error).toContain('Stage signaling overflowed');
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.peers.description).not.toHaveBeenCalled();
+  });
+
+  it('never sends an enabling microphone patch while the host lock is on', async () => {
+    const h = await promotedAttendee(true);
+    await h.session.prepare({} as HTMLVideoElement);
+    expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({
+      isAudioMuted: true,
+      isVideoOff: false,
+    });
+    h.session.toggleAudio();
+    expect(h.connection.media).toHaveBeenCalledTimes(1);
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
+    expect(h.session.audioLocked).toBe(true);
+  });
+
+  it('applies force-mute immediately and lets only a newer snapshot clear its effect', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    h.callbacks()?.onForceMute?.({ kind: 'audio', locked: true });
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, false);
+    h.session.toggleAudio();
+    expect(h.connection.media).not.toHaveBeenCalled();
+    h.callbacks()?.onForceMute?.({ kind: 'audio', locked: false });
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, false);
+    const locked = {
+      ...snapshot('self', 'HOST', true, 2),
+      participants: [{ ...person('self', 'HOST'), hostAudioLocked: true, isAudioMuted: true }],
+    };
+    useRoomStore.getState().receive(locked);
+    expect(h.session.audioLocked).toBe(true);
+    useRoomStore.getState().receive({
+      ...locked,
+      revision: 3,
+      participants: [{ ...locked.participants[0]!, hostAudioLocked: false }],
+    });
+    expect(h.session.audioLocked).toBe(false);
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, false);
+    h.session.toggleAudio();
+    expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({ isAudioMuted: false });
+  });
+
+  it('discards permission resolving after demotion and keeps the same joined socket', async () => {
+    const h = await promotedAttendee();
+    let finish!: (value: boolean) => void;
+    h.media.prepareImpl = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+    const pending = h.session.prepare({} as HTMLVideoElement);
+    useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 3));
+    finish(true);
+    await pending;
+    expect(h.connection.media).not.toHaveBeenCalled();
+    expect(h.peers.sync).not.toHaveBeenCalled();
+    expect(h.media.ready).toBe(false);
+    expect(h.session.preparing).toBe(false);
+    expect(h.session.phase).toBe('joined');
+    expect(h.connection.close).not.toHaveBeenCalled();
   });
 
   async function joinStage(

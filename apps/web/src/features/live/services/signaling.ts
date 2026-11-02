@@ -9,6 +9,7 @@ import type {
   RoomSnapshot,
   ServerToClientEvents,
   StageLockRequest,
+  StageForceMute,
 } from '@stageflow/shared';
 import { useRoomStore } from '../stores/room-store';
 import type {
@@ -37,6 +38,7 @@ export type RoomConnection = {
 let current: RoomConnection | null = null;
 
 type SignalingCallbacks = {
+  onForceMute?: (payload: StageForceMute) => void;
   onEnded: () => void;
   onDisconnect: () => void;
   onDescription: (payload: RelayedDescription) => void;
@@ -61,6 +63,7 @@ export function openIndependentSignaling(
   });
   let closed = false;
   let joined = false;
+  let latestSnapshot: RoomSnapshot | null = null;
   let joinSettled = false;
   let pendingBytes = 0;
   let pendingFailed = false;
@@ -179,16 +182,35 @@ export function openIndependentSignaling(
   };
   socket.on('webrtc:description', (payload) => {
     if (closed) return;
-    if (joined) callbacks.onDescription(payload);
-    else queuePending(payload, () => callbacks.onDescription(payload));
+    const onStage =
+      latestSnapshot?.stageSocketIds.includes(payload.toSocketId) &&
+      latestSnapshot.stageSocketIds.includes(payload.fromSocketId);
+    if (joined) {
+      if (onStage) callbacks.onDescription(payload);
+    } else
+      queuePending(payload, () => {
+        if (onStage) callbacks.onDescription(payload);
+      });
   });
   socket.on('webrtc:ice-candidate', (payload) => {
     if (closed) return;
-    if (joined) callbacks.onCandidate(payload);
-    else queuePending(payload, () => callbacks.onCandidate(payload));
+    const onStage =
+      latestSnapshot?.stageSocketIds.includes(payload.toSocketId) &&
+      latestSnapshot.stageSocketIds.includes(payload.fromSocketId);
+    if (joined) {
+      if (onStage) callbacks.onCandidate(payload);
+    } else
+      queuePending(payload, () => {
+        if (onStage) callbacks.onCandidate(payload);
+      });
   });
   socket.on('room:state', (snapshot) => {
-    if (!closed && snapshot.roomId === roomId) callbacks.onState(snapshot);
+    if (closed || snapshot.roomId !== roomId) return;
+    if (snapshot.revision > (latestSnapshot?.revision ?? -1)) latestSnapshot = snapshot;
+    callbacks.onState(snapshot);
+  });
+  socket.on('stage:force-mute', (payload) => {
+    if (!closed) callbacks.onForceMute?.(payload);
   });
   socket.on('room:ended', (payload) => {
     if (payload.roomId !== roomId || closed) return;

@@ -15,6 +15,8 @@ export class LocalMedia {
   private generation = 0;
   private screen: MediaStream | null = null;
   private screenGeneration = 0;
+  private isAudioMuted = false;
+  private isVideoOff = false;
 
   setLevelListener(listener: ((level: number) => void) | null): void {
     this.levelListener = listener;
@@ -49,6 +51,7 @@ export class LocalMedia {
           return false;
         }
         this.streams.push(stream);
+        this.applyFlags(this.isAudioMuted, this.isVideoOff);
       }
       const camera = this.streams[0]!;
       const microphone = this.streams[1]!;
@@ -88,6 +91,8 @@ export class LocalMedia {
   }
 
   applyFlags(isAudioMuted: boolean, isVideoOff: boolean): void {
+    this.isAudioMuted = isAudioMuted;
+    this.isVideoOff = isVideoOff;
     for (const stream of this.streams) {
       stream.getAudioTracks().forEach((track) => {
         track.enabled = !isAudioMuted;

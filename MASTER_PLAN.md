@@ -3,7 +3,7 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; P5-C01 is authorized with the physical checks retained as follow-up (Section 16). Phase 5 P5-C01 is committed and P5-C02 is verified; P5-C03 and P5-C04 remain planned.\
+**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; P5-C01 is authorized with the physical checks retained as follow-up (Section 16). Phase 5 P5-C01 and P5-C02 are committed; P5-C03 is verified and P5-C04 remains planned.\
 **Plan version:** `1.0.7`\
 **Last revised:** 2026-11-02
 
@@ -727,11 +727,11 @@ The argument builder test does not spawn FFmpeg. Phase 6's exit also runs one re
 
 Phases are dependency gates. Finish a playable meeting before building the webinar broadcast. Do not start Phase 5 while Phase 4's demo is broken.
 
-**Current delivery state (2026-11-02):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5 P5-C01 is committed with API service tests and Redis integration. P5-C02 is verified with service tests and a Chrome host-controls check; P5-C03 and P5-C04 remain planned. The Phase 6 contract and guide are not written.
+**Current delivery state (2026-11-02):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5 P5-C01 is committed with API service tests and Redis integration. P5-C02 is committed with service tests and a Chrome host-controls check. P5-C03 is verified with service regressions and a synthetic-device Chrome promotion, lock, demotion, and demo-media check; P5-C04 remains planned. The Phase 6 contract and guide are not written.
 
 **Outstanding Phase 3 observations:** P3-A03 physical microphone input and human audible output; P3-A05 native screen picker and browser stop control; P3-A06 physical camera indicator after leave. The recorded automated checks remain valid within their scope and do not verify these observations.
 
-**Prerequisite exception - authorized 2026-11-02:** The user explicitly authorized proceeding with P5-C01 while P3-A03, P3-A05, and P3-A06 remain open. Preserve Phase 4 and its evidence. These physical-device observations remain required follow-up; this decision does not mark Phase 3 exited or verify the full Section 2.2 early demo gate. The user subsequently requested P5-C02, authorizing that slice under the same exception. Later slices retain their own verification gates.
+**Prerequisite exception - authorized 2026-11-02:** The user explicitly authorized proceeding with P5-C01 while P3-A03, P3-A05, and P3-A06 remain open. Preserve Phase 4 and its evidence. These physical-device observations remain required follow-up; this decision does not mark Phase 3 exited or verify the full Section 2.2 early demo gate. The user subsequently requested P5-C02 and P5-C03, authorizing those slices under the same exception. Later slices retain their own verification gates.
 
 ### Phase 1 — Foundation
 

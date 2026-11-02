@@ -143,6 +143,15 @@ describe('LocalMedia screen sharing', () => {
 });
 
 describe('LocalMedia lobby capture', () => {
+  it('retains disabled flags as each permission resolves and enables tracks only on a later patch', async () => {
+    media.applyFlags(true, true);
+    await prepare();
+    expect(camera.enabled).toBe(false);
+    expect(microphone.enabled).toBe(false);
+    media.applyFlags(true, false);
+    expect(camera.enabled).toBe(true);
+    expect(microphone.enabled).toBe(false);
+  });
   it('stops the meter and preview after join and keeps the call tracks live until leave', async () => {
     vi.useFakeTimers();
     try {

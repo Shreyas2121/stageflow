@@ -1,6 +1,6 @@
 # Phase 5 — Webinar moderation
 
-**Status:** P5-C01 committed; P5-C02 verified; P5-C03 and P5-C04 planned. P5-C01 and P5-C02 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
+**Status:** P5-C01 and P5-C02 committed; P5-C03 verified; P5-C04 planned. P5-C01 through P5-C03 are authorized by the user on 2026-11-02 with P3-A03, P3-A05, and P3-A06 retained as required physical-device follow-up (master Section 16).\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.7`, Sections 1.4, 5.2, 5.3, 7, 8, 9.1 through 9.4, 10.1, 13, and 16 (Phase 5).\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns P5-C01 through P5-C04. This file owns the rules those commits must satisfy.\
@@ -14,7 +14,7 @@ Example: Ava creates a webinar and joins as host. Sam joins in a second window, 
 
 ## 2. Entry prerequisites
 
-**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 and the subsequent request for P5-C02 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
+**Implementation gate:** Master Section 16 records the user's 2026-11-02 authorization to proceed with P5-C01 and the subsequent requests for P5-C02 and P5-C03 while retaining P3-A03, P3-A05, and P3-A06 as required follow-up. This does not verify those observations or mark Phase 3 exited.
 
 Historical entry snapshot while writing this plan, on 2026-11-02:
 
@@ -186,3 +186,13 @@ Web tests passed (90), shared tests passed (141), API tests passed (105, includi
 In desktop Chrome 156.0.8078.74 on Windows, three independent contexts joined a real webinar using an API in the isolated `p5c02-browser-20261102` namespace. The host used synthetic camera/microphone devices. Two attendees joined without capture or media elements, raised hands, and appeared in raise order. The host had Promote, Demote, Lock microphone, Unlock microphone, Lock camera, and Unlock camera as appropriate; the host row had no self-moderation controls. Attendees and the promoted speaker had no moderation controls. Queue promotion removed the hand and changed the role to SPEAKER; demotion restored ATTENDEE on both pages. Audio/video lock and unlock labels followed server snapshots. Desktop and 390px screenshots were inspected, with no horizontal overflow or browser page errors.
 
 This verifies the P5-C02 controls portion of P5-A02. P5-A02 remains incomplete until device-lock enforcement is checked in P5-C03/P5-C04. Promoted device consent, two-way media, and the remaining P5-A03 through P5-A06 checks remain for those slices. No media consent was granted to the promoted attendee in this check. The Phase 3 physical observations remain open.
+
+## 12. P5-C03 verification (2026-11-02)
+
+Workspace tests passed: shared 141, web 102, API 105 (including real Redis integration). Workspace typecheck, lint, and formatting passed. The search for device-capture APIs in `demo-peer.ts` printed nothing. Stage capacity, demo spawn limit, active-speaker threshold, negotiation reducer, and all eight Lua scripts remain unchanged.
+
+New service regressions cover consent before capture/connections, a single on-stage activation patch, rejected activation leaving tracks disabled, denied microphone permission, lock rejection without an enabling patch, immediate force-mute and authoritative newer snapshots, demotion during permission resolution, bounded consent-time signaling, and discarded off-stage/previous-stage descriptions. The demo regression uses the real PeerManager with fake browser connections to verify zero attendee connections, one activation per stage gain, snapshot-controlled tracks, and demotion disposal. Capture starts with the current disabled flags. Only current-stage messages received while awaiting consent are buffered (32 messages / 256 KiB); demotion and leave discard them.
+
+Chrome 156.0.8078.74 on Windows, against an API with a unique isolated `p5c03-browser-` namespace, verified a host and an independent attendee with synthetic devices. Before promotion the attendee made zero capture calls and peer connections, and received no description. Promotion still made zero capture calls and connections until the user enabled devices. Consent then produced connected endpoints and nonzero decoded remote video dimensions in both windows. Microphone and camera locks disabled the matching tracks and controls; unlock left them off until the participant used the existing control. Demotion ended the camera/microphone tracks, closed both endpoints, removed attendee media elements, and preserved signaling (the attendee raised a new hand afterward). A spawned webinar demo peer had no connection before promotion; promotion connected both endpoints without any new device capture, camera lock disabled its canvas track, and demotion closed both endpoints. The connected-window screenshot was inspected; no page errors occurred.
+
+These are the automated and scoped browser checks for P5-C03, supporting P5-A02 through P5-A04 and P5-A06. The complete P5-C04 browser sequence and final acceptance records remain pending, including broadcast UI/rejection and the stage-full UI check. P3-A03, P3-A05, and P3-A06 remain required physical-device follow-up.

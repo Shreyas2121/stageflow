@@ -3,6 +3,7 @@ import { createGuest } from '../../session/api';
 import { PeerManager } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
 import { DemoPeer } from './demo-peer';
+import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 
 vi.mock('../../session/api', () => ({ createGuest: vi.fn() }));
 vi.mock('./signaling', () => ({ openIndependentSignaling: vi.fn() }));
@@ -18,7 +19,7 @@ vi.mock('./peer-manager', () => ({
 }));
 
 function track() {
-  return { stop: vi.fn() };
+  return { enabled: true, stop: vi.fn() };
 }
 let video: ReturnType<typeof track>;
 let audio: ReturnType<typeof track>;
@@ -87,6 +88,126 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DemoPeer cleanup', () => {
+  it('opens no connection as attendee, syncs and activates once on promotion, and disposes on demotion', async () => {
+    const actual = await vi.importActual<typeof import('./peer-manager')>('./peer-manager');
+    vi.mocked(PeerManager).mockImplementationOnce(actual.PeerManager);
+    const pcs: { close: ReturnType<typeof vi.fn> }[] = [];
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      class {
+        close = vi.fn();
+        addTrack = vi.fn();
+        constructor() {
+          pcs.push(this);
+        }
+      },
+    );
+    vi.stubGlobal('MediaStream', class {});
+    const error = vi.fn();
+    const peer = new DemoPeer('Demo Peer 1', context, error);
+    await peer.start('room');
+    const callbacks = vi.mocked(openIndependentSignaling).mock.calls[0]![2];
+    callbacks.onJoined({ ok: true, selfSocketId: 'demo', iceServers: [] });
+    const self: ParticipantState = {
+      socketId: 'demo',
+      userId: 'demo-user',
+      displayName: 'Demo Peer 1',
+      role: 'ATTENDEE',
+      isAudioMuted: true,
+      isVideoOff: true,
+      isScreenSharing: false,
+      isHandRaised: false,
+      isSyntheticBot: true,
+      hostAudioLocked: false,
+      hostVideoLocked: false,
+      joinedAt: 1,
+    };
+    const attendee: RoomSnapshot = {
+      roomId: 'room',
+      revision: 1,
+      mode: 'WEBINAR',
+      status: 'LIVE',
+      participants: [self],
+      stageSocketIds: ['host'],
+      handSocketIds: [],
+      broadcast: null,
+    };
+    callbacks.onState(attendee);
+    expect(pcs).toHaveLength(0);
+    expect(connection.media).not.toHaveBeenCalled();
+    expect(audio.enabled).toBe(false);
+    const promoted: RoomSnapshot = {
+      ...attendee,
+      revision: 2,
+      participants: [{ ...self, role: 'SPEAKER' }],
+      stageSocketIds: ['demo', 'host'],
+    };
+    callbacks.onState(promoted);
+    expect(pcs).toHaveLength(1);
+    expect(connection.media).toHaveBeenCalledExactlyOnceWith({
+      isAudioMuted: false,
+      isVideoOff: false,
+    });
+    expect(audio.enabled).toBe(false);
+    const active = {
+      ...promoted,
+      revision: 3,
+      participants: [{ ...promoted.participants[0]!, isAudioMuted: false, isVideoOff: false }],
+    };
+    callbacks.onState(active);
+    expect(audio.enabled).toBe(true);
+    expect(video.enabled).toBe(true);
+    expect(connection.media).toHaveBeenCalledTimes(1);
+    callbacks.onForceMute?.({ kind: 'audio', locked: true });
+    expect(audio.enabled).toBe(false);
+    callbacks.onForceMute?.({ kind: 'audio', locked: false });
+    expect(audio.enabled).toBe(false);
+    callbacks.onState({
+      ...active,
+      revision: 4,
+      participants: [{ ...active.participants[0]!, hostVideoLocked: true }],
+    });
+    expect(audio.enabled).toBe(true);
+    expect(video.enabled).toBe(false);
+    callbacks.onState({ ...attendee, revision: 5 });
+    expect(pcs[0]!.close).toHaveBeenCalledOnce();
+    expect(audio.enabled).toBe(false);
+    expect(video.enabled).toBe(false);
+    expect(connection.close).not.toHaveBeenCalled();
+    expect(connection.promote).not.toHaveBeenCalled();
+    expect(connection.demote).not.toHaveBeenCalled();
+    expect(connection.setLock).not.toHaveBeenCalled();
+    peer.stop();
+  });
+
+  it('reports a rejected activation and does not invent unmuted demo tracks', async () => {
+    connection.media.mockResolvedValue({
+      ok: false,
+      error: 'audio_locked',
+      message: 'The host has muted your microphone.',
+    });
+    const error = vi.fn();
+    const peer = new DemoPeer('Demo Peer 1', context, error);
+    await peer.start('room');
+    const callbacks = vi.mocked(openIndependentSignaling).mock.calls[0]![2];
+    callbacks.onJoined({ ok: true, selfSocketId: 'demo', iceServers: [] });
+    callbacks.onState({
+      roomId: 'room',
+      revision: 1,
+      mode: 'WEBINAR',
+      status: 'LIVE',
+      participants: [],
+      stageSocketIds: ['demo', 'host'],
+      handSocketIds: [],
+      broadcast: null,
+    });
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith('The host has muted your microphone.'),
+    );
+    expect(audio.enabled).toBe(false);
+    expect(video.enabled).toBe(false);
+    peer.stop();
+  });
   it('joins as synthetic, syncs from its own snapshot and ack, and stops once', async () => {
     const stopped = vi.fn();
     const peer = new DemoPeer('Demo Peer 1', context, vi.fn(), stopped);
