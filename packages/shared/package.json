@@ -12,10 +12,10 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.check.json",
     "build": "node ../../scripts/shared-build.mjs build",
     "dev": "node ../../scripts/shared-build.mjs watch",
-    "lint": "eslint src",
+    "lint": "node ../../scripts/lint.mjs src *.config.ts",
     "test": "vitest run"
   },
   "devDependencies": {

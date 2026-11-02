@@ -25,6 +25,10 @@ Copy the example only on first setup; keep any existing `.env` values. Keep `.en
 
 `pnpm install` installs the Husky pre-commit hook through the root `prepare` script. Each commit runs lint-staged to format staged files with Prettier and restage the results; formatting failures block the commit. Unstaged edits are preserved; if they conflict with formatting, the commit fails and lint-staged restores the original changes. Run `pnpm format` to format the repository or `pnpm format:check` to check it without writing changes. Generated output, the lockfile, local API data, and environment files are excluded. Files use LF line endings on every platform.
 
+`pnpm lint` covers package source, tests, Vite/Vitest configs, the root ESLint config, and tooling scripts. Web lint enforces Hooks ordering and dependencies. Production TypeScript source also checks floating and misused promises with type information; tests and tool configs retain the basic rules. Import rules keep each app separate and shared source independent of app, browser-framework, and Node packages.
+
+Each lint command uses a content cache under its working directory?s `node_modules/.cache/eslint`. Workspace TypeScript, JavaScript, manifests, TS configs, or lockfile changes invalidate those caches so imported type changes cannot leave stale lint results. `tsconfig.check.json` in each package writes a separate `node_modules/.cache/typescript/check.tsbuildinfo`; production builds keep their existing configs and emit behavior. To measure a cold check, remove only these cache directories. They contain no credentials and are ignored with `node_modules`.
+
 Start the API and web app together from the workspace root:
 
 ```powershell

@@ -14,8 +14,8 @@
   },
   "scripts": {
     "test": "node ../../scripts/shared-build.mjs build && vitest run",
-    "typecheck": "node ../../scripts/shared-build.mjs build && tsc --noEmit",
-    "lint": "eslint src vite.config.ts",
+    "typecheck": "node ../../scripts/shared-build.mjs build && tsc -p tsconfig.check.json",
+    "lint": "node ../../scripts/lint.mjs src vite.config.ts",
     "dev": "node ../../scripts/dev.mjs web",
     "build": "node ../../scripts/shared-build.mjs build && vite build"
   },

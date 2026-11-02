@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Button } from '../components/ui/button';
 import { PageState } from '../components/ui/page-state';
@@ -47,14 +47,22 @@ export class RouteErrorBoundary extends Component<BoundaryProps, BoundaryState> 
   }
 }
 
+function createRoomPage() {
+  return lazy(() => import('../pages/RoomPage').then((module) => ({ default: module.RoomPage })));
+}
+
 export function RoomRoute() {
-  const [attempt, setAttempt] = useState(0);
-  const RoomPage = useMemo(
-    () => lazy(() => import('../pages/RoomPage').then((module) => ({ default: module.RoomPage }))),
-    [attempt],
-  );
+  const [{ attempt, RoomPage }, setRoute] = useState(() => ({
+    attempt: 0,
+    RoomPage: createRoomPage(),
+  }));
   return (
-    <RouteErrorBoundary resetKey={attempt} onRetry={() => setAttempt((value) => value + 1)}>
+    <RouteErrorBoundary
+      resetKey={attempt}
+      onRetry={() =>
+        setRoute((value) => ({ attempt: value.attempt + 1, RoomPage: createRoomPage() }))
+      }
+    >
       <Suspense
         fallback={
           <p className="py-16 text-sm text-muted" role="status">
