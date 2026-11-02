@@ -1,6 +1,6 @@
 # Phase 6 — Broadcast, replay, and the README
 
-**Status:** in progress. P6-C01 through P6-C04 are committed; P6-A05 is unverified; P6-A08's browser half is open; P6-C05 and P6-C06 remain planned. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
+**Status:** in progress. P6-C01 through P6-C05 are committed; P6-A05 remains unverified; P6-A06 is unverified; P6-A08's browser half remains open; P6-C06 remains planned. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.8`, Sections 1.4, 2.2, 6.3, 6.5, 7.2, 11, 12.2, 13, 14.5, 16 (Phase 6), and 18.\
 **Execution guide:** [phase6/guide.md](phase6/guide.md). That guide owns P6-C01 through P6-C06. This file owns the rules those commits must satisfy.\
@@ -197,7 +197,7 @@ The README states the Section 2.2 script, the 4-person mesh ceiling, the 8–20 
 | P6-A03 | A meeting and a second start are rejected with no extra row. A missing FFmpeg binary sets `FAILED`, clears the key, and does not remove stage members   | API service test                       | passed                        |
 | P6-A04 | A resolved path outside `DATA_ROOT` is rejected. Playlist and segment responses use the Section 5.7 cache and MIME values                               | API test                               | passed                        |
 | P6-A05 | A few seconds of real FFmpeg output include `#EXT-X-ENDLIST`. A non-zero exit is `FAILED` with a visible error and no player                            | FFmpeg on `PATH`, then the browser     | unverified                    |
-| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                | planned                       |
+| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                | unverified                    |
 | P6-A07 | The README states every limitation in Section 5.8                                                                                                       | Read `README.md`                       | planned                       |
 | P6-A08 | Host leave stops the canvas frame, the recorder, the upload loop, and the mix context                                                                   | Web test and browser                   | web test passed; browser open |
 

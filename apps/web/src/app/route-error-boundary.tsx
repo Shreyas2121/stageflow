@@ -7,6 +7,7 @@ type BoundaryProps = {
   children: ReactNode;
   resetKey: number;
   onRetry: () => void;
+  page: 'room' | 'replay';
 };
 
 type BoundaryState = { error: Error | null };
@@ -29,7 +30,7 @@ export class RouteErrorBoundary extends Component<BoundaryProps, BoundaryState> 
     return (
       <PageState eyebrow="Page did not load" title="This page could not be loaded.">
         <p className="text-sm text-muted" role="alert">
-          The room page failed to download. Check the connection and try again.
+          The {this.props.page} page failed to download. Check the connection and try again.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <Button type="button" onClick={this.props.onRetry}>
@@ -58,6 +59,7 @@ export function RoomRoute() {
   }));
   return (
     <RouteErrorBoundary
+      page="room"
       resetKey={attempt}
       onRetry={() =>
         setRoute((value) => ({ attempt: value.attempt + 1, RoomPage: createRoomPage() }))
@@ -71,6 +73,38 @@ export function RoomRoute() {
         }
       >
         <RoomPage />
+      </Suspense>
+    </RouteErrorBoundary>
+  );
+}
+
+function createReplayPage() {
+  return lazy(() =>
+    import('../pages/ReplayPage').then((module) => ({ default: module.ReplayPage })),
+  );
+}
+
+export function ReplayRoute() {
+  const [{ attempt, ReplayPage }, setRoute] = useState(() => ({
+    attempt: 0,
+    ReplayPage: createReplayPage(),
+  }));
+  return (
+    <RouteErrorBoundary
+      page="replay"
+      resetKey={attempt}
+      onRetry={() =>
+        setRoute((value) => ({ attempt: value.attempt + 1, ReplayPage: createReplayPage() }))
+      }
+    >
+      <Suspense
+        fallback={
+          <p className="py-16 text-sm text-muted" role="status">
+            Loading replay…
+          </p>
+        }
+      >
+        <ReplayPage />
       </Suspense>
     </RouteErrorBoundary>
   );

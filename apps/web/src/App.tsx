@@ -1,5 +1,5 @@
 import { Link, Route, Routes } from 'react-router';
-import { RoomRoute } from './app/route-error-boundary';
+import { ReplayRoute, RoomRoute } from './app/route-error-boundary';
 import { PageState } from './components/ui/page-state';
 import { HomePage } from './pages/HomePage';
 
@@ -34,6 +34,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/r/:slug" element={<RoomRoute />} />
+          <Route path="/replay/:broadcastId" element={<ReplayRoute />} />
           <Route
             path="*"
             element={

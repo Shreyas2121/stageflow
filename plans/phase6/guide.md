@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 through P6-C04 are committed; P6-A05 is unverified; P6-A08's browser half is open; P6-C05 and P6-C06 are planned.\
+**Status:** in progress. P6-C01 through P6-C05 are committed; P6-A05 remains unverified; P6-A06 is unverified; P6-A08's browser half remains open; P6-C06 is planned.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -212,7 +212,7 @@ A compiled-controller check used real guest JWT verification, PostgreSQL rows in
 
 **Status:** committed\
 **Proposed commit message:** `feat(web-broadcast): composite the stage and upload chunks in order`\
-**Actual commit:**
+**Actual commit:** `3c0d2dcec7ef488d598f6715e10834a52839cc57`
 
 **Why:** The host browser is the only media source. Covers P6-A08.
 
@@ -259,7 +259,7 @@ The search prints nothing. Recorder tests cover the 2×2 layout, the screen-shar
 
 ## 6. P6-C05 — Live player and replay
 
-**Status:** planned\
+**Status:** committed\
 **Proposed commit message:** `feat(web-broadcast): play the live playlist and the replay`\
 **Actual commit:**
 
@@ -272,7 +272,16 @@ The search prints nothing. Recorder tests cover the 2×2 layout, the screen-shar
 - `apps/web/package.json`
 - `pnpm-lock.yaml`
 - `apps/web/src/features/broadcast/components/broadcast-player.tsx`
+- `apps/web/src/features/broadcast/components/attendee-broadcast.tsx`
+- `apps/web/src/features/broadcast/services/playback.ts`
+- `apps/web/src/features/broadcast/services/playback.test.ts`
+- `apps/web/src/features/broadcast/services/boundaries.test.ts`
+- `apps/web/src/features/broadcast/api.ts`
+- `apps/web/src/features/broadcast/api.test.ts`
+- `apps/web/src/features/broadcast/query-options.ts`
 - `apps/web/src/pages/ReplayPage.tsx`
+- `apps/web/src/app/route-error-boundary.tsx`
+- `apps/web/src/app/entry-graph.test.ts`
 - `apps/web/src/App.tsx`
 - `apps/web/src/features/live/components/live-room.tsx`
 
@@ -308,7 +317,11 @@ Record any failed step. A still screenshot does not verify A05 or A06. If `ffmpe
 
 **Done when:** P6-A06 passes, the visible half of P6-A05 is recorded, and the slice is committed.
 
-**Handoff:** The product path works. The README still describes broadcast as unavailable.
+**Verification record (2026-11-02):** The player and replay route are committed. `hls.js` resolved from the npm `latest` tag to `1.7.4` and is pinned in `apps/web/package.json` and `pnpm-lock.yaml`. `pnpm --filter @stageflow/web test` passed (132 tests). Playback tests cover the live edge for `LIVE` and `STOPPING`, VOD for `READY`, a failure with no playlist, the missing-broadcast state, replay statuses other than a finished playlist, the guest bearer token on playlist and segment requests, standard HLS (`lowLatencyMode: false`), and a 401 clearing the guest session. `pnpm typecheck` and `pnpm lint` passed. A search of `apps/web/src/pages/HomePage.tsx` and `apps/web/src/main.tsx` for `hls` printed nothing (`rg` is not on `PATH`; the workspace search and `entry-graph.test.ts` were used). The production build keeps `/r/:slug` and `/replay/:broadcastId` as dynamic entries. The home entry chunk does not contain the `hls.js` library. Its HTML loads only `assets/index-BSOjE9_Y.js` and `assets/index-B1Pn0x9P.css`. The player chunk is `assets/broadcast-player-BQWSWoOn.js`, imported by the room and replay chunks. Headless Chrome 156 loaded the production preview: the home page made no request for that chunk and rendered no video; `/replay/:broadcastId` without a session showed the guest-session sentence and no video; a signed-in replay whose catalog could not be reached showed the reachability error and no video; an id that is not a UUID showed `No broadcast exists for that id.` and no video.
+
+**P6-A06 is unverified.** **P6-A05 remains unverified.** `ffmpeg` is absent from `PATH` (no `ffmpeg.exe` in the usual install locations). The two-window script was not run, so live playback, `#EXT-X-ENDLIST`, the visible failure sentence, the meeting refusal, and host leave during a healthy broadcast were not observed. A still screenshot was not used as a substitute. P6-A08's browser half remains open. No media artifacts are committed. The README still describes broadcast as unavailable.
+
+**Handoff:** Attendees and `/replay/:broadcastId` have a player. Live playback and the finished-playlist replay were not run. The README still describes broadcast as unavailable.
 
 ## 7. P6-C06 — README
 

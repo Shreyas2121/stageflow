@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
+import { AttendeeBroadcast } from '../../broadcast/components/attendee-broadcast';
 import { useRoomStore } from '../stores/room-store';
 import { useDemoPeers } from '../hooks/use-demo-peers';
 import { useLiveRoom } from '../hooks/use-live-room';
@@ -126,9 +127,7 @@ export function LiveRoom({
         )}
       </div>
       {live.phase === 'joined' && self?.role === 'ATTENDEE' && (
-        <section className="mt-5 text-sm text-muted" aria-label="Broadcast">
-          <p>The host has not started the broadcast.</p>
-        </section>
+        <AttendeeBroadcast broadcast={snapshot?.broadcast ?? null} token={session.token} />
       )}
       {live.error && (
         <p
