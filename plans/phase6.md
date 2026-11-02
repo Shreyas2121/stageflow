@@ -70,6 +70,8 @@ One broadcast at a time. `tryBeginBroadcast` sets `sf:room:{roomId}:broadcast` o
 
 The order is fixed. Insert the PostgreSQL row as `STARTING`, set the Redis key, then spawn FFmpeg. Spawn only after both of those exist. If the binary cannot start, set `FAILED`, store an error that names the missing binary, clear the Redis key, and emit the snapshot. Do not close peer connections.
 
+If inserting the row or reserving the key throws, do not spawn. A failed reservation deletes that row. A failure after the reservation stops the child, including when the `STOPPING` save or its publication fails, and then finalizes the attempt. Finalization saves one terminal status, clears only that attempt id, publishes, and drops the attempt. It retries a failed save, clear, or publish up to three times and keeps the remaining steps if they still fail. A later stop or the child-exit callback continues those steps. `clearBroadcast` still deletes the key only when the id matches, so a newer attempt stays reserved. Process shutdown still only closes stdin. The next owning startup marks leftover in-flight rows `FAILED`.
+
 The Redis key exists only while the status is `STARTING`, `LIVE`, or `STOPPING`. `clearBroadcast` deletes it. `READY` and `FAILED` do not keep it.
 
 `broadcast_not_available` keeps the sentence `Broadcast is not available yet.` Add `broadcast_active` and `ffmpeg_unavailable`. The missing-binary sentence is `FFmpeg is not available. The stage is still up.`
@@ -165,7 +167,7 @@ Segment files and the playlist stay inside `{dataRoot}/broadcasts/{broadcastId}/
 
 The API writes accepted chunk bytes to that process stdin, in order. It does not start a second FFmpeg for the same broadcast.
 
-Stop closes stdin, waits for process exit, then:
+Stop closes stdin and waits for process exit even when catalog notification failed. A child exit during that wait is finalized once. Then:
 
 - Exit code 0 and a playlist on disk become `READY`, clear the live key, and keep the files.
 - Anything else becomes `FAILED` with the captured stderr tail, capped at 2,000 characters.

@@ -110,6 +110,7 @@ function silenceErrors() {
 function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
   let active: string | null = null;
   let broadcast: RoomSnapshot['broadcast'] = null;
+  let onChildExit: ((action: () => Promise<void>) => void) | undefined;
   const control: BroadcastControl = {
     repository: {
       readBroadcast: vi.fn(async () => active),
@@ -130,6 +131,7 @@ function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
     service: {
       snapshot: vi.fn(async () => broadcast),
       start: vi.fn<BroadcastControl['service']['start']>(async (_room, _host, hooks) => {
+        onChildExit = hooks.onExit;
         await hooks.reserve('broadcast-id');
         broadcast = { id: 'broadcast-id', status: 'LIVE', playlistUrl: null, errorMessage: null };
         await hooks.publish();
@@ -142,7 +144,7 @@ function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
     },
   };
   const f = fixture(mode, undefined, undefined, undefined, control);
-  return { ...f, control };
+  return { ...f, control, onChildExit: () => onChildExit };
 }
 
 it('authorizes webinar broadcast commands from the stored socket role and rejects a second start before another row', async () => {
@@ -201,6 +203,61 @@ it('leaves the stage intact after a missing binary and stops the broadcast befor
   await f.service.leave(host, f.transport);
   expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('apply:leave'));
   expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('redis:delete'));
+});
+it('retries broadcast stop on host leave and does not delete the room while stop is failing', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = broadcastFixture();
+    const host = f.client('host');
+    const guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
+    vi.mocked(f.control.service.stopRoom).mockRejectedValueOnce(new Error('stop failed'));
+    f.events.length = 0;
+    expect(await f.service.leave(host, f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(f.control.service.stopRoom).toHaveBeenCalledTimes(1);
+    expect(f.live.deleteRoom).not.toHaveBeenCalled();
+    expect(f.live.apply).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ type: 'leave' }),
+    );
+    expect(host.room).toBeDefined();
+    expect(guest.room).toBeDefined();
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    // The failed leave stops once. The retry stops before presence deletion and again during shutdown.
+    expect(f.control.service.stopRoom).toHaveBeenCalledTimes(3);
+    expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('apply:leave'));
+    expect(f.events.indexOf('broadcast:stop')).toBeLessThan(f.events.indexOf('redis:delete'));
+    expect(host.room).toBeUndefined();
+    expect(guest.room).toBeUndefined();
+  } finally {
+    logger.mockRestore();
+  }
+});
+it('logs a failed broadcast exit callback without ending the room', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = broadcastFixture();
+    const host = f.client('host');
+    await f.join(host);
+    expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
+    const onChildExit = f.onChildExit();
+    expect(onChildExit).toBeTypeOf('function');
+    onChildExit!(async () => {
+      throw new Error('exit cleanup failed');
+    });
+    await vi.waitFor(() => expect(logger).toHaveBeenCalledWith('exit cleanup failed'));
+    expect(host.room).toBeDefined();
+    expect(f.live.deleteRoom).not.toHaveBeenCalled();
+    expect(f.transport.end).not.toHaveBeenCalled();
+  } finally {
+    logger.mockRestore();
+  }
 });
 it('promotes a webinar attendee through only the promote repository command', async () => {
   const f = fixture('WEBINAR');

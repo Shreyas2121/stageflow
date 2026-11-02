@@ -18,6 +18,8 @@ export type BroadcastHooks = {
   publish(): Promise<void>;
   onExit(action: () => Promise<void>): void;
 };
+const CLEANUP_ATTEMPTS = 3;
+type AttemptCleanup = { saved: boolean; cleared: boolean; published: boolean };
 type RunningBroadcast = {
   row: Broadcast;
   hostId: string;
@@ -25,6 +27,9 @@ type RunningBroadcast = {
   hooks: BroadcastHooks;
   starting: boolean;
   stopping: boolean;
+  outcome?: FfmpegExit;
+  terminal?: Pick<Broadcast, 'status' | 'endedAt' | 'playlistPath' | 'errorMessage'>;
+  cleanup?: AttemptCleanup;
   finishing?: Promise<void>;
 };
 
@@ -92,20 +97,32 @@ export class BroadcastsService {
 
   async start(roomId: string, hostId: string, hooks: BroadcastHooks): Promise<CommandAck> {
     if (this.closing) return failure('server_error');
-    const row = await this.broadcasts.save(
-      this.broadcasts.create({
-        roomId,
-        status: 'STARTING',
-        playlistPath: null,
-        thumbnailPath: null,
-        errorMessage: null,
-        startedAt: new Date(),
-        endedAt: null,
-      }),
-    );
-    if (!(await hooks.reserve(row.id))) {
-      await this.broadcasts.delete(row.id);
-      return failure('broadcast_active');
+    let row: Broadcast;
+    try {
+      row = await this.broadcasts.save(
+        this.broadcasts.create({
+          roomId,
+          status: 'STARTING',
+          playlistPath: null,
+          thumbnailPath: null,
+          errorMessage: null,
+          startedAt: new Date(),
+          endedAt: null,
+        }),
+      );
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : 'Broadcast row insert failed.');
+      return failure('server_error');
+    }
+    try {
+      if (!(await hooks.reserve(row.id))) {
+        await this.deleteRow(row.id);
+        return failure('broadcast_active');
+      }
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : 'Broadcast reservation failed.');
+      await this.deleteRow(row.id);
+      return failure('server_error');
     }
     this.remember(row);
     const entry: RunningBroadcast = {
@@ -118,7 +135,10 @@ export class BroadcastsService {
     };
     this.running.set(row.id, entry);
     void entry.supervisor.done.then((exit) => {
-      if (!entry.starting && !entry.stopping) hooks.onExit(() => this.finish(entry, exit));
+      // Start and stop own an in-flight exit. Shutdown sets stopping and leaves catalog recovery
+      // to the next process, so it must not finalize here either.
+      if (entry.starting || entry.stopping || entry.cleanup?.published || entry.finishing) return;
+      hooks.onExit(() => this.finish(entry, exit));
     });
     try {
       const directory = await prepareBroadcastDirectory(this.dataRoot, row.id);
@@ -135,20 +155,54 @@ export class BroadcastsService {
       }
       await hooks.publish();
     } catch (error) {
-      entry.supervisor.abort(error instanceof Error ? error.message : 'Broadcast start failed.');
-      await this.finish(entry, {
+      const message = error instanceof Error ? error.message : 'failed to start';
+      entry.supervisor.abort(`FFmpeg ${entry.supervisor.binary}: ${message}`.slice(-2000));
+      const outcome = entry.supervisor.outcome ?? {
         code: null,
         premature: true,
-        error: `FFmpeg ${entry.supervisor.binary}: ${error instanceof Error ? error.message : 'failed to start'}`,
-      });
+        error: `FFmpeg ${entry.supervisor.binary}: ${message}`.slice(-2000),
+      };
+      try {
+        await this.finish(entry, outcome);
+      } catch (cleanupError) {
+        this.logger.error(
+          cleanupError instanceof Error ? cleanupError.message : 'Broadcast cleanup failed.',
+        );
+        entry.hooks.onExit(() => this.finish(entry, entry.outcome ?? outcome));
+      }
+      entry.starting = false;
       return failure('ffmpeg_unavailable');
     }
     return { ok: true };
   }
 
+  private async deleteRow(id: string): Promise<void> {
+    for (let attempt = 0; attempt < CLEANUP_ATTEMPTS; attempt++) {
+      try {
+        await this.broadcasts.delete(id);
+        return;
+      } catch (error) {
+        if (attempt === CLEANUP_ATTEMPTS - 1) {
+          this.logger.error(
+            error instanceof Error ? error.message : 'Broadcast row delete failed.',
+          );
+        }
+      }
+    }
+  }
+
   private finish(entry: RunningBroadcast, exit: FfmpegExit): Promise<void> {
+    entry.outcome ??= exit;
     if (entry.finishing) return entry.finishing;
-    entry.finishing = (async () => {
+    entry.finishing = this.drain(entry).finally(() => {
+      if (!entry.cleanup?.published) entry.finishing = undefined;
+    });
+    return entry.finishing;
+  }
+
+  private async drain(entry: RunningBroadcast): Promise<void> {
+    const exit = entry.outcome!;
+    if (!entry.terminal) {
       let ready = false;
       if (!exit.premature && exit.code === 0) {
         try {
@@ -158,7 +212,7 @@ export class BroadcastsService {
           /* No playlist is a failure. */
         }
       }
-      Object.assign(entry.row, {
+      entry.terminal = {
         status: ready ? 'READY' : 'FAILED',
         endedAt: new Date(),
         playlistPath: ready ? `broadcasts/${entry.row.id}/index.m3u8` : null,
@@ -168,28 +222,70 @@ export class BroadcastsService {
               exit.error ||
               (exit.premature ? 'FFmpeg exited before stop.' : 'FFmpeg exited without a playlist.')
             ).slice(-2000),
-      });
-      await this.broadcasts.save(entry.row);
-      this.remember(entry.row);
-      await entry.hooks.clear(entry.row.id);
-      await entry.hooks.publish();
-      this.running.delete(entry.row.id);
-    })().catch((error: unknown) => {
-      entry.finishing = undefined;
-      throw error;
-    });
-    return entry.finishing;
+      };
+    }
+    const cleanup = (entry.cleanup ??= { saved: false, cleared: false, published: false });
+    let lastError: unknown;
+    for (let attempt = 0; attempt < CLEANUP_ATTEMPTS && !cleanup.published; attempt++) {
+      try {
+        if (!cleanup.saved) {
+          Object.assign(entry.row, entry.terminal);
+          await this.broadcasts.save(entry.row);
+          this.remember(entry.row);
+          cleanup.saved = true;
+        }
+        if (!cleanup.cleared) {
+          await entry.hooks.clear(entry.row.id);
+          cleanup.cleared = true;
+        }
+        if (!cleanup.published) {
+          await entry.hooks.publish();
+          cleanup.published = true;
+          this.running.delete(entry.row.id);
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!cleanup.published) {
+      throw lastError instanceof Error ? lastError : new Error('Broadcast cleanup failed.');
+    }
+  }
+
+  private async childOutcome(entry: RunningBroadcast): Promise<FfmpegExit> {
+    if (entry.outcome) return entry.outcome;
+    try {
+      return await entry.supervisor.stop();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'FFmpeg stop failed.';
+      entry.supervisor.abort(message);
+      return (
+        entry.supervisor.outcome ?? {
+          code: null,
+          premature: true,
+          error: message,
+        }
+      );
+    }
   }
 
   async stopRoom(roomId: string): Promise<void> {
     const entry = [...this.running.values()].find((value) => value.row.roomId === roomId);
     if (!entry) return;
     entry.stopping = true;
-    entry.row.status = 'STOPPING';
-    await this.broadcasts.save(entry.row);
-    this.remember(entry.row);
-    await entry.hooks.publish();
-    await this.finish(entry, await entry.supervisor.stop());
+    if (!entry.cleanup?.saved && entry.row.status !== 'READY' && entry.row.status !== 'FAILED') {
+      try {
+        entry.row.status = 'STOPPING';
+        await this.broadcasts.save(entry.row);
+        this.remember(entry.row);
+        await entry.hooks.publish();
+      } catch (error) {
+        this.logger.error(
+          error instanceof Error ? error.message : 'Broadcast stop notification failed.',
+        );
+      }
+    }
+    await this.finish(entry, await this.childOutcome(entry));
   }
 
   async upload(id: string, userId: string, sequence: number, bytes: Buffer): Promise<void> {
