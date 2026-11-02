@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 and P6-C02 are committed; P6-C03 is verified with P6-A05 unverified; P6-C04 through P6-C06 are planned.\
+**Status:** in progress. P6-C01 through P6-C04 are committed; P6-A05 is unverified; P6-A08's browser half is open; P6-C05 and P6-C06 are planned.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -147,9 +147,9 @@ Run the migration against the compose database before the browser slices.
 
 ## 4. P6-C03 — FFmpeg supervisor and HLS serving
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): supervise one FFmpeg process and serve HLS`\
-**Actual commit:**
+**Actual commit:** `0deb68578409c16d817ce5a7bddee35128a425ca`
 
 **Why:** The host command can produce a playlist, and a missing binary cannot take down the mesh. Covers P6-A03, P6-A04, and the file half of P6-A05.
 
@@ -210,7 +210,7 @@ A compiled-controller check used real guest JWT verification, PostgreSQL rows in
 
 ## 5. P6-C04 — Compositor and ordered upload
 
-**Status:** planned\
+**Status:** committed\
 **Proposed commit message:** `feat(web-broadcast): composite the stage and upload chunks in order`\
 **Actual commit:**
 
@@ -225,6 +225,8 @@ A compiled-controller check used real guest JWT verification, PostgreSQL rows in
 - `apps/web/src/features/broadcast/services/chunk-upload.ts`
 - `apps/web/src/features/broadcast/services/chunk-upload.test.ts`
 - `apps/web/src/features/live/components/room-controls.tsx`
+- `apps/web/src/features/live/components/live-room.tsx`
+- `apps/web/src/features/live/components/stage-grid.tsx`
 - `apps/web/src/features/live/services/room-session.ts`
 - `apps/web/src/features/live/services/room-session.test.ts`
 
@@ -248,6 +250,10 @@ rg -n "features/live" apps/web/src/features/broadcast
 The search prints nothing. Recorder tests cover the 2×2 layout, the screen-share layout, the eight-blob cap, in-order upload, and cleanup while a blob is unsent. The session test covers host leave reaching that cleanup.
 
 **Done when:** P6-A08's automated half passes and the slice is committed.
+
+**Verification record (2026-11-02):** P6-A08's automated half passed. `pnpm --filter @stageflow/web test` passed (119 tests). Recorder tests cover the 2×2 layout, the empty cell, both columns, a full-frame screen share, ordered uploads that wait for 204, the eight-blob cap, mix rebuild with disconnected nodes, and cleanup while a blob is unsent. The session test covers host leave reaching that cleanup while the camera and peer connections still stop. `pnpm typecheck` and `pnpm lint` passed. A search of `apps/web/src/features/broadcast` for `features/live` printed nothing (`rg` is not on `PATH`; the workspace search was used). No player was added. The attendee missing-broadcast sentence is unchanged.
+
+**P6-A08 browser half remains open:** this slice did not run a browser. Page unload, leave, and broadcast stop were checked in web tests only. P6-A05 remains unverified. No media artifacts are committed.
 
 **Handoff:** Chunks can reach FFmpeg. Nobody plays the playlist yet.
 

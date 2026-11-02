@@ -18,6 +18,7 @@ export function RoomControls({
   showHand,
   showShare,
   showBroadcast,
+  broadcasting,
   onStartBroadcast,
   onStopBroadcast,
   onToggleAudio,
@@ -45,6 +46,7 @@ export function RoomControls({
   showHand: boolean;
   showShare: boolean;
   showBroadcast: boolean;
+  broadcasting: boolean;
   onStartBroadcast: () => void;
   onStopBroadcast: () => void;
   onToggleAudio: () => void;
@@ -107,10 +109,20 @@ export function RoomControls({
       )}
       {showBroadcast && (
         <>
-          <Button type="button" disabled={mediaPending || leaving} onClick={onStartBroadcast}>
+          <Button
+            type="button"
+            id="start-broadcast"
+            disabled={mediaPending || leaving || broadcasting}
+            onClick={onStartBroadcast}
+          >
             Start broadcast
           </Button>
-          <Button type="button" disabled={mediaPending || leaving} onClick={onStopBroadcast}>
+          <Button
+            type="button"
+            id="stop-broadcast"
+            disabled={mediaPending || leaving || !broadcasting}
+            onClick={onStopBroadcast}
+          >
             Stop broadcast
           </Button>
         </>

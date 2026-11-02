@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
 import { useRoomStore } from '../stores/room-store';
 import { useDemoPeers } from '../hooks/use-demo-peers';
@@ -31,6 +32,12 @@ export function LiveRoom({
   const showPreview = showLobby && live.audience === 'stage';
   const audioMuted = self?.isAudioMuted ?? live.isAudioMuted;
   const videoOff = self?.isVideoOff ?? live.isVideoOff;
+  const onStageVideo = useCallback(
+    (socketId: string, element: HTMLVideoElement | null) => {
+      live.setStageVideo(socketId, element);
+    },
+    [live],
+  );
 
   return (
     <div className="mt-8 min-w-0 rounded-panel border border-line bg-surface p-5 layout:p-7">
@@ -56,6 +63,7 @@ export function LiveRoom({
           manager={live.peerManager}
           speakerId={live.speakerId}
           activeSocketId={live.activeSocketId}
+          onVideo={onStageVideo}
         />
       )}
       {self?.role === 'HOST' && onStage && snapshot && live.peerManager && (
@@ -149,6 +157,7 @@ export function LiveRoom({
         showHand={self?.role === 'ATTENDEE'}
         showShare={Boolean(inRoom && onStage && live.peerManager)}
         showBroadcast={live.phase === 'joined' && room.mode === 'WEBINAR' && self?.role === 'HOST'}
+        broadcasting={live.broadcastActive}
         onStartBroadcast={() => void live.startBroadcast()}
         onStopBroadcast={() => void live.stopBroadcast()}
         onToggleAudio={() => live.toggleAudio()}

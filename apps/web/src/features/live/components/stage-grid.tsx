@@ -34,6 +34,7 @@ export function StageGrid({
   manager,
   speakerId,
   activeSocketId,
+  onVideo,
 }: {
   snapshot: RoomSnapshot;
   selfSocketId: string;
@@ -42,6 +43,7 @@ export function StageGrid({
   manager: PeerManager;
   speakerId: string;
   activeSocketId: string | null;
+  onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
 }) {
   const stage = snapshot.stageSocketIds.flatMap((id) => {
     const participant = snapshot.participants.find((person) => person.socketId === id);
@@ -65,6 +67,7 @@ export function StageGrid({
           speakerId={speakerId}
           large={person.socketId === sharing}
           speaking={person.socketId === activeSocketId}
+          onVideo={onVideo}
         />
       ))}
     </div>
@@ -79,6 +82,7 @@ function StageTile({
   speakerId,
   large,
   speaking,
+  onVideo,
 }: {
   person: ParticipantState;
   local: boolean;
@@ -87,10 +91,16 @@ function StageTile({
   speakerId: string;
   large: boolean;
   speaking: boolean;
+  onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!onVideo) return;
+    onVideo(person.socketId, video.current);
+    return () => onVideo(person.socketId, null);
+  }, [onVideo, person.socketId]);
   useEffect(() => {
     const element = video.current;
     if (!element) return;

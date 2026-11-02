@@ -10,6 +10,7 @@ import type {
 } from '@stageflow/shared';
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
+import type { BroadcastRecorder } from '../../broadcast/services/stage-recorder';
 import { RoomSession, type RoomMedia } from './room-session';
 import { useRoomStore } from '../stores/room-store';
 import type { RoomConnection } from './signaling';
@@ -137,11 +138,20 @@ function fakeConnection() {
   };
 }
 
+function recorderFake() {
+  return { start: vi.fn(), update: vi.fn(), stop: vi.fn() };
+}
+
 function harness(options?: {
   room?: RoomResponse;
   userId?: string;
   onEnded?: () => void;
   createDemo?: DemoFactory;
+  createRecorder?: (options: {
+    broadcastId: string;
+    token: string;
+    onCap: () => void;
+  }) => BroadcastRecorder;
 }) {
   const media = new FakeMedia();
   const peers = fakePeers();
@@ -173,6 +183,7 @@ function harness(options?: {
       close: () => Promise.resolve(),
     }),
     enumerateDevices: () => Promise.resolve([]),
+    createRecorder: options?.createRecorder,
   });
   session.attach();
   return {
@@ -289,6 +300,136 @@ describe('RoomSession', () => {
       expect(h.connection.media).not.toHaveBeenCalled();
     },
   );
+
+  it('stops the stage recorder when the host leaves a live broadcast', async () => {
+    const recorder = recorderFake();
+    let seen: { broadcastId: string; token: string } | null = null;
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      createRecorder: (recorderOptions) => {
+        seen = recorderOptions;
+        return recorder;
+      },
+    });
+    await joinWebinarHost(h);
+    h.connection.startBroadcast.mockResolvedValueOnce({ ok: true });
+    await h.session.startBroadcast();
+    expect(recorder.start).not.toHaveBeenCalled();
+    const element = { readyState: 2 } as HTMLVideoElement;
+    h.session.setStageVideo('self', element);
+    useRoomStore.getState().receive({
+      ...snapshot('self', 'HOST', true, 2),
+      mode: 'WEBINAR',
+      broadcast: {
+        id: 'broadcast-1',
+        status: 'LIVE',
+        playlistUrl: '/api/broadcasts/broadcast-1/hls/index.m3u8',
+        errorMessage: null,
+      },
+    });
+    expect(recorder.start).toHaveBeenCalledOnce();
+    expect(seen).toEqual({
+      broadcastId: 'broadcast-1',
+      token: 'token',
+      onCap: expect.any(Function),
+    });
+    expect(recorder.update).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'self', video: element, muted: false, screenSharing: false }),
+    ]);
+    useRoomStore.getState().receive({
+      ...snapshot('self', 'HOST', true, 3),
+      mode: 'WEBINAR',
+      broadcast: {
+        id: 'broadcast-1',
+        status: 'LIVE',
+        playlistUrl: '/api/broadcasts/broadcast-1/hls/index.m3u8',
+        errorMessage: null,
+      },
+      participants: [{ ...person('self', 'HOST'), isAudioMuted: true }],
+    });
+    expect(recorder.update).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'self', video: element, muted: true, audioTrack: null }),
+    ]);
+    await h.session.leave();
+    expect(recorder.stop).toHaveBeenCalledOnce();
+    expect(h.media.stopped).toBe(1);
+    expect(h.peers.close).toHaveBeenCalled();
+    expect(h.connection.close).toHaveBeenCalled();
+    expect(h.session.phase).toBe('lobby');
+  });
+
+  it('calls broadcast stop when the recorder overflows', async () => {
+    const recorder = recorderFake();
+    const caps: Array<() => void> = [];
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      createRecorder: (recorderOptions) => {
+        caps.push(recorderOptions.onCap);
+        return recorder;
+      },
+    });
+    await joinWebinarHost(h);
+    h.connection.startBroadcast.mockImplementation(async () => {
+      useRoomStore.getState().receive({
+        ...snapshot('self', 'HOST', true, 2),
+        mode: 'WEBINAR',
+        broadcast: {
+          id: 'broadcast-1',
+          status: 'LIVE',
+          playlistUrl: null,
+          errorMessage: null,
+        },
+      });
+      return { ok: true };
+    });
+    await h.session.startBroadcast();
+    expect(recorder.start).toHaveBeenCalledOnce();
+    caps[0]?.();
+    expect(recorder.stop).toHaveBeenCalledOnce();
+    expect(h.connection.stopBroadcast).toHaveBeenCalledOnce();
+    expect(h.media.stopped).toBe(0);
+    expect(h.peers.close).not.toHaveBeenCalled();
+  });
+
+  it('stops the recorder on page unload without releasing the camera', async () => {
+    const listeners = new Map<string, EventListener>();
+    vi.stubGlobal('window', {
+      addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
+      removeEventListener: (type: string) => listeners.delete(type),
+    });
+    try {
+      const recorder = recorderFake();
+      const h = open({
+        room: webinar,
+        userId: 'host-user',
+        createRecorder: () => recorder,
+      });
+      await joinWebinarHost(h);
+      useRoomStore.getState().receive({
+        ...snapshot('self', 'HOST', true, 2),
+        mode: 'WEBINAR',
+        broadcast: {
+          id: 'broadcast-1',
+          status: 'LIVE',
+          playlistUrl: null,
+          errorMessage: null,
+        },
+      });
+      h.connection.startBroadcast.mockResolvedValue({ ok: true });
+      await h.session.startBroadcast();
+      expect(recorder.start).toHaveBeenCalledOnce();
+      listeners.get('pagehide')?.(new Event('pagehide'));
+      expect(recorder.stop).toHaveBeenCalledOnce();
+      expect(h.media.stopped).toBe(0);
+      expect(h.peers.close).not.toHaveBeenCalled();
+      expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+      h.session.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it('does not send broadcast commands from a meeting host or a webinar attendee', async () => {
     const meeting = open();
@@ -606,6 +747,16 @@ describe('RoomSession', () => {
     expect(h.session.phase).toBe('joined');
     expect(h.connection.close).not.toHaveBeenCalled();
   });
+
+  async function joinWebinarHost(h: ReturnType<typeof harness>) {
+    h.media.ready = true;
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive({ ...snapshot('self', 'HOST', true, 1), mode: 'WEBINAR' });
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await h.session.join();
+  }
 
   async function joinStage(
     session: RoomSession,

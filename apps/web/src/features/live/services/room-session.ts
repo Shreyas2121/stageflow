@@ -8,6 +8,11 @@ import type {
   RelayedDescription,
   RelayedIceCandidate,
 } from '@stageflow/shared';
+import {
+  StageRecorder,
+  type BroadcastRecorder,
+  type StageSource,
+} from '../../broadcast/services/stage-recorder';
 import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
 import { DemoRegistry, type DemoAudio, type DemoFactory } from './demo-registry';
@@ -59,6 +64,11 @@ export type RoomSessionOptions = {
   createDemo?: DemoFactory;
   createAudioContext?: () => DemoAudio;
   enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
+  createRecorder?: (options: {
+    broadcastId: string;
+    token: string;
+    onCap: () => void;
+  }) => BroadcastRecorder;
 };
 
 /**
@@ -88,9 +98,14 @@ export class RoomSession {
   private readonly enumerateDevices: () => Promise<MediaDeviceInfo[]>;
   private readonly speaker: RoomSpeaker;
   private readonly listeners = new Set<() => void>();
+  private readonly createRecorder: NonNullable<RoomSessionOptions['createRecorder']>;
 
   private connection: RoomConnection | null = null;
   private peers: PeerManager | null = null;
+  private recorder: BroadcastRecorder | null = null;
+  private recordingId: string | null = null;
+  private armedBroadcast = false;
+  private readonly stageVideos = new Map<string, HTMLVideoElement>();
   private unsubscribe: (() => void) | null = null;
   private attached = false;
   private generation = 0;
@@ -155,6 +170,7 @@ export class RoomSession {
         new PeerManager(media, connection, publish, onError));
     this.enumerateDevices =
       options.enumerateDevices ?? (() => navigator.mediaDevices.enumerateDevices());
+    this.createRecorder = options.createRecorder ?? ((recorder) => new StageRecorder(recorder));
     const publishSpeaker = (socketId: string | null) => {
       this.state.activeSocketId = socketId;
       this.emit();
@@ -179,6 +195,7 @@ export class RoomSession {
       onStage: () => this.state.onStage && this.state.phase === 'joined',
       setSharing: (sharing) => {
         this.state.sharing = sharing;
+        this.syncRecorder();
         this.emit();
       },
       setPending: (pending) => {
@@ -291,6 +308,16 @@ export class RoomSession {
   get audience(): 'attendee' | 'stage' {
     return audienceFor(this.state.role, this.catalogAttendee);
   }
+  get broadcastActive(): boolean {
+    const status = useRoomStore.getState().snapshot?.broadcast?.status;
+    return (
+      this.armedBroadcast ||
+      this.recorder !== null ||
+      status === 'STARTING' ||
+      status === 'LIVE' ||
+      status === 'STOPPING'
+    );
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -301,11 +328,13 @@ export class RoomSession {
     if (this.attached) return;
     this.attached = true;
     this.unsubscribe = useRoomStore.subscribe(() => this.syncFromStore());
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onPageHide);
   }
 
   dispose(): void {
     if (!this.attached) return;
     this.attached = false;
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onPageHide);
     this.teardownLocal();
     this.connection?.close();
     this.connection = null;
@@ -533,13 +562,27 @@ export class RoomSession {
   }
 
   startBroadcast(): Promise<void> {
-    if (this.room.mode !== 'WEBINAR') return Promise.resolve();
-    return this.moderate((active) => active.startBroadcast());
+    if (this.room.mode !== 'WEBINAR' || !this.canModerate()) return Promise.resolve();
+    return this.send(async (active) => {
+      const result = await active.startBroadcast();
+      if (result.ok && this.connection === active && this.state.phase === 'joined')
+        this.armRecorder();
+      return result;
+    });
   }
 
   stopBroadcast(): Promise<void> {
     if (this.room.mode !== 'WEBINAR') return Promise.resolve();
+    this.stopRecorder();
     return this.moderate((active) => active.stopBroadcast());
+  }
+
+  setStageVideo(socketId: string, element: HTMLVideoElement | null): void {
+    const current = this.stageVideos.get(socketId) ?? null;
+    if (current === element) return;
+    if (element) this.stageVideos.set(socketId, element);
+    else this.stageVideos.delete(socketId);
+    this.syncRecorder();
   }
 
   demote(targetSocketId: string): Promise<void> {
@@ -550,13 +593,16 @@ export class RoomSession {
     return this.moderate((active) => active.setLock({ targetSocketId, kind, locked }));
   }
 
+  private canModerate(): boolean {
+    return (
+      this.state.phase === 'joined' &&
+      this.selfParticipant()?.role === 'HOST' &&
+      !this.state.mediaPending
+    );
+  }
+
   private moderate(action: (active: RoomConnection) => Promise<CommandAck>): Promise<void> {
-    if (
-      this.state.phase !== 'joined' ||
-      this.selfParticipant()?.role !== 'HOST' ||
-      this.state.mediaPending
-    )
-      return Promise.resolve();
+    if (!this.canModerate()) return Promise.resolve();
     return this.send(action);
   }
 
@@ -622,6 +668,8 @@ export class RoomSession {
 
   /** Stops local work and keeps the socket for the caller to close. */
   private teardownLocal(): void {
+    this.stopRecorder();
+    this.stageVideos.clear();
     this.consentSignalingFailed = false;
     this.clearPendingStage();
     this.activationPending = false;
@@ -676,6 +724,7 @@ export class RoomSession {
     }
     this.applyLocalFlags();
     this.syncSpeaker();
+    this.syncRecorder();
     this.emit();
   }
 
@@ -730,6 +779,7 @@ export class RoomSession {
           (streams) => {
             this.state.streams = streams;
             this.syncSpeaker();
+            this.syncRecorder();
             this.emit();
           },
           (message) => {
@@ -827,5 +877,87 @@ export class RoomSession {
 
   private emit(): void {
     for (const listener of this.listeners) listener();
+  }
+
+  private readonly onPageHide = (): void => {
+    this.stopRecorder();
+  };
+
+  private armRecorder(): void {
+    this.armedBroadcast = true;
+    this.syncRecorder();
+  }
+
+  /** Chunks are accepted only while the broadcast is LIVE, which the start ack already waited for. */
+  private syncRecorder(): void {
+    const broadcast = useRoomStore.getState().snapshot?.broadcast ?? null;
+    if (this.recorder) {
+      const live =
+        this.state.phase === 'joined' &&
+        broadcast?.id === this.recordingId &&
+        broadcast.status === 'LIVE';
+      if (!live) {
+        this.stopRecorder();
+        return;
+      }
+      this.recorder.update(this.stageSources());
+      return;
+    }
+    if (!this.armedBroadcast || this.state.phase !== 'joined' || broadcast?.status !== 'LIVE')
+      return;
+    this.armedBroadcast = false;
+    this.recordingId = broadcast.id;
+    try {
+      const recorder = this.createRecorder({
+        broadcastId: broadcast.id,
+        token: this.token,
+        onCap: () => this.onRecorderCap(),
+      });
+      this.recorder = recorder;
+      recorder.start();
+      recorder.update(this.stageSources());
+    } catch {
+      this.recorder?.stop();
+      this.recorder = null;
+      this.recordingId = null;
+      const active = this.connection;
+      if (active && this.state.phase === 'joined')
+        void active.stopBroadcast().catch(() => undefined);
+    }
+  }
+
+  private onRecorderCap(): void {
+    void this.stopBroadcast();
+  }
+
+  private stopRecorder(): void {
+    this.armedBroadcast = false;
+    const recorder = this.recorder;
+    this.recorder = null;
+    this.recordingId = null;
+    recorder?.stop();
+  }
+
+  private stageSources(): StageSource[] {
+    const { snapshot, selfSocketId } = useRoomStore.getState();
+    if (!snapshot || !selfSocketId) return [];
+    const sources: StageSource[] = [];
+    for (const id of snapshot.stageSocketIds) {
+      const person = snapshot.participants.find((participant) => participant.socketId === id);
+      if (!person) continue;
+      const remote = this.state.streams.get(id)?.getAudioTracks()[0] ?? null;
+      sources.push({
+        id,
+        video: this.stageVideos.get(id) ?? null,
+        audioTrack: person.isAudioMuted
+          ? null
+          : id === selfSocketId
+            ? this.media.microphoneTrack()
+            : remote,
+        muted: person.isAudioMuted,
+        screenSharing: person.isScreenSharing || (id === selfSocketId && this.state.sharing),
+      });
+    }
+    return sources;
   }
 }
