@@ -1,6 +1,6 @@
 # Guide 6 — Phase 6, commit by commit
 
-**Status:** in progress. P6-C01 through P6-C06 are committed. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. The Phase 3 physical observations remain open.\
+**Status:** in progress. P6-C01 through P6-C06 are committed. The guide records the final slice hash. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. The Phase 3 physical observations remain open.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase6.md](../phase6.md).\
 **Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.8`.\
@@ -327,7 +327,7 @@ Record any failed step. A still screenshot does not verify A05 or A06. If `ffmpe
 
 **Status:** committed\
 **Proposed commit message:** `docs(readme): state the broadcast limits and the demo script`\
-**Actual commit:**
+**Actual commit:** `ad2a56bdc8e1bf49192112cd5ba2aa8c7cd09da4`
 
 **Why:** A reviewer can run Section 2.2 and see the limits without opening the plan. Covers P6-A07.
 

@@ -1,6 +1,6 @@
 # Phase 6 — Broadcast, replay, and the README
 
-**Status:** in progress. P6-C01 through P6-C06 are committed. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
+**Status:** in progress. P6-C01 through P6-C06 are committed. The guide records the final slice hash. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
 **Last updated:** 2026-11-02.\
 **Master plan:** `MASTER_PLAN.md` version `1.0.8`, Sections 1.4, 2.2, 6.3, 6.5, 7.2, 11, 12.2, 13, 14.5, 16 (Phase 6), and 18.\
 **Execution guide:** [phase6/guide.md](phase6/guide.md). That guide owns P6-C01 through P6-C06. This file owns the rules those commits must satisfy.\
