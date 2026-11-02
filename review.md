@@ -780,8 +780,8 @@ Headless Chrome checked the lobby at 320/720/721/1280px, disabled join before ca
 
 ### C13 — `perf(api-live): update only changed Redis records and cache Lua scripts`
 
-**Status:** verified; awaiting the local commit.\
-**Actual commit:**
+**Status:** committed.\
+**Actual commit:** `497b2c2c6ab7bb6d857ec225be9b8c18a35bf75d`
 
 **Depends on:** C05. **Addresses:** F09/F10 script discipline.
 
