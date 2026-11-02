@@ -109,6 +109,8 @@ export class RoomSession {
   private readonly stageVideos = new Map<string, HTMLVideoElement>();
   private unsubscribe: (() => void) | null = null;
   private attached = false;
+  private pageHidden = false;
+  private locallyTornDown = false;
   private generation = 0;
   private prepareToken = 0;
   private settled: StageMembership | null = null;
@@ -329,25 +331,31 @@ export class RoomSession {
     if (this.attached) return;
     this.attached = true;
     this.unsubscribe = useRoomStore.subscribe(() => this.syncFromStore());
-    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onPageHide);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', this.onPageHide);
+      window.addEventListener('pageshow', this.onPageShow);
+    }
   }
 
   dispose(): void {
     if (!this.attached) return;
     this.attached = false;
-    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onPageHide);
-    this.teardownLocal();
-    this.connection?.close();
-    this.connection = null;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', this.onPageHide);
+      window.removeEventListener('pageshow', this.onPageShow);
+    }
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.closeSession();
     this.state.phase = 'lobby';
     this.emit();
   }
 
   async prepare(video: HTMLVideoElement, nextChoices = this.state.choices): Promise<void> {
+    if (this.pageHidden) return;
     if (this.catalogAttendee && !this.state.needsCaptureConsent) return;
     if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
+    this.locallyTornDown = false;
     const token = ++this.prepareToken;
     const generation = this.generation;
     const promoted = this.state.phase === 'joined' && this.state.needsCaptureConsent;
@@ -445,6 +453,7 @@ export class RoomSession {
   }
 
   async join(): Promise<void> {
+    if (this.pageHidden) return;
     if (this.state.phase !== 'lobby' || this.state.preparing) return;
     if (!this.catalogAttendee && !this.media.ready) {
       this.state.ready = false;
@@ -453,6 +462,7 @@ export class RoomSession {
       return;
     }
     const generation = this.generation;
+    this.locallyTornDown = false;
     this.state.phase = 'joining';
     this.state.error = '';
     this.emit();
@@ -510,6 +520,7 @@ export class RoomSession {
     this.state.phase = 'leaving';
     this.state.error = '';
     this.teardownLocal();
+    const generation = this.generation;
     this.emit();
     try {
       if (active) {
@@ -523,7 +534,8 @@ export class RoomSession {
         active?.close();
         this.connection = null;
       }
-      if (this.attached) this.state.phase = 'lobby';
+      if (this.attached && generation === this.generation && this.state.phase === 'leaving')
+        this.state.phase = 'lobby';
       this.emit();
     }
   }
@@ -681,6 +693,8 @@ export class RoomSession {
 
   /** Stops local work and keeps the socket for the caller to close. */
   private teardownLocal(): void {
+    if (this.locallyTornDown) return;
+    this.locallyTornDown = true;
     this.stopRecorder();
     this.stageVideos.clear();
     this.consentSignalingFailed = false;
@@ -715,6 +729,7 @@ export class RoomSession {
   }
 
   private syncFromStore(): void {
+    if (this.pageHidden || !this.connection) return;
     const { selfSocketId, snapshot, iceServers } = useRoomStore.getState();
     if (snapshot && snapshot.revision > this.forceRevision) {
       this.forcedAudio = this.forcedVideo = false;
@@ -893,8 +908,28 @@ export class RoomSession {
   }
 
   private readonly onPageHide = (): void => {
-    this.stopRecorder();
+    if (this.pageHidden) return;
+    this.pageHidden = true;
+    // No unload acknowledgements or uploads: server disconnect/producer loss owns finalization.
+    this.closeSession();
+    this.state.phase = 'lobby';
+    this.emit();
   };
+
+  private readonly onPageShow = (): void => {
+    if (!this.pageHidden) return;
+    this.pageHidden = false;
+    this.state.error = 'You left the live room when this page was hidden. Join again.';
+    this.emit();
+  };
+
+  /** Clear ownership before closing so synchronous callbacks cannot restore old state. */
+  private closeSession(): void {
+    const active = this.connection;
+    this.connection = null;
+    this.teardownLocal();
+    active?.close();
+  }
 
   private armRecorder(): void {
     this.armedBroadcast = true;
