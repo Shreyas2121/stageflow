@@ -22,6 +22,18 @@ export function expiresAt(token: string): number | null {
   }
   return null;
 }
+
+/** Local exp check only. A token without exp stays usable; the server still verifies it. */
+export function usableSession(
+  session: GuestSessionResponse | null,
+  now = Date.now(),
+): GuestSessionResponse | null {
+  if (!session) return null;
+  const expiry = expiresAt(session.token);
+  if (expiry !== null && expiry <= now) return null;
+  return session;
+}
+
 function persist(session: GuestSessionResponse | null): void {
   try {
     if (session) sessionStorage.setItem(storageKey, JSON.stringify(session));
@@ -34,8 +46,8 @@ export function readStoredSession(): GuestSessionResponse | null {
   try {
     const raw = sessionStorage.getItem(storageKey);
     if (raw === null) return null;
-    const session = parseGuest(JSON.parse(raw));
-    if ((expiresAt(session.token) ?? Infinity) > Date.now()) return session;
+    const session = usableSession(parseGuest(JSON.parse(raw)));
+    if (session) return session;
   } catch {
     /* Invalid or unavailable storage starts a fresh name flow. */
   }
@@ -50,7 +62,7 @@ type SessionStore = {
 export const useSessionStore = create<SessionStore>((set, get) => ({
   session: readStoredSession(),
   setSession: (session) => {
-    const next = (expiresAt(session.token) ?? Infinity) > Date.now() ? session : null;
+    const next = usableSession(session);
     persist(next);
     set({ session: next });
   },
