@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01 through V2P2-C04 are committed. V2P2-C04's two-window browser pass is unverified. V2P2-C05 is verified. Its playback browser pass is unverified. V2P2-C06 remains planned.\
+**Status:** V2P2-C01 through V2P2-C05 are committed. V2P2-C04's two-window browser pass and V2P2-C05's playback browser pass are unverified. V2P2-C06 is verified.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -213,9 +213,9 @@ If no browser is available, leave this pass unverified. A synthetic device does 
 
 ## 6. V2P2-C05 — Speaker output for later playback
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-playback): route the selected speaker through playback`\
-**Actual commit:**
+**Actual commit:** `a1014dfb889483215c5e4cfcfe2ec65b83a3c65a`
 
 **Why:** The speaker choice is local to the stage tiles. Attendee and replay playback, and a tile created after the choice, need the same id. Covers MEDIA-04.
 
@@ -267,7 +267,7 @@ If no browser is available, leave this pass unverified.
 
 ## 7. V2P2-C06 — README
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `docs(readme): state the in-call device limits`\
 **Actual commit:**
 
@@ -294,6 +294,8 @@ If no browser is available, leave this pass unverified.
 **Verification:**
 
 Read the edited README against phase Section 5. `pnpm exec prettier --check README.md plans/phase2.md plans/phase2/guide.md plans/README.md` passes.
+
+**Verification result:** On 2026-11-03 the README was read against phase Section 5. Prettier check of the four documentation files passed. The two-window and playback browser passes were not run. P3-A03, P3-A05, and P3-A06 stay open. V2 Phase 1 browser checks and the WS-03 smoke stay unverified.
 
 **Done when:** The README matches the shipped device behavior and this guide names every slice hash.
 

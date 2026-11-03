@@ -1,6 +1,6 @@
 # V2 Phase 2 — In-call devices
 
-**Status:** V2P2-C05 speaker routing is verified. Its playback browser pass is unverified. The two-window browser pass for MEDIA-01 through MEDIA-03 is unverified.\
+**Status:** V2P2-C01 through V2P2-C05 are committed. V2P2-C06 is verified. The two-window browser pass for MEDIA-01 through MEDIA-03 and the playback pass for MEDIA-04 are unverified.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
@@ -139,14 +139,14 @@ The four-person mesh, Perfect Negotiation, demo peers, host locks, screen share,
 
 ## 6. Acceptance matrix
 
-| ID       | Observable result                                                                                                                                                                                                                            | Method                                                                                       | Status  |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ------- |
-| MEDIA-01 | With two current peers, a camera change and a microphone change each call `replaceTrack` and do not change the peer count or transceiver count. The replaced track is stopped. A remote stream still has one audio track and one video track | `peer-manager` and `room-session` tests, then a two-window browser check                     | planned |
-| MEDIA-02 | A muted or host-locked replacement is disabled before `replaceTrack`. A camera id chosen during screen share is the track restored when the share stops, and the screen sender is not replaced by that camera                                | Service tests. Native picker observation stays P3-A05 unless it is actually repeated         | planned |
-| MEDIA-03 | Acquisition failure keeps the previous live tracks. Leave and demotion during acquisition stop the late track and do not attach it. An ended microphone mutes and stays joined. No second device is opened                                   | `local-media` and `room-session` tests. Physical unplug stays unverified unless observed     | planned |
-| MEDIA-04 | A speaker id chosen before a playback element exists is applied when that element is created. Unsupported output shows the default-speaker sentence. The recording mix receives the replaced microphone track                                | Output tests and a browser playback check. Human audible proof stays unverified unless heard | planned |
+| ID       | Observable result                                                                                                                                                                                                                            | Method                                                                                       | Status                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------- |
+| MEDIA-01 | With two current peers, a camera change and a microphone change each call `replaceTrack` and do not change the peer count or transceiver count. The replaced track is stopped. A remote stream still has one audio track and one video track | `peer-manager` and `room-session` tests, then a two-window browser check                     | tests passed; browser unverified        |
+| MEDIA-02 | A muted or host-locked replacement is disabled before `replaceTrack`. A camera id chosen during screen share is the track restored when the share stops, and the screen sender is not replaced by that camera                                | Service tests. Native picker observation stays P3-A05 unless it is actually repeated         | tests passed; P3-A05 open               |
+| MEDIA-03 | Acquisition failure keeps the previous live tracks. Leave and demotion during acquisition stop the late track and do not attach it. An ended microphone mutes and stays joined. No second device is opened                                   | `local-media` and `room-session` tests. Physical unplug stays unverified unless observed     | tests passed; unplug unverified         |
+| MEDIA-04 | A speaker id chosen before a playback element exists is applied when that element is created. Unsupported output shows the default-speaker sentence. The recording mix receives the replaced microphone track                                | Output tests and a browser playback check. Human audible proof stays unverified unless heard | output tests passed; browser unverified |
 
-A missing browser, disposable FFmpeg run, physical device, or native picker leaves only that method unverified. On 2026-11-03 the V2P2-C04 web tests passed. The two-window browser script was not run, so that half of MEDIA-01 through MEDIA-03 stays unverified. On 2026-11-03 the V2P2-C05 output tests passed. The playback browser script was not run, so that half of MEDIA-04 stays unverified. Human audible confirmation was not made. P3-A03, P3-A05, and P3-A06 stay open.
+A missing browser, disposable FFmpeg run, physical device, or native picker leaves only that method unverified. On 2026-11-03 the V2P2-C04 web tests passed. The two-window browser script was not run, so that half of MEDIA-01 through MEDIA-03 stays unverified. On 2026-11-03 the V2P2-C05 output tests passed. The playback browser script was not run, so that half of MEDIA-04 stays unverified. Human audible confirmation was not made. The README states the shipped device limits. P3-A03, P3-A05, and P3-A06 stay open. V2 Phase 1 browser checks and the WS-03 smoke stay unverified.
 
 ## 7. Verification commands
 
@@ -178,6 +178,8 @@ The two-window check uses the local web app and API. Synthetic devices are enoug
 ## 9. Exit and handoff
 
 V2-P2 is done when MEDIA-01 through MEDIA-04 have a result, each slice is committed under V1 master Section 1.4, and the README describes on-stage device changes, lock behavior, screen-share restore, device loss, and the speaker fallback. Unverified browser, physical, and native-picker checks stay named. P3-A03, P3-A05, P3-A06, and the V2-P1 browser and smoke gaps stay open.
+
+On 2026-11-03 the README states those limits. V2P2-C01 through V2P2-C05 are committed. V2P2-C06 is verified in the documentation slice. The two-window and playback browser passes were not run.
 
 V2-P3 may rely on local capture stopping when the session generation advances, and on one audio sender and one video sender per peer. It may not rely on reconnect. The replacement cancel used by leave and demotion is the cancel V2-P3 must call when a member is suspended. Do not implement suspension in this phase.
 
