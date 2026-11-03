@@ -1,6 +1,6 @@
 # Guide — V2 Phase 1, commit by commit
 
-**Status:** V2P1-C01, V2P1-C02, and V2P1-C03 are committed. V2P1-C04 is verified. V2P1-C05 remains planned.\
+**Status:** V2P1-C01, V2P1-C02, V2P1-C03, and V2P1-C04 are committed. V2P1-C05 is verified.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.2`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -177,9 +177,9 @@ Run `pnpm smoke:broadcast` when disposable Postgres, Redis, and FFmpeg are avail
 
 ## 5. V2P1-C04 — Workspace on the home page
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-home): show this guest's rooms and recordings`\
-**Actual commit:**
+**Actual commit:** `a7a858fb57c940a389ef733746699e164ccb30b8`
 
 **Why:** The guest can now see and use the catalog without entering the live room. Covers the browser half of WS-01 through WS-03.
 
@@ -234,7 +234,7 @@ If no browser is available, leave those observations unverified and keep the aut
 
 ## 6. V2P1-C05 — README
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `docs(readme): describe the guest room workspace`\
 **Actual commit:**
 
