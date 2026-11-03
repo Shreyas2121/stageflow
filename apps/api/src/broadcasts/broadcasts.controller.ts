@@ -10,13 +10,14 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import type { BroadcastResponse } from '@stageflow/shared';
 import type { NextFunction, Response } from 'express';
 import { JwtAuthGuard } from '../sessions/jwt-auth.guard';
 import { CurrentUser } from '../sessions/current-user.decorator';
 import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
 import { hlsHeaders } from './hls-path';
-import { BroadcastsService, type BroadcastCatalog } from './broadcasts.service';
+import { BroadcastsService } from './broadcasts.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -24,12 +25,12 @@ export class BroadcastsController {
   constructor(private readonly broadcasts: BroadcastsService) {}
 
   @Get('rooms/:slug/broadcasts')
-  list(@Param('slug') slug: string): Promise<BroadcastCatalog[]> {
+  list(@Param('slug') slug: string): Promise<BroadcastResponse[]> {
     return this.broadcasts.listByRoomSlug(slug);
   }
 
   @Get('broadcasts/:id')
-  get(@Param('id') id: string): Promise<BroadcastCatalog> {
+  get(@Param('id') id: string): Promise<BroadcastResponse> {
     return this.broadcasts.getById(id);
   }
 

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { type FindOperator, type Repository } from 'typeorm';
-import type { BroadcastStatus } from '@stageflow/shared';
+import { parseBroadcast, type BroadcastStatus } from '@stageflow/shared';
 import type { RoomsService } from '../rooms/rooms.service';
 import { ApiException } from '../http/api.exception';
 import { LiveConnection, type LiveRedisClient } from '../live/live.connection';
@@ -112,25 +112,39 @@ it('lists only the requested room, newest first, and returns serialized catalog 
     where: { roomId: ready.roomId },
     order: { createdAt: 'DESC', id: 'DESC' },
   });
-  expect(result).toEqual([
-    {
-      ...ready,
-      playlistUrl: `/api/broadcasts/${ready.id}/hls/index.m3u8`,
-      startedAt: ready.startedAt.toISOString(),
-      endedAt: ready.endedAt?.toISOString(),
-      createdAt: ready.createdAt.toISOString(),
-    },
-  ]);
+  const catalog = {
+    id: ready.id,
+    roomId: ready.roomId,
+    status: 'READY' as const,
+    playlistUrl: `/api/broadcasts/${ready.id}/hls/index.m3u8`,
+    errorMessage: null,
+    startedAt: ready.startedAt.toISOString(),
+    endedAt: ready.endedAt?.toISOString() ?? null,
+    createdAt: ready.createdAt.toISOString(),
+  };
+  expect(result).toEqual([catalog]);
+  expect(result[0]).not.toHaveProperty('playlistPath');
+  expect(result[0]).not.toHaveProperty('thumbnailPath');
+  expect(JSON.stringify(result)).not.toContain('broadcasts/ready');
+  expect(parseBroadcast(result[0])).toEqual(result[0]);
 });
 
 it('returns one broadcast and rejects malformed or unknown ids and unknown rooms', async () => {
   const live = row('LIVE');
   const { service, repository, rooms } = fixture([live]);
-  expect(await service.getById(live.id)).toMatchObject({
+  const liveCatalog = await service.getById(live.id);
+  expect(liveCatalog).toEqual({
     id: live.id,
+    roomId: live.roomId,
     status: 'LIVE',
+    playlistUrl: null,
+    errorMessage: null,
+    startedAt: live.startedAt.toISOString(),
     endedAt: null,
+    createdAt: live.createdAt.toISOString(),
   });
+  expect(parseBroadcast(liveCatalog)).toEqual(liveCatalog);
+  expect(liveCatalog).not.toHaveProperty('playlistPath');
   repository.findOneBy.mockClear();
   await expect(service.getById('invalid')).rejects.toMatchObject({ response: { statusCode: 404 } });
   expect(repository.findOneBy).not.toHaveBeenCalled();

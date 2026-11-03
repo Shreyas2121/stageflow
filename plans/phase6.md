@@ -90,7 +90,7 @@ One row per attempt. Add it with a TypeORM migration. `synchronize` stays off.
 | `errorMessage`         | Null unless `FAILED`. The FFmpeg stderr tail is capped at 2,000 characters |
 | `startedAt`, `endedAt` | Set by the server                                                          |
 
-`GET /api/rooms/:slug/broadcasts` lists that room's rows for a logged-in caller. `GET /api/broadcasts/:id` returns one row. Media bytes are not stored in PostgreSQL.
+`GET /api/rooms/:slug/broadcasts` lists that room's public catalog objects for a logged-in caller. `GET /api/broadcasts/:id` returns one public catalog object: `id`, `roomId`, `status`, `playlistUrl`, `errorMessage`, `startedAt`, `endedAt`, and `createdAt`. `playlistUrl` is `/api/broadcasts/:id/hls/index.m3u8` while a playlist exists, otherwise null. `playlistPath` and `thumbnailPath` stay on the stored row and are omitted from this JSON. The guest bearer token is sent only with that same-origin playlist and its segment files (`segment` plus at least six digits, then `.ts`). Absolute and cross-origin media URLs are outside this contract and must not receive the token. Media bytes are not stored in PostgreSQL.
 
 The room snapshot's `broadcast` field becomes the master Section 7.2 object or null. It carries the in-flight attempt, or the newest attempt when none is in flight, so a `FAILED` or `READY` result is visible. It does not carry the thumbnail. Null remains the value before the first attempt.
 

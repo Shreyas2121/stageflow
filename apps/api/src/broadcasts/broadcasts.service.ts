@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { acceptChunk, isUuid, type CommandAck, type RoomSnapshot } from '@stageflow/shared';
+import {
+  acceptChunk,
+  broadcastPlaylistUrl,
+  isUuid,
+  type BroadcastResponse,
+  type CommandAck,
+  type RoomSnapshot,
+} from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { In, Repository } from 'typeorm';
@@ -34,19 +41,12 @@ type RunningBroadcast = {
   finishing?: Promise<void>;
 };
 
-export type BroadcastCatalog = Pick<
-  Broadcast,
-  'id' | 'roomId' | 'status' | 'playlistPath' | 'thumbnailPath' | 'errorMessage'
-> & { startedAt: string; endedAt: string | null; createdAt: string; playlistUrl: string | null };
-
-function catalog(row: Broadcast): BroadcastCatalog {
+function catalog(row: Broadcast): BroadcastResponse {
   return {
     id: row.id,
     roomId: row.roomId,
     status: row.status,
-    playlistPath: row.playlistPath,
-    playlistUrl: row.playlistPath ? `/api/broadcasts/${row.id}/hls/index.m3u8` : null,
-    thumbnailPath: row.thumbnailPath,
+    playlistUrl: row.playlistPath ? broadcastPlaylistUrl(row.id) : null,
     errorMessage: row.errorMessage,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
@@ -363,7 +363,7 @@ export class BroadcastsService {
     );
   }
 
-  async listByRoomSlug(slug: string): Promise<BroadcastCatalog[]> {
+  async listByRoomSlug(slug: string): Promise<BroadcastResponse[]> {
     const room = await this.rooms.getBySlug(slug);
     const rows = await this.broadcasts.find({
       where: { roomId: room.id },
@@ -372,7 +372,7 @@ export class BroadcastsService {
     return rows.map(catalog);
   }
 
-  async getById(id: string): Promise<BroadcastCatalog> {
+  async getById(id: string): Promise<BroadcastResponse> {
     const notFound = new ApiException(
       404,
       'broadcast_not_found',

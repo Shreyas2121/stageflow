@@ -14,13 +14,14 @@ export function BroadcastPlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const source = broadcastMediaUrl(playlistUrl, apiUrl());
+  const apiBase = apiUrl();
+  const source = broadcastMediaUrl(playlistUrl, apiBase);
   const supported = Hls.isSupported();
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !supported) return;
-    const hls = new Hls(hlsPlayerConfig(token, mode));
+    if (!video || !supported || !source) return;
+    const hls = new Hls(hlsPlayerConfig(token, mode, apiBase));
     let active = true;
     let closed = false;
     const close = () => {
@@ -49,15 +50,17 @@ export function BroadcastPlayer({
       active = false;
       close();
     };
-  }, [mode, source, supported, token]);
+  }, [apiBase, mode, source, supported, token]);
 
-  if (!supported) {
+  if (!supported || !source) {
     return (
       <p
         className="mt-3 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
         role="alert"
       >
-        This browser cannot play the broadcast.
+        {supported
+          ? 'The broadcast could not be played.'
+          : 'This browser cannot play the broadcast.'}
       </p>
     );
   }

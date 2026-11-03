@@ -1,4 +1,9 @@
-import type { BroadcastStatus, RoomSnapshot } from '@stageflow/shared';
+import {
+  isBroadcastPlaylistUrl,
+  resolveBroadcastMediaUrl,
+  type BroadcastStatus,
+  type RoomSnapshot,
+} from '@stageflow/shared';
 import { useSessionStore } from '../../session/session-store';
 
 export type AttendeePlayback =
@@ -48,17 +53,23 @@ export function replayPlayback(broadcast: {
 
 /**
  * Catalog playlist paths start with `/api`. `apiBase` already ends in `/api`, so join at the origin.
+ * An absolute or cross-origin URL is not loaded: the player would otherwise send the guest token.
  */
-export function broadcastMediaUrl(playlistUrl: string, apiBase: string): string {
-  if (/^https?:\/\//i.test(playlistUrl)) return playlistUrl;
-  return new URL(playlistUrl, new URL(apiBase).origin).href;
+export function broadcastMediaUrl(playlistUrl: string, apiBase: string): string | null {
+  const resolved = resolveBroadcastMediaUrl(playlistUrl, apiBase);
+  if (!resolved) return null;
+  try {
+    return isBroadcastPlaylistUrl(new URL(resolved).pathname) ? resolved : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Standard HLS, not low-latency HLS. Live manifest retries cover the first segment
  * inside the expected 8–20 second delay. `-1` starts at the live edge, or at the start of VOD.
  */
-export function hlsPlayerConfig(token: string, mode: 'live' | 'vod') {
+export function hlsPlayerConfig(token: string, mode: 'live' | 'vod', apiBase: string) {
   return {
     lowLatencyMode: false as const,
     startPosition: -1,
@@ -81,12 +92,14 @@ export function hlsPlayerConfig(token: string, mode: 'live' | 'vod') {
           },
         }
       : {}),
-    xhrSetup(xhr: XMLHttpRequest) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhrSetup(xhr: XMLHttpRequest, url: string) {
+      if (resolveBroadcastMediaUrl(url, apiBase))
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     },
     fetchSetup(context: { url: string }, initParams: RequestInit) {
       const headers = new Headers(initParams.headers);
-      headers.set('Authorization', `Bearer ${token}`);
+      if (resolveBroadcastMediaUrl(context.url, apiBase))
+        headers.set('Authorization', `Bearer ${token}`);
       return new Request(context.url, { ...initParams, headers });
     },
   };

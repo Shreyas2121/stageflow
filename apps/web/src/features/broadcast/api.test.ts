@@ -38,11 +38,27 @@ describe('broadcast catalog', () => {
     expect(parseBroadcast(catalog())).not.toHaveProperty('playlistPath');
   });
 
+  it('accepts the public object without stored paths', () => {
+    const { playlistPath, thumbnailPath, ...body } = catalog();
+    expect(playlistPath).toBe(`broadcasts/${id}/index.m3u8`);
+    expect(thumbnailPath).toBeNull();
+    expect(parseBroadcast(body)).toEqual(body);
+    expect(
+      parseBroadcast(catalog({ playlistUrl: null, status: 'STARTING', endedAt: null })),
+    ).toEqual(expect.objectContaining({ playlistUrl: null, status: 'STARTING', endedAt: null }));
+  });
+
   it('rejects a catalog that cannot identify a playlist', () => {
     expect(() => parseBroadcast(catalog({ playlistUrl: 'not a path' }))).toThrow(
       'Invalid broadcast',
     );
+    expect(() => parseBroadcast(catalog({ playlistUrl: 'https://cdn.example/live.m3u8' }))).toThrow(
+      'Invalid broadcast',
+    );
     expect(() => parseBroadcast(catalog({ status: 'DONE' }))).toThrow('Invalid broadcast');
+    expect(() => parseBroadcast(catalog({ startedAt: '2026-02-31T00:00:00.000Z' }))).toThrow(
+      'Invalid broadcast',
+    );
   });
 
   it('loads one broadcast with the guest token and clears the session on 401', async () => {

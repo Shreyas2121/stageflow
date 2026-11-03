@@ -93,18 +93,28 @@ describe('playlist requests', () => {
     vi.restoreAllMocks();
   });
 
-  it('joins a catalog path at the API origin and leaves an absolute URL unchanged', () => {
-    expect(broadcastMediaUrl(playlist, 'http://127.0.0.1:3000/api')).toBe(
-      'http://127.0.0.1:3000/api/broadcasts/broadcast-1/hls/index.m3u8',
+  it('joins a catalog playlist at the API origin and rejects an absolute URL', () => {
+    const mediaId = '11111111-1111-4111-8111-111111111111';
+    const mediaPath = `/api/broadcasts/${mediaId}/hls/index.m3u8`;
+    expect(broadcastMediaUrl(mediaPath, 'http://127.0.0.1:3000/api')).toBe(
+      `http://127.0.0.1:3000${mediaPath}`,
     );
     expect(broadcastMediaUrl('https://cdn.example/live.m3u8', 'http://127.0.0.1:3000/api')).toBe(
-      'https://cdn.example/live.m3u8',
+      null,
     );
+    expect(
+      broadcastMediaUrl(
+        `/api/broadcasts/${mediaId}/hls/segment000001.ts`,
+        'http://127.0.0.1:3000/api',
+      ),
+    ).toBeNull();
   });
 
-  it('attaches the guest bearer token and stays on standard live HLS', () => {
-    const live = hlsPlayerConfig('guest-token', 'live');
-    const vod = hlsPlayerConfig('guest-token', 'vod');
+  it('attaches the guest bearer token only to same-origin media and stays on standard live HLS', () => {
+    const apiBase = 'http://127.0.0.1:3000/api';
+    const mediaId = '11111111-1111-4111-8111-111111111111';
+    const live = hlsPlayerConfig('guest-token', 'live', apiBase);
+    const vod = hlsPlayerConfig('guest-token', 'vod', apiBase);
     expect(live.lowLatencyMode).toBe(false);
     expect(vod.lowLatencyMode).toBe(false);
     expect(live.startPosition).toBe(-1);
@@ -117,20 +127,34 @@ describe('playlist requests', () => {
     expect((retry?.maxNumRetry ?? 0) * (retry?.retryDelayMs ?? 0)).toBeGreaterThanOrEqual(6_000);
 
     const headers: Record<string, string> = {};
-    live.xhrSetup?.({
+    const xhr = {
       setRequestHeader: (name: string, value: string) => {
         headers[name] = value;
       },
-    } as XMLHttpRequest);
+    } as XMLHttpRequest;
+    live.xhrSetup?.(xhr, `http://127.0.0.1:3000/api/broadcasts/${mediaId}/hls/index.m3u8`);
     expect(headers.Authorization).toBe('Bearer guest-token');
-
-    const request = live.fetchSetup?.(
-      { url: 'http://127.0.0.1:3000/api/broadcasts/broadcast-1/hls/segment.ts' } as never,
-      { method: 'GET' },
+    const externalHeaders: Record<string, string> = {};
+    live.xhrSetup?.(
+      {
+        setRequestHeader: (name: string, value: string) => {
+          externalHeaders[name] = value;
+        },
+      } as XMLHttpRequest,
+      'https://cdn.example/live.m3u8',
     );
+    expect(externalHeaders.Authorization).toBeUndefined();
+
+    const segment = `http://127.0.0.1:3000/api/broadcasts/${mediaId}/hls/segment000001.ts`;
+    const request = live.fetchSetup?.({ url: segment } as never, { method: 'GET' });
     expect(request).toBeInstanceOf(Request);
     if (request instanceof Request)
       expect(request.headers.get('Authorization')).toBe('Bearer guest-token');
+    const external = live.fetchSetup?.({ url: 'https://cdn.example/segment000001.ts' } as never, {
+      method: 'GET',
+    });
+    expect(external).toBeInstanceOf(Request);
+    if (external instanceof Request) expect(external.headers.get('Authorization')).toBeNull();
   });
 
   it('clears the guest session when a playlist or segment returns 401', () => {

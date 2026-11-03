@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { acceptChunk, buildHlsArgs, type ChunkHistory, type ChunkMetadata } from './index';
+import {
+  acceptChunk,
+  broadcastPlaylistUrl,
+  buildHlsArgs,
+  parseBroadcast,
+  resolveBroadcastMediaUrl,
+  type BroadcastResponse,
+  type ChunkHistory,
+  type ChunkMetadata,
+} from './index';
 
 const emptyHistory = (): ChunkHistory => ({ nextExpected: 0, acceptedHashes: new Map() });
 const first: ChunkMetadata = { sequence: 0, sha256: 'a'.repeat(64), byteLength: 1024 };
@@ -114,5 +123,97 @@ describe('buildHlsArgs', () => {
   it('handles a trailing directory separator without adding a duplicate', () => {
     expect(buildHlsArgs('/data/broadcasts/one/')).toEqual(buildHlsArgs('/data/broadcasts/one'));
     expect(buildHlsArgs('C:\\data\\')).toEqual(buildHlsArgs('C:\\data'));
+  });
+});
+
+const id = '11111111-1111-4111-8111-111111111111';
+const roomId = '22222222-2222-4222-8222-222222222222';
+const playlistUrl = `/api/broadcasts/${id}/hls/index.m3u8`;
+const apiBase = 'http://127.0.0.1:3000/api';
+
+function response(overrides: Partial<BroadcastResponse> = {}): BroadcastResponse {
+  return {
+    id,
+    roomId,
+    status: 'READY',
+    playlistUrl,
+    errorMessage: null,
+    startedAt: '2026-11-02T00:00:00.000Z',
+    endedAt: '2026-11-02T00:01:00.000Z',
+    createdAt: '2026-11-02T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('public broadcast response', () => {
+  it('round-trips the catalog object and ignores stored filesystem paths', () => {
+    const body = response();
+    expect(broadcastPlaylistUrl(id)).toBe(playlistUrl);
+    expect(parseBroadcast(body)).toEqual(body);
+    expect(
+      parseBroadcast({
+        ...body,
+        playlistPath: `broadcasts/${id}/index.m3u8`,
+        thumbnailPath: `broadcasts/${id}/thumbnail.jpg`,
+        extra: true,
+      }),
+    ).toEqual(body);
+    expect(parseBroadcast(response({ status: 'LIVE', playlistUrl: null, endedAt: null }))).toEqual(
+      response({ status: 'LIVE', playlistUrl: null, endedAt: null }),
+    );
+    expect(parseBroadcast(response({ errorMessage: 'x'.repeat(2000) }))?.errorMessage).toHaveLength(
+      2000,
+    );
+  });
+
+  it('rejects malformed ids, statuses, dates, messages, and playlist URLs', () => {
+    const rejected = [
+      null,
+      [],
+      'READY',
+      response({ id: 'broadcast-1' }),
+      response({ roomId: 'room' }),
+      { ...response(), status: 'DONE' },
+      { ...response(), status: 'live' },
+      response({ playlistUrl: 'https://cdn.example/live.m3u8' }),
+      response({ playlistUrl: `//cdn.example/api/broadcasts/${id}/hls/index.m3u8` }),
+      response({ playlistUrl: `${playlistUrl}?token=1` }),
+      response({ playlistUrl: `${playlistUrl}#fragment` }),
+      response({ playlistUrl: `/api/broadcasts/${id}/hls/segment000001.ts` }),
+      response({ playlistUrl: `broadcasts/${id}/index.m3u8` }),
+      response({ playlistUrl: `/api/broadcasts/${id}/hls/../index.m3u8` }),
+      response({ playlistUrl: `/api/broadcasts/${id}\\hls\\index.m3u8` }),
+      response({ startedAt: '2026-02-31T00:00:00.000Z' }),
+      response({ startedAt: '2026-11-02T00:00:00Z' }),
+      response({ endedAt: 'yesterday' }),
+      response({ createdAt: '2026-11-02' }),
+      response({ errorMessage: 'x'.repeat(2001) }),
+      { ...response(), playlistUrl: undefined },
+      { ...response(), endedAt: undefined },
+    ];
+    for (const value of rejected) expect(parseBroadcast(value)).toBeNull();
+    expect(broadcastPlaylistUrl('not-a-uuid')).toBeNull();
+  });
+
+  it('allows the guest token only for the same-origin playlist and its segments', () => {
+    const segment = `/api/broadcasts/${id}/hls/segment000001.ts`;
+    expect(resolveBroadcastMediaUrl(playlistUrl, apiBase)).toBe(
+      `http://127.0.0.1:3000${playlistUrl}`,
+    );
+    expect(resolveBroadcastMediaUrl(segment, apiBase)).toBe(`http://127.0.0.1:3000${segment}`);
+    expect(resolveBroadcastMediaUrl(`http://127.0.0.1:3000${segment}`, apiBase)).toBe(
+      `http://127.0.0.1:3000${segment}`,
+    );
+    const rejected = [
+      'https://cdn.example/live.m3u8',
+      `//cdn.example${playlistUrl}`,
+      `http://127.0.0.1:4000${playlistUrl}`,
+      `http://127.0.0.1:3000${playlistUrl}?x=1`,
+      `/api/broadcasts/${id}/hls/segment00001.ts`,
+      `/api/broadcasts/${id}/hls/index.m3u8/../../rooms`,
+      `broadcasts/${id}/index.m3u8`,
+      `http://user:pass@127.0.0.1:3000${playlistUrl}`,
+    ];
+    for (const resource of rejected) expect(resolveBroadcastMediaUrl(resource, apiBase)).toBeNull();
   });
 });
