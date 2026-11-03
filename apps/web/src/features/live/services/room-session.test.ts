@@ -127,14 +127,18 @@ class FakeMedia implements RoomMedia {
     if (this.held?.track === track) this.held = null;
     track.stop();
   });
+  ended: ((kind: InputKind) => void) | null = null;
+  setEndedListener(listener: ((kind: InputKind) => void) | null): void {
+    this.ended = listener;
+  }
   setSpeaker(): Promise<{ ok: boolean; supported: boolean; deviceId: string; message: string }> {
     return Promise.resolve({ ok: true, supported: false, deviceId: '', message: '' });
   }
   microphoneTrack(): MediaStreamTrack | null {
-    return this.microphone;
+    return this.microphone?.readyState === 'live' ? this.microphone : null;
   }
   cameraTrack(): MediaStreamTrack | null {
-    return this.camera;
+    return this.camera?.readyState === 'live' ? this.camera : null;
   }
   screenTrack(): MediaStreamTrack | null {
     return this.screen;
@@ -206,6 +210,7 @@ function harness(options?: {
     token: string;
     onCap: () => void;
   }) => BroadcastRecorder;
+  enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
 }) {
   const media = new FakeMedia();
   const peers = fakePeers();
@@ -236,7 +241,7 @@ function harness(options?: {
       resume: () => Promise.resolve(),
       close: () => Promise.resolve(),
     }),
-    enumerateDevices: () => Promise.resolve([]),
+    enumerateDevices: options?.enumerateDevices ?? (() => Promise.resolve([])),
     createRecorder: options?.createRecorder,
   });
   session.attach();
@@ -248,6 +253,32 @@ function harness(options?: {
     speaker,
     callbacks: () => callbacks,
   };
+}
+
+function device(kind: MediaDeviceKind, deviceId: string): MediaDeviceInfo {
+  return { kind, deviceId, label: deviceId, groupId: '' } as MediaDeviceInfo;
+}
+
+function stubDeviceList() {
+  const target = new EventTarget();
+  const names = new Set<EventListener>();
+  const getUserMedia = vi.fn();
+  const mediaDevices = {
+    getUserMedia,
+    addEventListener(type: string, listener: EventListener) {
+      if (type === 'devicechange') names.add(listener);
+      target.addEventListener(type, listener);
+    },
+    removeEventListener(type: string, listener: EventListener) {
+      if (type === 'devicechange') names.delete(listener);
+      target.removeEventListener(type, listener);
+    },
+    dispatch() {
+      target.dispatchEvent(new Event('devicechange'));
+    },
+  };
+  vi.stubGlobal('navigator', { mediaDevices });
+  return { getUserMedia, names, dispatch: () => mediaDevices.dispatch() };
 }
 
 describe('RoomSession', () => {
@@ -1398,5 +1429,208 @@ describe('RoomSession', () => {
     expect(h.media.stopped).toBe(1);
     expect(h.session.phase).toBe('joined');
     expect(h.connection.close).not.toHaveBeenCalled();
+  });
+
+  it('mutes an ended microphone and stays joined', async () => {
+    const devices = stubDeviceList();
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    h.connection.media.mockClear();
+    h.media.ended?.('microphone');
+    expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({ isAudioMuted: true });
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.microphoneUnavailable).toBe(true);
+    expect(h.session.isAudioMuted).toBe(true);
+    expect(h.session.cameraUnavailable).toBe(false);
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, false);
+    expect(h.connection.leave).not.toHaveBeenCalled();
+    expect(h.peers.close).not.toHaveBeenCalled();
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    h.media.ended?.('microphone');
+    expect(h.connection.media).toHaveBeenCalledOnce();
+  });
+
+  it('does not replace the screen sender when the camera ends', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    const camera = liveTrack('video');
+    const screen = liveTrack('video');
+    h.media.camera = camera;
+    h.media.screen = screen;
+    h.connection.media.mockClear();
+    h.peers.replaceVideoTrack.mockClear();
+    h.media.ended?.('camera');
+    expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({ isVideoOff: true });
+    expect(h.peers.replaceVideoTrack).not.toHaveBeenCalled();
+    expect(h.peers.replaceAudioTrack).not.toHaveBeenCalled();
+    expect(screen.readyState).toBe('live');
+    expect(h.media.screenTrack()).toBe(screen);
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.cameraUnavailable).toBe(true);
+    expect(h.session.isVideoOff).toBe(true);
+    expect(h.connection.leave).not.toHaveBeenCalled();
+    camera.stop();
+    await h.session.stopSharing();
+    expect(h.peers.replaceVideoTrack).toHaveBeenCalledExactlyOnceWith(null);
+    expect(camera.readyState).toBe('ended');
+  });
+
+  it('refreshes the device list when an input is added and does not capture', async () => {
+    const devices = stubDeviceList();
+    let listed: MediaDeviceInfo[] = [];
+    const enumerate = vi.fn(async () => listed);
+    const h = open({ enumerateDevices: enumerate });
+    await joinStage(h.session, h.media, h.connection);
+    h.connection.media.mockClear();
+    listed = [device('audioinput', 'mic-new')];
+    devices.dispatch();
+    await vi.waitFor(() =>
+      expect(h.session.devices.map((item) => item.deviceId)).toEqual(['mic-new']),
+    );
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.connection.media).not.toHaveBeenCalled();
+    expect(h.connection.leave).not.toHaveBeenCalled();
+    expect(h.session.microphoneUnavailable).toBe(false);
+    expect(h.session.cameraUnavailable).toBe(false);
+    expect(h.session.phase).toBe('joined');
+  });
+
+  it('marks a missing selected camera unavailable and keeps the default microphone', async () => {
+    const devices = stubDeviceList();
+    let listed = [device('videoinput', 'cam-1'), device('audioinput', 'mic-1')];
+    const enumerate = vi.fn(async () => listed);
+    const h = open({ enumerateDevices: enumerate });
+    await joinStage(h.session, h.media, h.connection);
+    await h.session.prepare({} as HTMLVideoElement, { cameraId: 'cam-1', microphoneId: '' });
+    h.connection.media.mockClear();
+    h.media.replaceInput.mockClear();
+    listed = [device('audioinput', 'mic-1')];
+    devices.dispatch();
+    await vi.waitFor(() =>
+      expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({ isVideoOff: true }),
+    );
+    expect(h.session.cameraUnavailable).toBe(true);
+    expect(h.session.isVideoOff).toBe(true);
+    expect(h.session.microphoneUnavailable).toBe(false);
+    expect(h.session.isAudioMuted).toBe(false);
+    expect(h.session.phase).toBe('joined');
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(h.connection.leave).not.toHaveBeenCalled();
+    expect(h.peers.close).not.toHaveBeenCalled();
+    const calls = enumerate.mock.calls.length;
+    devices.dispatch();
+    await vi.waitFor(() => expect(enumerate.mock.calls.length).toBeGreaterThan(calls));
+    expect(h.connection.media).toHaveBeenCalledOnce();
+  });
+
+  it('marks a missing selected microphone unavailable without leaving', async () => {
+    const devices = stubDeviceList();
+    let listed = [device('audioinput', 'mic-1'), device('videoinput', 'cam-1')];
+    const h = open({ enumerateDevices: async () => listed });
+    await joinStage(h.session, h.media, h.connection);
+    await h.session.prepare({} as HTMLVideoElement, {
+      cameraId: 'cam-1',
+      microphoneId: 'mic-1',
+    });
+    h.connection.media.mockClear();
+    listed = [device('videoinput', 'cam-1')];
+    devices.dispatch();
+    await vi.waitFor(() =>
+      expect(h.connection.media).toHaveBeenCalledExactlyOnceWith({ isAudioMuted: true }),
+    );
+    expect(h.session.microphoneUnavailable).toBe(true);
+    expect(h.session.cameraUnavailable).toBe(false);
+    expect(h.session.phase).toBe('joined');
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(h.connection.leave).not.toHaveBeenCalled();
+  });
+
+  it('removes the devicechange listener when the session detaches', async () => {
+    const devices = stubDeviceList();
+    let release!: (value: MediaDeviceInfo[]) => void;
+    const enumerate = vi.fn(
+      () =>
+        new Promise<MediaDeviceInfo[]>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const h = open({ enumerateDevices: enumerate });
+    expect(devices.names.size).toBe(1);
+    devices.dispatch();
+    await vi.waitFor(() => expect(enumerate).toHaveBeenCalledOnce());
+    h.session.dispose();
+    expect(devices.names.size).toBe(0);
+    release([device('audioinput', 'mic-late')]);
+    await Promise.resolve();
+    expect(h.session.devices).toEqual([]);
+    expect(h.session.microphoneUnavailable).toBe(false);
+    devices.dispatch();
+    expect(enumerate).toHaveBeenCalledOnce();
+    h.session.dispose();
+    expect(devices.names.size).toBe(0);
+  });
+
+  it('keeps the previous device list when enumeration fails', async () => {
+    const devices = stubDeviceList();
+    const listed = [device('audioinput', 'mic-1')];
+    let failed = false;
+    const enumerate = vi
+      .fn<() => Promise<MediaDeviceInfo[]>>()
+      .mockResolvedValueOnce(listed)
+      .mockImplementationOnce(async () => {
+        failed = true;
+        throw new Error('unavailable');
+      });
+    const h = open({ enumerateDevices: enumerate });
+    devices.dispatch();
+    await vi.waitFor(() => expect(h.session.devices).toEqual(listed));
+    devices.dispatch();
+    await vi.waitFor(() => expect(failed).toBe(true));
+    expect(h.session.devices).toEqual(listed);
+    expect(h.session.microphoneUnavailable).toBe(false);
+    expect(h.session.cameraUnavailable).toBe(false);
+  });
+
+  it('clears microphone unavailability when a replacement commits and keeps the mute', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    h.media.ended?.('microphone');
+    expect(h.session.microphoneUnavailable).toBe(true);
+    useRoomStore.getState().receive({
+      ...snapshot('self', 'HOST', true, 2),
+      participants: [{ ...person('self', 'HOST'), isAudioMuted: true }],
+    });
+    const next = liveTrack('audio');
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    h.connection.media.mockClear();
+    await h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.session.microphoneUnavailable).toBe(false);
+    expect(h.session.isAudioMuted).toBe(true);
+    expect(next.enabled).toBe(false);
+    expect(h.session.choices.microphoneId).toBe('mic-2');
+    expect(h.connection.media).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.session.phase).toBe('joined');
+  });
+
+  it('leaves the microphone unavailable when replacement fails', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    h.media.ended?.('microphone');
+    h.media.replaceInput.mockRejectedValueOnce(new Error('denied'));
+    await h.session.replaceDevice('microphone', 'mic-3');
+    expect(h.session.microphoneUnavailable).toBe(true);
+    expect(h.session.isAudioMuted).toBe(true);
+    expect(h.session.choices).toEqual({ cameraId: '', microphoneId: '' });
+    expect(h.session.phase).toBe('joined');
+    expect(h.connection.leave).not.toHaveBeenCalled();
   });
 });

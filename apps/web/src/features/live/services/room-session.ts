@@ -39,6 +39,7 @@ export type RoomMedia = TrackSource & {
   replaceInput(kind: InputKind, deviceId: string): Promise<MediaStreamTrack | null>;
   commitInput(kind: InputKind, track: MediaStreamTrack): void;
   abortInput(track: MediaStreamTrack): void;
+  setEndedListener(listener: ((kind: InputKind) => void) | null): void;
   setSpeaker(deviceId: string): Promise<OutputRouteResult>;
   previewStream(): MediaStream | null;
   setLevelListener(listener: ((level: number) => void) | null): void;
@@ -114,6 +115,7 @@ export class RoomSession {
   private locallyTornDown = false;
   private generation = 0;
   private deviceReplacement: Promise<void> = Promise.resolve();
+  private deviceGeneration = 0;
   private prepareToken = 0;
   private settled: StageMembership | null = null;
   private endedNotified = false;
@@ -132,6 +134,8 @@ export class RoomSession {
     sinkSupported: boolean;
     isAudioMuted: boolean;
     isVideoOff: boolean;
+    cameraUnavailable: boolean;
+    microphoneUnavailable: boolean;
     streams: RemoteStreams;
     peerManager: PeerManager | null;
     activeSocketId: string | null;
@@ -153,6 +157,8 @@ export class RoomSession {
     sinkSupported: false,
     isAudioMuted: false,
     isVideoOff: false,
+    cameraUnavailable: false,
+    microphoneUnavailable: false,
     streams: new Map(),
     peerManager: null,
     activeSocketId: null,
@@ -168,6 +174,7 @@ export class RoomSession {
     this.token = options.token;
     this.onEnded = options.onEnded;
     this.media = options.media ?? new LocalMedia();
+    this.media.setEndedListener((kind) => this.markInputLost(kind));
     this.open = options.openSignaling ?? openSignaling;
     this.createPeers =
       options.createPeers ??
@@ -289,6 +296,12 @@ export class RoomSession {
   get isVideoOff(): boolean {
     return this.state.isVideoOff;
   }
+  get cameraUnavailable(): boolean {
+    return this.state.cameraUnavailable;
+  }
+  get microphoneUnavailable(): boolean {
+    return this.state.microphoneUnavailable;
+  }
   get streams(): RemoteStreams {
     return this.state.streams;
   }
@@ -348,15 +361,18 @@ export class RoomSession {
       window.addEventListener('pagehide', this.onPageHide);
       window.addEventListener('pageshow', this.onPageShow);
     }
+    this.deviceEvents()?.addEventListener('devicechange', this.onDeviceChange);
   }
 
   dispose(): void {
     if (!this.attached) return;
     this.attached = false;
+    this.deviceGeneration += 1;
     if (typeof window !== 'undefined') {
       window.removeEventListener('pagehide', this.onPageHide);
       window.removeEventListener('pageshow', this.onPageShow);
     }
+    this.deviceEvents()?.removeEventListener('devicechange', this.onDeviceChange);
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.closeSession();
@@ -729,6 +745,8 @@ export class RoomSession {
     this.closePeers();
     this.speaker.close();
     this.media.stop();
+    this.state.cameraUnavailable = false;
+    this.state.microphoneUnavailable = false;
     this.settled = null;
     this.state.ready = false;
     this.state.preparing = false;
@@ -807,6 +825,8 @@ export class RoomSession {
     this.state.needsCaptureConsent = false;
     this.state.ready = false;
     this.media.stop();
+    this.state.cameraUnavailable = false;
+    this.state.microphoneUnavailable = false;
     this.closePeers();
     this.speaker.close();
     if (wasSharing && this.connection) {
@@ -878,11 +898,7 @@ export class RoomSession {
     this.applyHeldFlag(kind, track);
     const screen = this.media.screenTrack();
     if (kind === 'camera' && screen?.readyState === 'live') {
-      this.media.commitInput(kind, track);
-      this.state.error = '';
-      this.syncSpeaker();
-      this.syncBroadcast();
-      this.emit();
+      this.commitReplacedInput(kind, track, deviceId);
       return;
     }
     const previous =
@@ -901,7 +917,17 @@ export class RoomSession {
       this.media.abortInput(track);
       return;
     }
+    this.commitReplacedInput(kind, track, deviceId);
+  }
+
+  private commitReplacedInput(kind: InputKind, track: MediaStreamTrack, deviceId: string): void {
     this.media.commitInput(kind, track);
+    if (kind === 'microphone') this.state.microphoneUnavailable = false;
+    else this.state.cameraUnavailable = false;
+    this.state.choices =
+      kind === 'camera'
+        ? { cameraId: deviceId, microphoneId: this.state.choices.microphoneId }
+        : { cameraId: this.state.choices.cameraId, microphoneId: deviceId };
     this.state.error = '';
     this.syncSpeaker();
     this.syncBroadcast();
@@ -945,13 +971,89 @@ export class RoomSession {
   private mutedCapture(): boolean {
     const self = this.selfParticipant();
     const waiting = this.state.needsCaptureConsent || this.activationPending;
-    return waiting || this.audioLocked || (self?.isAudioMuted ?? this.state.isAudioMuted);
+    return (
+      waiting ||
+      this.audioLocked ||
+      this.state.microphoneUnavailable ||
+      (self?.isAudioMuted ?? this.state.isAudioMuted)
+    );
   }
 
   private videoOffCapture(): boolean {
     const self = this.selfParticipant();
     const waiting = this.state.needsCaptureConsent || this.activationPending;
-    return waiting || this.videoLocked || (self?.isVideoOff ?? this.state.isVideoOff);
+    return (
+      waiting ||
+      this.videoLocked ||
+      this.state.cameraUnavailable ||
+      (self?.isVideoOff ?? this.state.isVideoOff)
+    );
+  }
+
+  private markInputLost(kind: InputKind): void {
+    if (!this.attached || this.pageHidden || this.state.phase === 'leaving') return;
+    if (kind === 'microphone' ? this.state.microphoneUnavailable : this.state.cameraUnavailable) {
+      return;
+    }
+    if (kind === 'microphone') {
+      this.state.microphoneUnavailable = true;
+      this.state.isAudioMuted = true;
+    } else {
+      this.state.cameraUnavailable = true;
+      this.state.isVideoOff = true;
+    }
+    this.applyLocalFlags();
+    this.emit();
+    if (this.state.phase !== 'joined' || !this.state.onStage) return;
+    const patch = kind === 'microphone' ? { isAudioMuted: true } : { isVideoOff: true };
+    void this.send((active) => active.media(patch));
+  }
+
+  private readonly onDeviceChange = (): void => {
+    if (!this.attached || this.pageHidden || this.state.phase === 'leaving') return;
+    void this.refreshDevices();
+  };
+
+  private deviceEvents(): MediaDevices | null {
+    if (typeof navigator === 'undefined' || navigator.mediaDevices == null) return null;
+    const devices = navigator.mediaDevices;
+    if (typeof devices.addEventListener !== 'function') return null;
+    return devices;
+  }
+
+  private async refreshDevices(): Promise<void> {
+    const generation = this.generation;
+    const request = ++this.deviceGeneration;
+    let devices: MediaDeviceInfo[];
+    try {
+      devices = await this.enumerateDevices();
+    } catch {
+      return;
+    }
+    if (
+      !this.attached ||
+      this.pageHidden ||
+      generation !== this.generation ||
+      request !== this.deviceGeneration
+    ) {
+      return;
+    }
+    this.state.devices = devices;
+    this.noteMissingDevices(devices);
+    this.emit();
+  }
+
+  private noteMissingDevices(devices: MediaDeviceInfo[]): void {
+    if (this.inputMissing('camera', devices)) this.markInputLost('camera');
+    if (this.inputMissing('microphone', devices)) this.markInputLost('microphone');
+  }
+
+  private inputMissing(kind: InputKind, devices: MediaDeviceInfo[]): boolean {
+    const id = kind === 'camera' ? this.state.choices.cameraId : this.state.choices.microphoneId;
+    // An empty id is the browser default. Only its ended event is loss.
+    if (!id) return false;
+    const deviceKind = kind === 'camera' ? 'videoinput' : 'audioinput';
+    return !devices.some((device) => device.kind === deviceKind && device.deviceId === id);
   }
 
   private deviceSwitchError(kind: InputKind): string {

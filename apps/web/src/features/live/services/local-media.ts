@@ -38,9 +38,14 @@ export class LocalMedia {
   private inputGeneration = 0;
   private replacement: Promise<void> = Promise.resolve();
   private heldInput: HeldInput | null = null;
+  private endedListener: ((kind: InputKind) => void) | null = null;
 
   setLevelListener(listener: ((level: number) => void) | null): void {
     this.levelListener = listener;
+  }
+
+  setEndedListener(listener: ((kind: InputKind) => void) | null): void {
+    this.endedListener = listener;
   }
 
   async prepare(video: HTMLVideoElement, choices: DeviceChoices): Promise<boolean> {
@@ -54,10 +59,11 @@ export class LocalMedia {
         const id = kind === 'camera' ? choices.cameraId : choices.microphoneId;
         const stream = await this.capture(kind, id);
         if (stale()) {
-          stream.getTracks().forEach((track) => track.stop());
+          this.releaseStream(stream);
           return false;
         }
         this.streams.push(stream);
+        this.bindStream(stream, kind);
         this.applyFlags(this.isAudioMuted, this.isVideoOff);
       }
       const camera = this.streams[0]!;
@@ -111,7 +117,7 @@ export class LocalMedia {
     const held = this.heldInput;
     if (!held || held.track !== track || held.kind !== kind) {
       if (held?.track === track) this.heldInput = null;
-      track.stop();
+      this.releaseTrack(track);
       return;
     }
     this.heldInput = null;
@@ -119,17 +125,18 @@ export class LocalMedia {
     const previous = index >= 0 ? this.streams[index] : undefined;
     if (index >= 0) this.streams[index] = held.stream;
     else this.streams.push(held.stream);
-    if (previous && previous !== held.stream) previous.getTracks().forEach((item) => item.stop());
+    this.bindStream(held.stream, kind);
+    if (previous && previous !== held.stream) this.releaseStream(previous);
   }
 
   abortInput(track: MediaStreamTrack): void {
     if (this.heldInput?.track === track) {
       const held = this.heldInput;
       this.heldInput = null;
-      held.stream.getTracks().forEach((item) => item.stop());
+      this.releaseStream(held.stream);
       return;
     }
-    track.stop();
+    this.releaseTrack(track);
   }
 
   applyFlags(isAudioMuted: boolean, isVideoOff: boolean): void {
@@ -220,9 +227,9 @@ export class LocalMedia {
     this.releaseLobby();
     const held = this.heldInput;
     this.heldInput = null;
-    for (const stream of this.streams) stream.getTracks().forEach((track) => track.stop());
+    for (const stream of this.streams) this.releaseStream(stream);
     this.streams = [];
-    held?.stream.getTracks().forEach((track) => track.stop());
+    if (held) this.releaseStream(held.stream);
   }
 
   private async capture(kind: InputKind, deviceId: string): Promise<MediaStream> {
@@ -248,27 +255,42 @@ export class LocalMedia {
       throw error;
     }
     if (attempt !== this.inputGeneration) {
-      stream.getTracks().forEach((track) => track.stop());
+      this.releaseStream(stream);
       return null;
     }
     const track = (kind === 'camera' ? stream.getVideoTracks() : stream.getAudioTracks()).find(
       (item) => item.readyState === 'live',
     );
     if (!track) {
-      stream.getTracks().forEach((item) => item.stop());
+      this.releaseStream(stream);
       if (attempt !== this.inputGeneration) return null;
       throw inputError(kind);
     }
     track.enabled = kind === 'microphone' ? !this.isAudioMuted : !this.isVideoOff;
     if (attempt !== this.inputGeneration) {
-      stream.getTracks().forEach((item) => item.stop());
+      this.releaseStream(stream);
       return null;
     }
     const previousHold = this.heldInput;
     this.heldInput = { kind, stream, track };
-    if (previousHold && previousHold.stream !== stream)
-      previousHold.stream.getTracks().forEach((item) => item.stop());
+    if (previousHold && previousHold.stream !== stream) this.releaseStream(previousHold.stream);
     return track;
+  }
+
+  private bindStream(stream: MediaStream, kind: InputKind): void {
+    const tracks = kind === 'camera' ? stream.getVideoTracks() : stream.getAudioTracks();
+    for (const track of tracks) {
+      track.onended = () => this.endedListener?.(kind);
+    }
+  }
+
+  private releaseStream(stream: MediaStream): void {
+    for (const track of stream.getTracks()) this.releaseTrack(track);
+  }
+
+  private releaseTrack(track: MediaStreamTrack): void {
+    track.onended = null;
+    track.stop();
   }
 
   private storedIndex(kind: InputKind): number {

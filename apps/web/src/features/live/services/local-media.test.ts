@@ -466,3 +466,71 @@ describe('LocalMedia input replacement', () => {
     expect(media.cameraTrack()).toBeNull();
   });
 });
+
+describe('LocalMedia device loss', () => {
+  it('owns ended on the stored camera and microphone and clears it before stopping them', async () => {
+    const ended = vi.fn();
+    media.setEndedListener(ended);
+    await prepare();
+    expect(typeof microphone.onended).toBe('function');
+    expect(typeof camera.onended).toBe('function');
+    microphone.onended?.call(microphone, new Event('ended'));
+    camera.onended?.call(camera, new Event('ended'));
+    expect(ended.mock.calls).toEqual([['microphone'], ['camera']]);
+
+    const next = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(stream([next]));
+    const held = await media.replaceInput('microphone', 'mic-2');
+    expect(held).toBe(next);
+    expect(next.onended).toBeNull();
+    media.commitInput('microphone', next);
+    expect(microphone.onended).toBeNull();
+    expect(ended).toHaveBeenCalledTimes(2);
+    expect(typeof next.onended).toBe('function');
+    next.onended?.call(next, new Event('ended'));
+    expect(ended).toHaveBeenLastCalledWith('microphone');
+
+    const superseded = track('audio');
+    const supersededEnded = vi.fn();
+    superseded.onended = supersededEnded;
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(stream([superseded]));
+    const firstHold = await media.replaceInput('microphone', 'mic-3');
+    expect(firstHold).toBe(superseded);
+    const newest = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValueOnce(stream([newest]));
+    await media.replaceInput('microphone', 'mic-4');
+    expect(superseded.onended).toBeNull();
+    expect(superseded.readyState).toBe('ended');
+    expect(supersededEnded).not.toHaveBeenCalled();
+    expect(ended).toHaveBeenCalledTimes(3);
+
+    media.stop();
+    expect(next.onended).toBeNull();
+    expect(camera.onended).toBeNull();
+    expect(newest.onended).toBeNull();
+  });
+
+  it('keeps the screen-share ended handler when a camera replacement commits', async () => {
+    const ended = vi.fn();
+    media.setEndedListener(ended);
+    await prepare();
+    const screen = track('video');
+    const screenEnded = vi.fn();
+    display.mockResolvedValue(stream([screen]));
+    await media.startScreenShare();
+    screen.onended = screenEnded;
+    const next = track('video');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(stream([next]));
+    const held = await media.replaceInput('camera', 'cam-2');
+    expect(held).toBe(next);
+    media.commitInput('camera', next);
+    expect(camera.onended).toBeNull();
+    expect(screen.onended).toBe(screenEnded);
+    expect(screenEnded).not.toHaveBeenCalled();
+    expect(ended).not.toHaveBeenCalled();
+    expect(screen.readyState).toBe('live');
+    media.stop();
+    expect(screen.onended).toBeNull();
+    expect(next.onended).toBeNull();
+  });
+});

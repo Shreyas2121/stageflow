@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01 is committed. V2P2-C02 is verified. V2P2-C03 through V2P2-C06 remain planned.\
+**Status:** V2P2-C01 and V2P2-C02 are committed. V2P2-C03 is verified. V2P2-C04 through V2P2-C06 remain planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -85,9 +85,9 @@ pnpm lint
 
 ## 3. V2P2-C02 — Send the replacement to current peers
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-stage): send a replaced track to current peers`\
-**Actual commit:**
+**Actual commit:** `f322262dade03c5de81b0dcdce3d412465c98ac1`
 
 **Why:** A stored track that never reaches the senders, the analyser, or the recording mix does not change the room. Covers MEDIA-01 and the service half of MEDIA-02.
 
@@ -124,7 +124,7 @@ pnpm lint
 
 ## 4. V2P2-C03 — Device loss
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-stage): keep the room when a device ends`\
 **Actual commit:**
 
