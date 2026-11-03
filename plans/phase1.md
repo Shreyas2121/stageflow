@@ -1,6 +1,6 @@
 # V2 Phase 1 — Room and replay workspace
 
-**Status:** V2P1-C01 is committed. WS-01, the browser half of WS-02, and WS-03 remain planned.\
+**Status:** V2P1-C02 room list API is verified. The browser half of WS-01, the browser half of WS-02, and WS-03 remain planned.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.2`, Sections 1, 3.1, 5, 6, 10, 11, and 12 (WS-01 through WS-03). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V2P1-C01 through V2P1-C05. Those ids are not the V1 commits in [V1/phase1/guide.md](V1/phase1/guide.md). This file owns the rules those commits must satisfy.\

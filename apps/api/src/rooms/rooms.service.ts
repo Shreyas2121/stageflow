@@ -1,12 +1,36 @@
 import { isUuid, isRoomSlug } from '@stageflow/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { createRoomSlugFromCrypto, parseRoomMode, parseRoomTitle } from '@stageflow/shared';
+import { Raw, Repository } from 'typeorm';
+import {
+  createRoomSlugFromCrypto,
+  encodeHistoryCursor,
+  parseCatalogLimit,
+  parseHistoryCursor,
+  parseRoomMode,
+  parseRoomTitle,
+} from '@stageflow/shared';
 import type { RoomResponse } from '@stageflow/shared';
 import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
 import { Room } from './room.entity';
+
+export type RoomPage = {
+  items: RoomResponse[];
+  nextCursor: string | null;
+};
+
+/** Next page of `created_at DESC, id DESC`. The id is compared as a UUID. */
+function beforeHistoryCursor(createdAt: string, id: string) {
+  return Raw(
+    (alias) => {
+      const dot = alias.lastIndexOf('.');
+      const table = `"${alias.slice(0, dot).replaceAll('"', '')}"`;
+      return `(${table}."created_at", ${table}."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))`;
+    },
+    { cursorCreatedAt: createdAt, cursorId: id },
+  );
+}
 
 @Injectable()
 export class RoomsService {
@@ -75,6 +99,37 @@ export class RoomsService {
     if (!isRoomSlug(slug)) throw notFound;
     const room = await this.rooms.findOne({ where: { slug }, relations: { host: true } });
     if (!room) throw notFound;
+    return this.toResponse(room);
+  }
+
+  async listForHost(host: User, query: Record<string, unknown>): Promise<RoomPage> {
+    const limit = parseCatalogLimit(query.limit);
+    if (!limit.ok) throw new ApiException(400, limit.error, limit.message);
+    const cursor = parseHistoryCursor(query.cursor);
+    if (!cursor.ok) throw new ApiException(400, cursor.error, cursor.message);
+
+    const rows = await this.rooms.find({
+      where: {
+        hostId: host.id,
+        ...(cursor.value
+          ? { id: beforeHistoryCursor(cursor.value.createdAt, cursor.value.id) }
+          : {}),
+      },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit.value + 1,
+      relations: { host: true },
+    });
+    const items = (rows.length > limit.value ? rows.slice(0, limit.value) : rows).map((room) =>
+      this.toResponse(room),
+    );
+    if (rows.length <= limit.value) return { items, nextCursor: null };
+    const last = items.at(-1);
+    const nextCursor = last ? encodeHistoryCursor(last.createdAt, last.id) : null;
+    if (!nextCursor) throw new ApiException(500, 'server_busy', 'The room page could not be read.');
+    return { items, nextCursor };
+  }
+
+  private toResponse(room: Room): RoomResponse {
     return {
       id: room.id,
       slug: room.slug,

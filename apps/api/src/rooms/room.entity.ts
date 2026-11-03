@@ -1,4 +1,4 @@
-import { Check, Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Check, Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import type { RoomMode, RoomStatus } from '@stageflow/shared';
 import { BaseEntity } from '../database/base.entity';
 import { User } from '../users/user.entity';
@@ -6,6 +6,7 @@ import { User } from '../users/user.entity';
 @Entity('rooms')
 @Check('rooms_mode_check', `"mode" IN ('MEETING', 'WEBINAR')`)
 @Check('rooms_status_check', `"status" IN ('LIVE', 'ENDED')`)
+@Index('rooms_host_created_idx', ['hostId', 'createdAt', 'id'])
 export class Room extends BaseEntity {
   @Column({ type: 'varchar', length: 12, unique: true })
   slug: string;
