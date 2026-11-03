@@ -14,53 +14,30 @@ const emptyHistory = (): ChunkHistory => ({ nextExpected: 0, acceptedHashes: new
 const first: ChunkMetadata = { sequence: 0, sha256: 'a'.repeat(64), byteLength: 1024 };
 
 describe('acceptChunk', () => {
-  it('accepts sequence zero and advances without mutating the supplied history', () => {
-    const history = emptyHistory();
-    const decision = acceptChunk(history, first);
-    expect(decision).toEqual({
-      kind: 'accept',
-      nextExpected: 1,
-      acceptedHashes: new Map([[0, first.sha256]]),
-    });
+  it('decides without mutating or iterating the supplied ledger', () => {
+    const hashes = new Map<number, string>();
+    const history = { nextExpected: 0, acceptedHashes: hashes };
+    expect(acceptChunk(history, first)).toEqual({ kind: 'accept' });
     expect(history).toEqual(emptyHistory());
-  });
-
-  it('recognizes a duplicate and rejects a conflicting hash without changing history', () => {
-    const history = acceptChunk(emptyHistory(), first);
-    if (history.kind !== 'accept') throw new Error('Expected the first chunk to be accepted');
-    expect(acceptChunk(history, first)).toEqual({ kind: 'duplicate' });
-    expect(acceptChunk(history, { ...first, sha256: 'b'.repeat(64) })).toEqual({
-      kind: 'conflict',
-    });
-    expect(history.nextExpected).toBe(1);
-    expect([...history.acceptedHashes]).toEqual([[0, first.sha256]]);
-  });
-
-  it('refuses a future sequence, then accepts it after the missing sequence arrives', () => {
-    const history = emptyHistory();
-    const second = { ...first, sequence: 1, sha256: 'b'.repeat(64) };
-    expect(acceptChunk(history, second)).toEqual({ kind: 'future' });
-    const accepted = acceptChunk(history, first);
-    if (accepted.kind !== 'accept') throw new Error('Expected the first chunk to be accepted');
-    expect(acceptChunk(accepted, second)).toEqual({
-      kind: 'accept',
-      nextExpected: 2,
-      acceptedHashes: new Map([
-        [0, first.sha256],
-        [1, second.sha256],
-      ]),
-    });
-    expect(accepted.acceptedHashes.has(1)).toBe(false);
-  });
-
-  it('keeps earlier hashes so a delayed retry is still a duplicate', () => {
-    const history: ChunkHistory = {
-      nextExpected: 2,
-      acceptedHashes: new Map([
-        [0, first.sha256],
-        [1, 'b'.repeat(64)],
-      ]),
+    // Decisions may look up a prior sequence, but must never enumerate or copy history.
+    hashes[Symbol.iterator] = () => {
+      throw new Error('History enumerated');
     };
+    hashes.entries = () => {
+      throw new Error('History enumerated');
+    };
+    for (let sequence = 0; sequence < 50_000; sequence += 1) {
+      const chunk = { ...first, sequence };
+      expect(acceptChunk(history, { ...chunk, sequence: sequence + 1 })).toEqual({
+        kind: 'future',
+      });
+      expect(acceptChunk(history, chunk)).toEqual({ kind: 'accept' });
+      hashes.set(sequence, chunk.sha256);
+      history.nextExpected += 1;
+      expect(acceptChunk(history, chunk)).toEqual({ kind: 'duplicate' });
+      expect(acceptChunk(history, { ...chunk, sha256: 'changed' })).toEqual({ kind: 'conflict' });
+    }
+    expect(hashes.size).toBe(50_000);
     expect(acceptChunk(history, first)).toEqual({ kind: 'duplicate' });
   });
 
@@ -68,15 +45,13 @@ describe('acceptChunk', () => {
     const history = emptyHistory();
     expect(acceptChunk(history, { ...first, byteLength: 2_000_000 }).kind).toBe('accept');
     expect(acceptChunk(history, { ...first, byteLength: 2_000_001 })).toEqual({ kind: 'oversize' });
-    const accepted = acceptChunk(history, first);
-    if (accepted.kind !== 'accept') throw new Error('Expected the first chunk to be accepted');
-    expect(acceptChunk(accepted, { ...first, byteLength: 2_000_001 })).toEqual({
+    const committed = { nextExpected: 1, acceptedHashes: new Map([[0, first.sha256]]) };
+    expect(acceptChunk(committed, { ...first, byteLength: 2_000_001 })).toEqual({
       kind: 'oversize',
     });
     expect(history).toEqual(emptyHistory());
   });
 });
-
 describe('buildHlsArgs', () => {
   it('locks the WebM input, single video/audio rendition, and complete event playlist', () => {
     const args = buildHlsArgs('/data/broadcasts/server-id');

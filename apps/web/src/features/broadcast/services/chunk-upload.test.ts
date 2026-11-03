@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChunkUpload, postChunk, type ChunkRequest } from './chunk-upload';
+import {
+  ChunkUpload,
+  postChunk,
+  MAX_UNSENT_BYTES,
+  CHUNK_REQUEST_TIMEOUT_MS,
+  type ChunkRequest,
+} from './chunk-upload';
 import { useSessionStore } from '../../session/session-store';
 
 const broadcastId = 'broadcast-1';
@@ -92,6 +98,79 @@ describe('ChunkUpload', () => {
     release(204);
     await Promise.resolve();
     expect(sent).toHaveLength(1);
+  });
+
+  it('counts in-flight bytes, accepts the exact budget, and aborts on one byte more', async () => {
+    const sent: ChunkRequest[] = [];
+    const onGiveUp = vi.fn();
+    const upload = new ChunkUpload(
+      broadcastId,
+      token,
+      (request) => {
+        sent.push(request);
+        return new Promise<number>(() => undefined);
+      },
+      onGiveUp,
+    );
+    const large = new Blob([new Uint8Array(MAX_UNSENT_BYTES / 4)]);
+    for (let i = 0; i < 4; i += 1) upload.push(large);
+    expect(onGiveUp).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
+    upload.push(blob('x'));
+    await Promise.resolve();
+    expect(onGiveUp).toHaveBeenCalledOnce();
+    expect(sent[0]?.signal.aborted).toBe(true);
+    await expect(upload.drain(8_000)).resolves.toEqual({ ok: false, reason: 'upload' });
+    upload.stop();
+    expect(onGiveUp).toHaveBeenCalledOnce();
+  });
+
+  it('returns accepted bytes to the budget and drains subsequent full-size chunks', async () => {
+    const send = vi.fn(() => Promise.resolve(204));
+    const onGiveUp = vi.fn();
+    const upload = new ChunkUpload(broadcastId, token, send, onGiveUp);
+    const large = new Blob([new Uint8Array(MAX_UNSENT_BYTES / 4)]);
+    for (let round = 0; round < 3; round += 1) {
+      for (let i = 0; i < 4; i += 1) upload.push(large);
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes((round + 1) * 4));
+    }
+    await expect(upload.drain(8_000)).resolves.toEqual({ ok: true });
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
+
+  it('bounds a stalled live request, ignores late success, and preserves failure for drain', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      let release!: (status: number) => void;
+      const sent: ChunkRequest[] = [];
+      const onGiveUp = vi.fn();
+      const upload = new ChunkUpload(
+        broadcastId,
+        token,
+        (request) => {
+          sent.push(request);
+          return new Promise<number>((resolve) => {
+            release = resolve;
+          });
+        },
+        onGiveUp,
+      );
+      upload.push(blob('header'));
+      upload.push(blob('queued'));
+      await vi.advanceTimersByTimeAsync(CHUNK_REQUEST_TIMEOUT_MS - 1);
+      expect(sent[0]?.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sent[0]?.signal.aborted).toBe(true);
+      expect(onGiveUp).toHaveBeenCalledOnce();
+      release(204);
+      await Promise.resolve();
+      upload.push(blob('late'));
+      expect(sent).toHaveLength(1);
+      await expect(upload.drain(8_000)).resolves.toEqual({ ok: false, reason: 'upload' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not send the next sequence when the response is not 204', async () => {

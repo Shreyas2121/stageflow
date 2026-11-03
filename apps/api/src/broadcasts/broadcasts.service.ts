@@ -313,10 +313,11 @@ export class BroadcastsService {
       throw new ApiException(400, 'invalid_chunk', 'Invalid chunk metadata or body.');
     if (entry.supervisor.writing)
       throw new ApiException(409, 'chunk_conflict', 'A chunk is still being written.');
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
     const decision = acceptChunk(entry.supervisor.history, {
       sequence,
       byteLength: bytes.length,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
+      sha256,
     });
     if (decision.kind === 'duplicate') return;
     if (decision.kind === 'oversize')
@@ -326,7 +327,8 @@ export class BroadcastsService {
     entry.supervisor.writing = true;
     try {
       await entry.supervisor.write(bytes);
-      entry.supervisor.history = decision;
+      entry.supervisor.history.acceptedHashes.set(sequence, sha256);
+      entry.supervisor.history.nextExpected = sequence + 1;
     } finally {
       entry.supervisor.writing = false;
     }

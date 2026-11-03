@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { buildHlsArgs, type ChunkHistory } from '@stageflow/shared';
+import { buildHlsArgs } from '@stageflow/shared';
 
 export type FfmpegExit = { code: number | null; error: string; premature: boolean };
 export type SpawnFfmpeg = (binary: string, args: string[]) => ChildProcessWithoutNullStreams;
@@ -7,7 +7,7 @@ export const PRODUCER_IDLE_MS = 20_000;
 
 /** One instance owns one child. It can never restart that child. */
 export class FfmpegSupervisor {
-  history: ChunkHistory = { nextExpected: 0, acceptedHashes: new Map() };
+  readonly history = { nextExpected: 0, acceptedHashes: new Map<number, string>() };
   writing = false;
   outcome: FfmpegExit | undefined;
   private child: ChildProcessWithoutNullStreams | undefined;

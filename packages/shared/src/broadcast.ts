@@ -13,10 +13,9 @@ export type ChunkMetadata = {
   byteLength: number;
 };
 
-export type ChunkDecision =
-  ({ kind: 'accept' } & ChunkHistory) | { kind: 'duplicate' | 'conflict' | 'future' | 'oversize' };
+export type ChunkDecision = { kind: 'accept' | 'duplicate' | 'conflict' | 'future' | 'oversize' };
 
-/** Metadata is validated and SHA-256 is computed by the caller; no bytes are read here. */
+/** Pure decision: the owner appends the hash and advances only after a successful write. */
 export function acceptChunk(history: ChunkHistory, chunk: ChunkMetadata): ChunkDecision {
   if (chunk.byteLength > 2_000_000) return { kind: 'oversize' };
   if (chunk.sequence < history.nextExpected) {
@@ -26,9 +25,7 @@ export function acceptChunk(history: ChunkHistory, chunk: ChunkMetadata): ChunkD
   }
   if (chunk.sequence > history.nextExpected) return { kind: 'future' };
 
-  const acceptedHashes = new Map(history.acceptedHashes);
-  acceptedHashes.set(chunk.sequence, chunk.sha256);
-  return { kind: 'accept', nextExpected: history.nextExpected + 1, acceptedHashes };
+  return { kind: 'accept' };
 }
 
 /** outputDir is a server-owned, confined directory, passed as an argument without a shell. */
@@ -154,6 +151,7 @@ function isCatalogPlaylist(value: unknown): value is string | null {
  */
 export function resolveBroadcastMediaUrl(resource: string, apiBase: string): string | null {
   if (typeof resource !== 'string' || typeof apiBase !== 'string') return null;
+  // eslint-disable-next-line no-control-regex -- Reject control characters before URL normalization.
   if (/[\u0000-\u0020\\]/.test(resource)) return null;
   try {
     const base = new URL(apiBase);

@@ -3,6 +3,8 @@ import { useSessionStore } from '../../session/session-store';
 
 /** Unsent blobs include the one currently waiting for 204. The ninth is refused. */
 export const MAX_UNSENT_BLOBS = 8;
+export const MAX_UNSENT_BYTES = 8_000_000;
+export const CHUNK_REQUEST_TIMEOUT_MS = 10_000;
 
 export type ChunkRequest = {
   broadcastId: string;
@@ -41,6 +43,7 @@ export type ChunkDrain = { ok: true } | { ok: false; reason: 'timeout' | 'upload
  */
 export class ChunkUpload {
   private readonly queue: Blob[] = [];
+  private queuedBytes = 0;
   private nextSequence = 0;
   private sending = false;
   private stopped = false;
@@ -50,6 +53,8 @@ export class ChunkUpload {
   private drainPromise: Promise<ChunkDrain> | null = null;
   private resolveDrain: ((result: ChunkDrain) => void) | null = null;
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
+  private requestTimer: ReturnType<typeof setTimeout> | null = null;
+  private terminalResult: ChunkDrain | null = null;
 
   constructor(
     private readonly broadcastId: string,
@@ -60,11 +65,12 @@ export class ChunkUpload {
 
   push(blob: Blob): void {
     if (this.stopped || this.sealed) return;
-    if (this.queue.length >= MAX_UNSENT_BLOBS) {
+    if (this.queue.length >= MAX_UNSENT_BLOBS || blob.size > MAX_UNSENT_BYTES - this.queuedBytes) {
       this.giveUp();
       return;
     }
     this.queue.push(blob);
+    this.queuedBytes += blob.size;
     void this.pump();
   }
 
@@ -80,7 +86,7 @@ export class ChunkUpload {
       this.resolveDrain = resolve;
     });
     if (this.stopped) {
-      this.settle({ ok: false, reason: 'aborted' });
+      this.settle(this.terminalResult ?? { ok: false, reason: 'aborted' });
       return this.drainPromise;
     }
     void this.pump();
@@ -94,6 +100,8 @@ export class ChunkUpload {
     this.stopped = true;
     this.sealed = true;
     this.queue.length = 0;
+    this.queuedBytes = 0;
+    this.clearRequestTimer();
     this.abort?.abort();
     this.settle({ ok: false, reason: 'aborted' });
   }
@@ -103,6 +111,8 @@ export class ChunkUpload {
     this.stopped = true;
     this.sealed = true;
     this.queue.length = 0;
+    this.queuedBytes = 0;
+    this.clearRequestTimer();
     this.abort?.abort();
     this.settle({ ok: false, reason: 'timeout' });
   }
@@ -114,6 +124,8 @@ export class ChunkUpload {
       this.stopped = true;
       this.sealed = true;
       this.queue.length = 0;
+      this.queuedBytes = 0;
+      this.clearRequestTimer();
       this.abort?.abort();
     }
     this.settle({ ok: false, reason: 'upload' });
@@ -122,11 +134,17 @@ export class ChunkUpload {
   }
 
   private settle(result: ChunkDrain): void {
+    this.terminalResult ??= result;
     if (this.drainTimer !== null) clearTimeout(this.drainTimer);
     this.drainTimer = null;
     const resolve = this.resolveDrain;
     this.resolveDrain = null;
     resolve?.(result);
+  }
+
+  private clearRequestTimer(): void {
+    if (this.requestTimer !== null) clearTimeout(this.requestTimer);
+    this.requestTimer = null;
   }
 
   private async pump(): Promise<void> {
@@ -137,6 +155,8 @@ export class ChunkUpload {
     const sequence = this.nextSequence;
     const abort = new AbortController();
     this.abort = abort;
+    // Abort even if an injected sender ignores the signal or never settles.
+    this.requestTimer = setTimeout(() => this.giveUp(), CHUNK_REQUEST_TIMEOUT_MS);
     let status: number;
     try {
       status = await this.send({
@@ -147,10 +167,12 @@ export class ChunkUpload {
         signal: abort.signal,
       });
     } catch {
+      this.clearRequestTimer();
       this.sending = false;
       if (!this.stopped) this.giveUp();
       return;
     }
+    this.clearRequestTimer();
     this.sending = false;
     if (this.stopped) return;
     if (status !== 204) {
@@ -158,6 +180,7 @@ export class ChunkUpload {
       return;
     }
     this.queue.shift();
+    this.queuedBytes -= blob.size;
     this.nextSequence += 1;
     this.abort = null;
     if (this.sealed && this.queue.length === 0) {

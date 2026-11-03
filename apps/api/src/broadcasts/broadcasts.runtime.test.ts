@@ -222,17 +222,41 @@ it('serializes admission while a write is pending and rejects late chunks after 
   await f.start();
   const id = f.rows[0]!.id;
   const pending = f.service.upload(id, 'host', 0, Buffer.from('first'));
+  const ledger = f.supervisor.history.acceptedHashes;
+  expect(ledger.size).toBe(0);
+  expect(f.supervisor.history.nextExpected).toBe(0);
   await expect(f.service.upload(id, 'host', 1, Buffer.from('second'))).rejects.toMatchObject({
     response: { statusCode: 409 },
   });
   release();
   await pending;
+  expect(f.supervisor.history.acceptedHashes).toBe(ledger);
+  expect(ledger.size).toBe(1);
+  expect(f.supervisor.history.nextExpected).toBe(1);
   f.child.stdin.once('finish', () => f.child.emit('close', 0));
   await f.service.stopRoom(f.rows[0]!.roomId);
   expect(f.rows[0]!.status).toBe('FAILED'); // A successful exit without a playlist is not a replay.
   await expect(f.service.upload(id, 'host', 1, Buffer.from('late'))).rejects.toMatchObject({
     response: { statusCode: 409 },
   });
+});
+
+it('does not commit a hash or advance sequence when the input write fails', async () => {
+  const f = await fixture();
+  await f.start();
+  vi.spyOn(f.supervisor, 'write').mockRejectedValueOnce(new Error('write failed'));
+  const id = f.rows[0]!.id;
+  await expect(f.service.upload(id, 'host', 0, Buffer.from('first'))).rejects.toThrow(
+    'write failed',
+  );
+  expect(f.supervisor.history.nextExpected).toBe(0);
+  expect(f.supervisor.history.acceptedHashes.size).toBe(0);
+  expect(f.supervisor.writing).toBe(false);
+  await f.service.upload(id, 'host', 0, Buffer.from('retry'));
+  expect(f.supervisor.history.nextExpected).toBe(1);
+  expect(f.supervisor.history.acceptedHashes.size).toBe(1);
+  f.child.emit('close', 1);
+  await Promise.all(f.tasks);
 });
 
 it('keeps a clean-stop playlist as READY and caps a failed process stderr', async () => {
