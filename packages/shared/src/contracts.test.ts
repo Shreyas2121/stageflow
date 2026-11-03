@@ -3,6 +3,7 @@ import {
   createRoomSlug,
   createRoomSlugFromCrypto,
   parseDisplayName,
+  parseRoomJoinTarget,
   parseRoomMode,
   parseRoomTitle,
 } from './contracts';
@@ -112,5 +113,50 @@ describe('createRoomSlug', () => {
 describe('createRoomSlugFromCrypto', () => {
   it('uses the runtime crypto source to produce a valid slug', () => {
     expect(createRoomSlugFromCrypto()).toMatch(/^[A-Za-z0-9]{12}$/);
+  });
+});
+
+describe('parseRoomJoinTarget', () => {
+  const origin = 'https://stageflow.test';
+  const slug = 'Ab12Cd34Ef56';
+  const failure = {
+    ok: false as const,
+    error: 'invalid_room_link' as const,
+    message: 'Enter a room slug or a link to a room on this app.',
+  };
+
+  it('accepts a slug, the room path, and an absolute url on the supplied origin', () => {
+    expect(parseRoomJoinTarget(slug, origin)).toEqual({ ok: true, value: slug });
+    expect(parseRoomJoinTarget(`  ${slug}  `, origin)).toEqual({ ok: true, value: slug });
+    expect(parseRoomJoinTarget(`/r/${slug}`, origin)).toEqual({ ok: true, value: slug });
+    expect(parseRoomJoinTarget(`  /r/${slug}  `, origin)).toEqual({ ok: true, value: slug });
+    expect(parseRoomJoinTarget(`${origin}/r/${slug}`, origin)).toEqual({ ok: true, value: slug });
+    expect(parseRoomJoinTarget(`  ${origin}/r/${slug}  `, origin)).toEqual({
+      ok: true,
+      value: slug,
+    });
+    expect(
+      parseRoomJoinTarget('http://localhost:5173/r/Ab12Cd34Ef56', 'http://localhost:5173'),
+    ).toEqual({ ok: true, value: slug });
+  });
+
+  it.each([
+    `${origin}/replay/550e8400-e29b-41d4-a716-446655440000`,
+    '/replay/550e8400-e29b-41d4-a716-446655440000',
+    `https://evil.example/r/${slug}`,
+    `${origin}/r/${slug}?next=1`,
+    `/r/${slug}?next=1`,
+    `${origin}/r/${slug}#hash`,
+    `/r/${slug}#hash`,
+    'Ab12Cd34Ef5',
+    `//stageflow.test/r/${slug}`,
+    `${origin}/r/${slug}/extra`,
+    `/r/${slug}/extra`,
+    `https://user:pass@stageflow.test/r/${slug}`,
+    `/r/${slug}\\extra`,
+    `${origin}/r/${slug}\\extra`,
+    `https://stageflow.test:443/r/${slug}`,
+  ])('rejects %s', (input) => {
+    expect(parseRoomJoinTarget(input, origin)).toEqual(failure);
   });
 });

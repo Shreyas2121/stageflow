@@ -1,4 +1,5 @@
 export * from './contracts';
+export * from './catalog-page';
 export * from './stage';
 export * from './signaling';
 export * from './negotiation';
