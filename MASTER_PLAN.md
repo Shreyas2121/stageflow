@@ -3,9 +3,11 @@
 **Product:** StageFlow\
 **Document purpose:** Product, architecture, scope, and delivery contract for the portfolio version.\
 **Source:** `idea.md`. This document narrows that sketch. On conflict, this file wins.\
-**Status:** Phases 1 and 2 complete. Phase 3 implementation committed and verified with test media; physical acceptance remains open. Phase 4 implementation committed and P4-A01–P4-A06 verified with synthetic host devices; P5-C01 is authorized with the physical checks retained as follow-up (Section 16). Phase 5 is complete with all four slices committed. P5-A01 through P5-A06 passed, with browser media checks using synthetic devices. Phase 6's six slices are committed and the final slice hash is recorded in the guide. P6-A01 through P6-A04 and P6-A07 passed. P6-A05 and P6-A06 remain unverified. P6-A08's automated half passed and its browser half remains open.\
-**Plan version:** `1.0.8`\
-**Last revised:** 2026-11-02
+**Status:** All six feature phases and RC01 through RC17 are committed. RC18 records native Chrome broadcast/playback verification with synthetic devices and the focused acceptance fixes in `326dea3`. Physical P3-A03/P3-A05/P3-A06 observations remain explicitly unverified at the user's request; V1 is not yet fully verified.\
+**Plan version:** `1.0.9`\
+**Last revised:** 2026-11-03
+
+**Revision note (1.0.9):** RC18 reconciles current maintenance, six Redis room keys, shared build/lint caches, real API/PostgreSQL/FFmpeg integration, graceful recorder finish, bounded upload work, guest replay entry, and deferred player loading. Native Chrome acceptance found two browser-only defects: unbound frame APIs and the first live-playlist 404 being excluded from HLS retries. Both are fixed in `326dea3` with regressions. Physical checks remain open by explicit user instruction; no acceptance waiver or production-capacity claim is added. The final RC18 evidence and command limitations are recorded in the Phase 6 guide.
 
 **Revision note (1.0.8):** Phase 6's six slices are committed. The README states the Section 2.2 script and the broadcast limits. P6-A05 and P6-A06 remain unverified because ffmpeg is not on PATH and the two-window playback script was not run. P6-A08's browser half remains open. The Phase 3 physical observations stay open follow-up.
 
@@ -287,13 +289,14 @@ One active API owns each namespace through a non-expiring `<LIVE_NAMESPACE>:owne
 
 Configured HTTP/guest/network authentication rates, per-user socket event rates, pending authentication/guest work, and socket/room queues bound public work. Rejections are explicit HTTP 429/503 or socket `rate_limited`/`server_busy` responses. Leave bypasses event rates, receives reserved queue capacity, and runs before waiting normal work at queue boundaries; active mutations retain their order. These engineering budgets do not introduce an attendee maximum or change the four-member stage or 12-hour guest token lifetime. The README and `.env.example` record deployment defaults, trusted proxy handling, limits, and operator recovery.
 
-| Key                             | Type                                    | Meaning                                              |
-| ------------------------------- | --------------------------------------- | ---------------------------------------------------- |
-| `sf:room:{roomId}:rev`          | integer                                 | Monotonic revision                                   |
-| `sf:room:{roomId}:participants` | hash `socketId → JSON`                  | Presence                                             |
-| `sf:room:{roomId}:stage`        | set of socket ids                       | Current stage                                        |
-| `sf:room:{roomId}:hands`        | sorted set, score = server timestamp ms | Raised hands                                         |
-| `sf:room:{roomId}:broadcast`    | string broadcast id                     | Present only while `STARTING`, `LIVE`, or `STOPPING` |
+| Key                             | Type                                    | Meaning                                                 |
+| ------------------------------- | --------------------------------------- | ------------------------------------------------------- |
+| `sf:room:{roomId}:rev`          | integer                                 | Monotonic revision                                      |
+| `sf:room:{roomId}:participants` | hash `socketId → JSON`                  | Presence                                                |
+| `sf:room:{roomId}:stage`        | set of socket ids                       | Current stage                                           |
+| `sf:room:{roomId}:hands`        | sorted set, score = server timestamp ms | Raised hands                                            |
+| `sf:room:{roomId}:broadcast`    | string broadcast id                     | Present only while `STARTING`, `LIVE`, or `STOPPING`    |
+| `sf:room:{roomId}:ending`       | string intent marker                    | Host-ending cleanup retained through dependency failure |
 
 `ParticipantState` fields: `socketId`, `userId`, `displayName`, `role`, `isAudioMuted`, `isVideoOff`, `isScreenSharing`, `isHandRaised`, `isSyntheticBot`, `hostAudioLocked`, `hostVideoLocked`, `joinedAt`.
 
@@ -303,7 +306,7 @@ Configured HTTP/guest/network authentication rates, per-user socket event rates,
 
 Node code loads scripts and passes arguments. It does not `GET` a participant, edit it, and `SET` it back. It does not enforce the 4-slot cap with a separate read.
 
-Each changed transition increments `rev`, refreshes live-key TTLs, and returns the atomic snapshot. The gateway publishes changed snapshots. Successful no-ops and rejected transitions preserve revision and TTLs; rejection returns a stable error code. Host-ending retries retain their separate intent-refresh policy.
+Each changed transition increments `rev`, refreshes live-key TTLs, and returns the atomic snapshot. The gateway publishes changed snapshots in room order. Broadcast projection data is cached with its lifecycle rather than fetched on each media patch. A committed revision whose publication fails stays pending and is reconciled by the next command, including a no-op retry. Successful no-ops and rejected transitions preserve revision and TTLs; rejection returns a stable error code. Host-ending retries retain their separate intent-refresh policy.
 
 Required scripts:
 
@@ -523,18 +526,18 @@ Audio: one `AudioContext` mixes current unmuted stage tracks, local and remote, 
 
 `POST /api/broadcasts/:id/chunks` with raw body, header `x-chunk-sequence` as a non-negative integer, and `content-type: application/octet-stream`.
 
-| Rule            | Behavior                                                                                     |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| Caller          | The host user of that broadcast                                                              |
-| Maximum body    | 2_000_000 bytes                                                                              |
-| Accept          | `sequence === nextExpected`. Write those bytes to the FFmpeg stdin. Increment `nextExpected` |
-| Duplicate       | Same sequence, same SHA-256 already accepted → `204` and write nothing                       |
-| Conflict        | Same sequence, different hash → `409`                                                        |
-| Future sequence | `409`. V1 does not reorder a window                                                          |
-| Client pipeline | Send sequence `n+1` only after `n` returns `204`                                             |
-| Client buffer   | Hold at most 8 unsent blobs. Beyond that, stop locally and call broadcast stop with failure  |
+| Rule            | Behavior                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------- |
+| Caller          | The host user of that broadcast                                                                       |
+| Maximum body    | 2_000_000 bytes                                                                                       |
+| Accept          | `sequence === nextExpected`. Write those bytes to the FFmpeg stdin. Increment `nextExpected`          |
+| Duplicate       | Same sequence, same SHA-256 already accepted → `204` and write nothing                                |
+| Conflict        | Same sequence, different hash → `409`                                                                 |
+| Future sequence | `409`. V1 does not reorder a window                                                                   |
+| Client pipeline | Send sequence `n+1` only after `n` returns `204`                                                      |
+| Client buffer   | At most 8 unsent blobs and 8,000,000 bytes, including the active request; overflow fails the producer |
 
-The accept decision is the pure function tested under QA-01. The controller uses it.
+The API service uses the pure accept decision tested under QA-01. The attempt owns one append-only hash map and commits a sequence/hash only after a successful FFmpeg write; decisions do not copy history. Each browser chunk request has a 10-second deadline. Normal stop collects the native final blob, drains accepted uploads within 8 seconds, then sends server stop; final-blob collection also has an 8-second bound. Abort on leave/page exit releases media immediately. Native recorder failure, unexpected stop and missing input use the producer-failure path. The Phase 6 contract records first-input/inactivity deadlines and stop acknowledgement reconciliation.
 
 ### 11.4 FFmpeg
 
@@ -569,7 +572,7 @@ The API serves that broadcast directory and nothing above it.
 - Segments: long cache, MIME `video/mp2t`.
 - No directory index.
 
-Attendees, and the replay page, use `hls.js` against the playlist URL in the snapshot. While status is `LIVE` or `STOPPING`, the player follows the live edge. While `READY`, it is a VOD control. `FAILED` shows `errorMessage` and no fake player. Before the first broadcast, the attendee view shows the roster and the sentence that the host has not started the broadcast.
+Attendees, and the replay page, load `hls.js` only when playback is requested, against the same-origin playlist URL in the shared broadcast DTO. Guest credentials never go to an external media origin. Live startup retries the initial playlist 404 within the existing six-retry budget; VOD and authentication failures retain their normal policy. A fresh replay visitor enters a name on that replay route without creating an unrelated room. While status is `LIVE` or `STOPPING`, the player follows the live edge. While `READY`, it is a VOD control. `FAILED` shows `errorMessage` and no fake player. Before the first broadcast, the attendee view shows the roster and the sentence that the host has not started the broadcast.
 
 Stage members do not watch HLS of themselves. They keep the mesh tiles.
 
@@ -678,9 +681,9 @@ From the repo root, the phase guide or requested remediation slice names the exa
 | API lifecycle                  | Build shared first, then API typecheck/lint and relevant service regressions. Lua or live-persistence changes also run real Redis integration tests                                   |
 | Shared contracts or algorithms | Shared build/typecheck/lint/tests, both dependent app checks, and affected consumer tests                                                                                             |
 | Dependencies or configuration  | Validate frozen installation and affected checks. Workspace tooling, root lint/config, and lockfile changes can affect every package; run both builds for workspace/toolchain changes |
-| Merge or release               | Full workspace typecheck/lint/tests/format, both builds, isolated Redis integration, artifact checks, and relevant recorded browser/media acceptance                                  |
+| Merge or release               | Full workspace typecheck/lint/tests/format, both builds, isolated Redis and real API/PostgreSQL/FFmpeg integration, artifacts, audit, and recorded browser/media acceptance           |
 
-Dependent `dev`, `build`, `test`, and `typecheck` commands compile `@stageflow/shared` before they use it (remediation C14). Root `dev`, `build`, `test`, `test:unit`, `test:integration`, and `check` use that order. `pnpm --filter @stageflow/shared build` remains available. Affected package selection is still manual until the CI slice. Docs-only checks cannot substitute for missing product acceptance. Full merge/release verification remains required after the selected remediation sequence.
+Dependent `dev`, `build`, `test`, and `typecheck` commands verify the current shared generation before use. Root check graphs prepare shared once; standalone tasks repair stale/missing output through ensure, while an explicit shared build recompiles. Shared writer ownership, readiness fingerprints and emitted-file hashes prevent stale or overlapping builds. Lint fingerprints follow package/transitive/config dependencies, with shared inputs invalidating both apps and unrelated app edits preserving other caches. `pnpm check:affected` selects checks automatically; API/shared and browser broadcast-service changes exercise the real API/FFmpeg integration. Markdown-only edits run formatting unless a full gate is explicitly selected. Docs-only checks cannot substitute for missing product acceptance. Full merge/release verification remains required after the selected remediation sequence.
 
 A commit that adds a pure function includes its tests. A bug fix includes a behavioral regression when it can be reproduced in a service or adapter; existing relevant tests remain part of the gate.
 
@@ -712,7 +715,7 @@ If no browser tool is available, say so in the handoff and leave the browser acc
 
 ### 14.5 FFmpeg
 
-The argument builder test does not spawn FFmpeg. Phase 6's exit also runs one real broadcast of a few seconds with FFmpeg on `PATH` and confirms `ENDLIST` is in the playlist. If the binary is missing, CAST-03 stays unverified and the API-startup behavior in CAST-02 is still testable.
+The argument builder test does not spawn FFmpeg. Phase 6's exit also runs the isolated `pnpm smoke:broadcast` against the real compiled Nest main, both migrations, PostgreSQL, Redis and FFmpeg (`FFMPEG_PATH` or PATH), decodes its HLS, and confirms READY and ENDLIST. Native browser recording/playback evidence remains separate from that generated-file integration. If the binary is missing, CAST-03 stays unverified and the API-startup behavior in CAST-02 is still testable.
 
 ## 15. Security boundaries
 
@@ -729,7 +732,7 @@ The argument builder test does not spawn FFmpeg. Phase 6's exit also runs one re
 
 Phases are dependency gates. Finish a playable meeting before building the webinar broadcast. Do not start Phase 5 while Phase 4's demo is broken.
 
-**Current delivery state (2026-11-02):** Phases 1 and 2 exited. Phase 3's five slices and hash follow-up are committed through `2a68cf5`, with automated media verification; full exit is open. Phase 4's four slices are committed through `1af2d26`, with its final hash recorded by `b132cc3`. Its own P4-A01–P4-A06 checks passed with synthetic host camera/microphone devices, as recorded in [plans/phase4.md](plans/phase4.md) and its guide. Phase 5 P5-C01 is committed with API service tests and Redis integration. P5-C02 is committed with service tests and a Chrome host-controls check. P5-C03 is committed with service regressions and a synthetic-device Chrome promotion, lock, demotion, and demo-media check. P5-C04 is committed and its hash is recorded; P5-A01 through P5-A06 passed, including the complete two-window sequence, broadcast rejection, and full-stage rejection. Browser device evidence uses synthetic media and does not close the outstanding Phase 3 physical observations. Phase 6's six slices are committed and the final slice hash is recorded in the guide. P6-A01 through P6-A04 and P6-A07 passed. P6-A05 and P6-A06 remain unverified. P6-A08's automated half passed and its browser half remains open.
+**Current delivery state (2026-11-03):** Six feature phases and RC01 through RC17 are committed through `1879ad0`; the RC18 acceptance fixes are `326dea3`. Original phase hashes and historical evidence remain in their guides. RC18 records actual Chrome recording, attendee playback, replay guest entry, short-stop/final-data delivery, failure isolation and leave cleanup with synthetic media. The Phase 6 guide contains the current acceptance and final command results. Physical P3-A03, P3-A05 and P3-A06 remain unverified by explicit user instruction. Feature implementation and synthetic browser evidence do not close the complete V1 definition of done.
 
 **Outstanding Phase 3 observations:** P3-A03 physical microphone input and human audible output; P3-A05 native screen picker and browser stop control; P3-A06 physical camera indicator after leave. The recorded automated checks remain valid within their scope and do not verify these observations.
 

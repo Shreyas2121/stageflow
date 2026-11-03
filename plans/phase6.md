@@ -1,8 +1,8 @@
 # Phase 6 — Broadcast, replay, and the README
 
-**Status:** in progress. P6-C01 through P6-C06 are committed. The guide records the final slice hash. P6-A01 through P6-A04 passed. P6-A07 passed by reading README.md. P6-A05 remains unverified. P6-A06 is unverified. P6-A08's web test passed and its browser half remains open. Phase 5 has exited. The Phase 3 physical observations remain open follow-up and are not closed by this phase.\
-**Last updated:** 2026-11-02.\
-**Master plan:** `MASTER_PLAN.md` version `1.0.8`, Sections 1.4, 2.2, 6.3, 6.5, 7.2, 11, 12.2, 13, 14.5, 16 (Phase 6), and 18.\
+**Status:** All six feature slices are committed. P6-A01 through P6-A08 have passed within their recorded automated/native-browser scope. RC18 verified real Chrome recording and HLS playback with synthetic devices after the acceptance fixes in `326dea3`. Physical Phase 3 observations remain explicitly unverified; the complete V1 gate remains open.\
+**Last updated:** 2026-11-03.\
+**Master plan:** `MASTER_PLAN.md` version `1.0.9`, Sections 1.4, 2.2, 6.3, 6.5, 7.2, 11, 12.2, 13, 14.5, 16 (Phase 6), and 18.\
 **Execution guide:** [phase6/guide.md](phase6/guide.md). That guide owns P6-C01 through P6-C06. This file owns the rules those commits must satisfy.\
 **Requirement IDs:** CAST-01, CAST-02, CAST-03, ROOM-03 for in-flight broadcasts, SHIP-01, RTC-05 for the recorder, and the Section 2.2 demo script.
 
@@ -194,7 +194,7 @@ Attendees, and the replay page, use `hls.js` against the playlist URL. While the
 
 Add `hls.js` when the player slice starts. Resolve the current stable version then and commit the lockfile. Do not copy a version from `idea.md`. The home page must not download it.
 
-A `READY` broadcast links to `/replay/:broadcastId`. Do not add a library tab.
+A `READY` broadcast links to `/replay/:broadcastId`. A visitor without a usable session enters a name on that replay route, receives a guest session without a room operation, and stays at the validated local replay destination. Do not add a library tab.
 
 ### 5.8 Disk and the README
 
@@ -204,20 +204,20 @@ The README states the Section 2.2 script, the 4-person mesh ceiling, the 8–20 
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                                                       | Method                                 | Status                        |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------- |
-| P6-A01 | `acceptChunk` covers the next sequence, a duplicate hash, a conflicting hash, a future sequence, and an oversize body. `buildHlsArgs` locks Section 5.6 | `pnpm --filter @stageflow/shared test` | passed                        |
-| P6-A02 | Owning startup marks in-flight rows `FAILED` with `api restarted`, keeps `READY`, and still clears only that namespace's live keys. Room rows remain    | API test                               | passed                        |
-| P6-A03 | A meeting and a second start are rejected with no extra row. A missing FFmpeg binary sets `FAILED`, clears the key, and does not remove stage members   | API service test                       | passed                        |
-| P6-A04 | A resolved path outside `DATA_ROOT` is rejected. Playlist and segment responses use the Section 5.7 cache and MIME values                               | API test                               | passed                        |
-| P6-A05 | A few seconds of real FFmpeg output include `#EXT-X-ENDLIST`. A non-zero exit is `FAILED` with a visible error and no player                            | FFmpeg on `PATH`, then the browser     | unverified                    |
-| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                | unverified                    |
-| P6-A07 | The README states every limitation in Section 5.8                                                                                                       | Read `README.md`                       | passed                        |
-| P6-A08 | Host leave stops the canvas frame, the recorder, the upload loop, and the mix context                                                                   | Web test and browser                   | web test passed; browser open |
+| ID     | Observable result                                                                                                                                       | Method                                             | Status                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------- |
+| P6-A01 | `acceptChunk` covers the next sequence, a duplicate hash, a conflicting hash, a future sequence, and an oversize body. `buildHlsArgs` locks Section 5.6 | `pnpm --filter @stageflow/shared test`             | passed                                                                |
+| P6-A02 | Owning startup marks in-flight rows `FAILED` with `api restarted`, keeps `READY`, and still clears only that namespace's live keys. Room rows remain    | API test                                           | passed                                                                |
+| P6-A03 | A meeting and a second start are rejected with no extra row. A missing FFmpeg binary sets `FAILED`, clears the key, and does not remove stage members   | API service test                                   | passed                                                                |
+| P6-A04 | A resolved path outside `DATA_ROOT` is rejected. Playlist and segment responses use the Section 5.7 cache and MIME values                               | API test                                           | passed                                                                |
+| P6-A05 | A few seconds of real FFmpeg output include `#EXT-X-ENDLIST`. A non-zero exit is `FAILED` with a visible error and no player                            | Real FFmpeg via `FFMPEG_PATH`/`PATH`, then browser | passed (2026-11-03; real FFmpeg and native Chrome, synthetic devices) |
+| P6-A06 | The Section 2.2 webinar script plays live HLS to an attendee with no peer connection, then plays the replay. Stage members keep the mesh                | Browser                                            | passed (2026-11-03; native Chrome, synthetic devices)                 |
+| P6-A07 | The README states every limitation in Section 5.8                                                                                                       | Read `README.md`                                   | passed                                                                |
+| P6-A08 | Host leave stops the canvas frame, the recorder, the upload loop, and the mix context                                                                   | Web test and browser                               | passed (2026-11-03; service regressions and native Chrome cleanup)    |
 
 CAST-01 is A01 and A03. CAST-02 is A03 and A06. CAST-03 is A05. ROOM-03 for broadcasts is A02. SHIP-01 is A07. RTC-05 for the recorder is A08. The Section 2.2 gate is A06.
 
-If `ffmpeg` is not on `PATH`, A05 stays unverified. A03 still covers the missing-binary half of CAST-02.
+If neither `FFMPEG_PATH` nor `PATH` provides real FFmpeg, A05 stays unverified. A03 still covers the missing-binary half of CAST-02.
 
 ## 7. Verification commands
 
@@ -260,3 +260,5 @@ Both searches print nothing.
 Phase 6 is done when A01–A08 are verified and each slice is committed under master Section 1.4. A missing FFmpeg binary leaves A05 unverified rather than failed by a skip. The two-window check uses a real attendee window. A demo peer can fill the stage, and it does not replace that attendee.
 
 There is no later phase. A finished V1 still carries the open Phase 3 physical observations until those are recorded. `READY` replays remain playable after a restart. The repository must contain no secrets, no filled `.env`, and no broadcast media.
+
+RC18 current evidence (2026-11-03): P6-A05/A06/A08 were exercised through native Chrome 156.0.8078.74 on Windows with synthetic devices and real FFmpeg 6.0, against `326dea3`. The Phase 6 guide records live/replay metrics, final-tail ordering, a short recording, native recorder stop, actual encoder termination, guest replay entry, host leave, navigation/history cleanup and command results. These observations do not verify physical input, human audible output, the native picker/stop UI, or hardware indicators. The user explicitly retained those P3-A03/P3-A05/P3-A06 gaps.

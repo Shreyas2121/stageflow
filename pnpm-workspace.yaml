@@ -3,5 +3,5 @@ packages:
   - 'packages/*'
 
 overrides:
-  # Same-major security fix; recheck this scoped pin on Nest upgrades (review.md C02).
+  # Same-major security fix; recheck this scoped pin on Nest upgrades (historical remediation C02; current dependency verification: review.md RC18).
   '@nestjs/platform-express@11.2.8>multer': 2.5.0

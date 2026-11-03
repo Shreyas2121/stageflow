@@ -285,3 +285,5 @@ Guest leave during a share closed peers, cleared retained video srcObjects, stop
 ## 7. Phase exit
 
 Update the phase acceptance statuses to `verified` only for checks that were actually run. Those lines belong in the P3-C05 commit. The follow-up commit is `docs(phase3): record the final slice hash`.
+
+RC18 physical follow-up (2026-11-03): the user explicitly requested that physical observations remain unverified. No physical microphone input/human audible output (P3-A03), native screen picker/browser stop UI (P3-A05), or camera hardware indicator (P3-A06) observation was performed. Native Chrome synthetic-device broadcast/playback/cleanup evidence is recorded in the Phase 6 guide and does not close these gaps. Phase 3 full exit and the complete V1 definition of done remain open.
