@@ -11,6 +11,7 @@ import type {
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
 import type { BroadcastRecorder, RecorderFinish } from '../../broadcast/services/stage-recorder';
+import type { InputKind } from './local-media';
 import { RoomSession, type RoomMedia } from './room-session';
 import { useRoomStore } from '../stores/room-store';
 import type { RoomConnection } from './signaling';
@@ -64,8 +65,23 @@ function snapshot(
   };
 }
 
+function liveTrack(kind: 'audio' | 'video'): MediaStreamTrack {
+  const captured = {
+    kind,
+    enabled: true,
+    readyState: 'live' as MediaStreamTrackState,
+    stop: vi.fn(() => {
+      captured.readyState = 'ended';
+    }),
+  };
+  return captured as unknown as MediaStreamTrack;
+}
+
 class FakeMedia implements RoomMedia {
   screen: MediaStreamTrack | null = null;
+  microphone: MediaStreamTrack | null = null;
+  camera: MediaStreamTrack | null = null;
+  held: { kind: InputKind; track: MediaStreamTrack } | null = null;
   ready = false;
   stopped = 0;
   lobbyReleased = 0;
@@ -88,14 +104,37 @@ class FakeMedia implements RoomMedia {
     this.lobbyReleased += 1;
   }
   applyFlags = vi.fn<RoomMedia['applyFlags']>();
+  replaceInput = vi.fn<RoomMedia['replaceInput']>(async (kind) => {
+    const track = liveTrack(kind === 'camera' ? 'video' : 'audio');
+    this.held = { kind, track };
+    return track;
+  });
+  commitInput = vi.fn<RoomMedia['commitInput']>((kind, track) => {
+    if (this.held?.track !== track || this.held.kind !== kind) {
+      track.stop();
+      return;
+    }
+    this.held = null;
+    if (kind === 'microphone') {
+      this.microphone?.stop();
+      this.microphone = track;
+      return;
+    }
+    this.camera?.stop();
+    this.camera = track;
+  });
+  abortInput = vi.fn<RoomMedia['abortInput']>((track) => {
+    if (this.held?.track === track) this.held = null;
+    track.stop();
+  });
   setSpeaker(): Promise<{ ok: boolean; supported: boolean; deviceId: string; message: string }> {
     return Promise.resolve({ ok: true, supported: false, deviceId: '', message: '' });
   }
-  microphoneTrack(): null {
-    return null;
+  microphoneTrack(): MediaStreamTrack | null {
+    return this.microphone;
   }
-  cameraTrack(): null {
-    return null;
+  cameraTrack(): MediaStreamTrack | null {
+    return this.camera;
   }
   screenTrack(): MediaStreamTrack | null {
     return this.screen;
@@ -119,7 +158,12 @@ function fakePeers() {
     close: vi.fn(),
     description: vi.fn(),
     candidate: vi.fn(),
-    replaceVideoTrack: vi.fn(() => Promise.resolve()),
+    replaceVideoTrack: vi.fn<(track: MediaStreamTrack | null) => Promise<void>>(() =>
+      Promise.resolve(),
+    ),
+    replaceAudioTrack: vi.fn<(track: MediaStreamTrack | null) => Promise<void>>(() =>
+      Promise.resolve(),
+    ),
     statsConnections: () => [],
   };
 }
@@ -1139,5 +1183,220 @@ describe('RoomSession', () => {
     await spawning;
     expect(session.demoCount).toBe(0);
     expect(session.phase).toBe('joined');
+  });
+
+  it('does not capture when the member cannot replace a device', async () => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+
+    const lobby = open();
+    await lobby.session.replaceDevice('microphone', 'mic-2');
+    expect(lobby.media.replaceInput).not.toHaveBeenCalled();
+    expect(lobby.media.prepareCalls).toBe(0);
+
+    const attendee = open({ room: webinar, userId: 'guest' });
+    attendee.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'ATTENDEE', false, 1), mode: 'WEBINAR' });
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await attendee.session.join();
+    await attendee.session.replaceDevice('camera', 'cam-2');
+    expect(attendee.media.replaceInput).not.toHaveBeenCalled();
+
+    const stage = open();
+    await joinStage(stage.session, stage.media, stage.connection);
+    useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 2));
+    await stage.session.replaceDevice('microphone', 'mic-2');
+    expect(stage.media.replaceInput).not.toHaveBeenCalled();
+
+    const consent = await promotedAttendee();
+    await consent.session.replaceDevice('microphone', 'mic-2');
+    expect(consent.media.replaceInput).not.toHaveBeenCalled();
+    expect(consent.media.prepareCalls).toBe(0);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('keeps a host-locked microphone disabled and does not send an unmute', async () => {
+    const h = open();
+    h.media.ready = true;
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive({
+        ...snapshot('self', 'HOST', true, 1),
+        participants: [{ ...person('self', 'HOST'), hostAudioLocked: true, isAudioMuted: true }],
+      });
+      return { ok: true, selfSocketId: 'self', iceServers: [] };
+    });
+    await h.session.join();
+    h.connection.media.mockClear();
+    const next = liveTrack('audio');
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    await h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.media.replaceInput).toHaveBeenCalledExactlyOnceWith('microphone', 'mic-2');
+    expect(next.enabled).toBe(false);
+    expect(h.peers.replaceAudioTrack).toHaveBeenCalledExactlyOnceWith(next);
+    expect(h.connection.media).not.toHaveBeenCalled();
+    expect(h.media.applyFlags).toHaveBeenCalledWith(true, false);
+    expect(h.session.audioLocked).toBe(true);
+  });
+
+  it('publishes a replaced microphone to the broadcast only after it is committed', async () => {
+    const recorder = recorderFake();
+    const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
+    const previous = liveTrack('audio');
+    const next = liveTrack('audio');
+    h.media.microphone = previous;
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    await startLiveBroadcast(h);
+    expect(recorder.update.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({ id: 'self', audioTrack: previous }),
+    ]);
+    h.peers.replaceAudioTrack.mockImplementation(async (track) => {
+      expect(track).toBe(next);
+      expect(h.media.microphoneTrack()).toBe(previous);
+      expect(recorder.update.mock.calls.every((call) => call[0][0]?.audioTrack === previous)).toBe(
+        true,
+      );
+    });
+    await h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.media.microphoneTrack()).toBe(next);
+    expect(previous.readyState).toBe('ended');
+    expect(recorder.update.mock.calls.at(-1)?.[0]).toEqual([
+      expect.objectContaining({ id: 'self', audioTrack: next }),
+    ]);
+    const committedAt = h.media.commitInput.mock.invocationCallOrder[0];
+    const publishedAt = recorder.update.mock.invocationCallOrder.at(-1);
+    expect(committedAt).toBeLessThan(publishedAt ?? 0);
+    const heard = h.speaker.sync.mock.calls.at(-1)?.[0] as Map<string, MediaStreamTrack>;
+    expect(heard.get('self')).toBe(next);
+  });
+
+  it('stores a camera chosen during screen share and restores it when the share stops', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    const previous = liveTrack('video');
+    const next = liveTrack('video');
+    const screen = liveTrack('video');
+    h.media.camera = previous;
+    h.media.screen = screen;
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    await h.session.replaceDevice('camera', 'cam-2');
+    expect(h.peers.replaceVideoTrack).not.toHaveBeenCalled();
+    expect(h.media.cameraTrack()).toBe(next);
+    expect(previous.readyState).toBe('ended');
+    expect(screen.readyState).toBe('live');
+    expect(h.media.screenTrack()).toBe(screen);
+    await h.session.stopSharing();
+    expect(h.peers.replaceVideoTrack).toHaveBeenCalledExactlyOnceWith(next);
+    expect(screen.readyState).toBe('ended');
+  });
+
+  it('restores the previous microphone when a sender rejects the replacement', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    const previous = liveTrack('audio');
+    const next = liveTrack('audio');
+    h.media.microphone = previous;
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    h.peers.replaceAudioTrack.mockRejectedValueOnce(new Error('replace failed'));
+    await h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.peers.replaceAudioTrack).toHaveBeenNthCalledWith(1, next);
+    expect(h.peers.replaceAudioTrack).toHaveBeenNthCalledWith(2, previous);
+    expect(h.media.abortInput).toHaveBeenCalledWith(next);
+    expect(h.media.commitInput).not.toHaveBeenCalled();
+    expect(h.media.microphoneTrack()).toBe(previous);
+    expect(previous.readyState).toBe('live');
+    expect(next.readyState).toBe('ended');
+    expect(h.session.error).toBe('replace failed');
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.audioLocked).toBe(false);
+  });
+
+  it('disables the microphone when rolling the sender back fails', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    const previous = liveTrack('audio');
+    const next = liveTrack('audio');
+    h.media.microphone = previous;
+    h.media.replaceInput.mockImplementation(async (kind) => {
+      h.media.held = { kind, track: next };
+      return next;
+    });
+    h.peers.replaceAudioTrack.mockRejectedValue(new Error('replace failed'));
+    await h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.peers.replaceAudioTrack).toHaveBeenNthCalledWith(1, next);
+    expect(h.peers.replaceAudioTrack).toHaveBeenNthCalledWith(2, previous);
+    expect(h.media.abortInput).toHaveBeenCalledWith(next);
+    expect(h.media.commitInput).not.toHaveBeenCalled();
+    expect(h.media.microphoneTrack()).toBe(previous);
+    expect(next.readyState).toBe('ended');
+    expect(h.session.audioLocked).toBe(true);
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, false);
+    expect(h.session.error).toBe(
+      'Unable to switch your microphone. The microphone is off until you choose another.',
+    );
+    expect(h.session.phase).toBe('joined');
+  });
+
+  it('stops a replacement that resolves after leave and does not replace the sender', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    let finish!: (track: MediaStreamTrack) => void;
+    h.media.replaceInput.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const pending = h.session.replaceDevice('microphone', 'mic-2');
+    await vi.waitFor(() => expect(h.media.replaceInput).toHaveBeenCalled());
+    const leaving = h.session.leave();
+    const late = liveTrack('audio');
+    finish(late);
+    await pending;
+    await leaving;
+    expect(h.peers.replaceAudioTrack).not.toHaveBeenCalled();
+    expect(h.media.abortInput).toHaveBeenCalledWith(late);
+    expect(late.readyState).toBe('ended');
+    expect(h.session.phase).toBe('lobby');
+  });
+
+  it('stops a replacement that resolves after demotion and does not replace the sender', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    let finish!: (track: MediaStreamTrack) => void;
+    h.media.replaceInput.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const pending = h.session.replaceDevice('camera', 'cam-2');
+    await vi.waitFor(() => expect(h.media.replaceInput).toHaveBeenCalled());
+    useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 2));
+    const late = liveTrack('video');
+    finish(late);
+    await pending;
+    expect(h.peers.replaceVideoTrack).not.toHaveBeenCalled();
+    expect(h.media.abortInput).toHaveBeenCalledWith(late);
+    expect(late.readyState).toBe('ended');
+    expect(h.media.stopped).toBe(1);
+    expect(h.session.phase).toBe('joined');
+    expect(h.connection.close).not.toHaveBeenCalled();
   });
 });

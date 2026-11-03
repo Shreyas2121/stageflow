@@ -336,12 +336,21 @@ export class PeerManager {
   }
 
   async replaceVideoTrack(track: MediaStreamTrack | null): Promise<void> {
+    await this.replaceKind('video', track);
+  }
+
+  async replaceAudioTrack(track: MediaStreamTrack | null): Promise<void> {
+    await this.replaceKind('audio', track);
+  }
+
+  private async replaceKind(
+    kind: 'audio' | 'video',
+    track: MediaStreamTrack | null,
+  ): Promise<void> {
     const results = await Promise.allSettled(
       [...this.peers.values()].map(async ({ pc }) => {
-        const video = pc
-          .getTransceivers()
-          .find((transceiver) => transceiver.receiver.track.kind === 'video');
-        if (video) await video.sender.replaceTrack(track);
+        const transceiver = pc.getTransceivers().find((item) => item.receiver.track.kind === kind);
+        if (transceiver) await transceiver.sender.replaceTrack(track);
       }),
     );
     const failure = results.find((result) => result.status === 'rejected');

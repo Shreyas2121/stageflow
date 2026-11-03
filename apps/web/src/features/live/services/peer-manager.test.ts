@@ -41,11 +41,20 @@ class FakeConnection {
   constructor() {
     connections.push(this);
   }
-  addTrack(track: MediaStreamTrack): Transceiver {
-    const transceiver = { sender: senderFor(track), receiver: { track: { kind: track.kind } } };
+  addTrack = vi.fn((mediaTrack: MediaStreamTrack): Transceiver => {
+    const transceiver = {
+      sender: senderFor(mediaTrack),
+      receiver: { track: { kind: mediaTrack.kind } },
+    };
     this.transceivers.push(transceiver);
     return transceiver;
-  }
+  });
+  addTransceiver = vi.fn((kind: string): Transceiver => {
+    const mediaTrack = track(kind === 'audio' ? 'audio' : 'video');
+    const transceiver = { sender: senderFor(mediaTrack), receiver: { track: { kind } } };
+    this.transceivers.push(transceiver);
+    return transceiver;
+  });
   getTransceivers() {
     return this.transceivers;
   }
@@ -116,6 +125,46 @@ describe('PeerManager screen sharing and initial negotiation', () => {
     expect(camera.enabled).toBe(false);
     camera.enabled = true;
     expect(signaling.description).not.toHaveBeenCalled();
+  });
+
+  it('replaces every audio sender and keeps one audio sender on each peer', async () => {
+    manager.sync('z', ['z', 'a', 'b'], []);
+    expect(connections).toHaveLength(2);
+    for (const pc of connections) {
+      pc.addTrack.mockClear();
+      pc.addTransceiver.mockClear();
+    }
+    const next = track('audio');
+    await manager.replaceAudioTrack(next);
+    for (const pc of connections) {
+      const audio = pc.getTransceivers().filter((item) => item.receiver.track.kind === 'audio');
+      expect(audio).toHaveLength(1);
+      expect(audio[0]?.sender.track).toBe(next);
+      expect(pc.getTransceivers()).toHaveLength(2);
+      expect(pc.getTransceivers()[1]?.sender.track).toBe(camera);
+      expect(pc.addTrack).not.toHaveBeenCalled();
+      expect(pc.addTransceiver).not.toHaveBeenCalled();
+      expect(pc.setLocalDescription).not.toHaveBeenCalled();
+    }
+    expect(signaling.description).not.toHaveBeenCalled();
+  });
+
+  it('rejects an audio replacement only after every peer has settled', async () => {
+    manager.sync('z', ['z', 'a', 'b'], []);
+    const next = track('audio');
+    const senders = connections.map(
+      (pc) => pc.getTransceivers().find((item) => item.receiver.track.kind === 'audio')!.sender,
+    );
+    senders[0]!.replaceTrack.mockRejectedValueOnce(new Error('audio replace failed'));
+    await expect(manager.replaceAudioTrack(next)).rejects.toThrow('audio replace failed');
+    expect(senders[1]!.replaceTrack).toHaveBeenCalledWith(next);
+    for (const pc of connections) {
+      expect(
+        pc.getTransceivers().filter((item) => item.receiver.track.kind === 'audio'),
+      ).toHaveLength(1);
+      expect(pc.addTrack).toHaveBeenCalledTimes(2);
+      expect(pc.addTransceiver).not.toHaveBeenCalled();
+    }
   });
 
   it('reports replacement failures after all peers settle so the caller can safely restore the camera', async () => {

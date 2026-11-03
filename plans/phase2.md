@@ -1,6 +1,6 @@
 # V2 Phase 2 — In-call devices
 
-**Status:** V2P2-C01 input replacement is verified. MEDIA-01 through MEDIA-04 remain planned.\
+**Status:** V2P2-C02 sender replacement is verified. MEDIA-01 through MEDIA-04 remain planned.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md). This file owns the rules those commits must satisfy.\

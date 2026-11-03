@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01 is verified. V2P2-C02 through V2P2-C06 remain planned.\
+**Status:** V2P2-C01 is committed. V2P2-C02 is verified. V2P2-C03 through V2P2-C06 remain planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -48,9 +48,9 @@ Keep the mesh cap, the negotiation reducer, demo peers, host locks, and the broa
 
 ## 2. V2P2-C01 — Replace one captured input
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-media): replace one captured input at a time`\
-**Actual commit:**
+**Actual commit:** `ae00c9946eed0d10e9a0836a7a2798f4958267f8`
 
 **Why:** The stage needs a new track before any sender can change, and the current `prepare` path drops both inputs. Covers the acquisition half of MEDIA-03.
 
@@ -85,7 +85,7 @@ pnpm lint
 
 ## 3. V2P2-C02 — Send the replacement to current peers
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-stage): send a replaced track to current peers`\
 **Actual commit:**
 
