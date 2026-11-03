@@ -3,21 +3,25 @@ import { FormField } from '../components/ui/form-field';
 import {
   DISPLAY_NAME_MAX_LENGTH,
   ROOM_TITLE_MAX_LENGTH,
-  ROOM_SLUG_LENGTH,
-  isRoomSlug,
+  parseDisplayName,
+  parseRoomJoinTarget,
+  parseRoomMode,
+  parseRoomTitle,
+  type RoomMode,
 } from '@stageflow/shared';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
-import { parseDisplayName, parseRoomMode, parseRoomTitle } from '@stageflow/shared';
-import type { RoomMode } from '@stageflow/shared';
 import { createGuest } from '../features/session/api';
 import { createRoom, getRoom } from '../features/rooms/api';
-import { useSessionStore } from '../features/session/session-store';
+import { RoomList } from '../features/rooms/room-list';
+import { usableSession, useSessionStore } from '../features/session/session-store';
 
 export function HomePage() {
-  const session = useSessionStore((state) => state.session);
+  const storedSession = useSessionStore((state) => state.session);
+  const session = usableSession(storedSession);
   const setSession = useSessionStore((state) => state.setSession);
+  const clearSession = useSessionStore((state) => state.clearSession);
   const [displayName, setDisplayName] = useState(session?.displayName ?? '');
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
@@ -29,25 +33,26 @@ export function HomePage() {
       pendingRequest.current?.abort();
       const controller = new AbortController();
       pendingRequest.current = controller;
-      const name = parseDisplayName(displayName);
-      if (!name.ok) throw new Error(name.message);
-      if (action === 'join') {
-        if (!isRoomSlug(slug)) throw new Error('Enter the 12 character room slug.');
+      const current = usableSession(useSessionStore.getState().session);
+      let token = current?.token;
+      if (!token) {
+        const name = parseDisplayName(displayName);
+        if (!name.ok) throw new Error(name.message);
         const guest = await createGuest(name.value, controller.signal);
+        if (controller.signal.aborted) throw controller.signal.reason;
         setSession(guest);
-        return getRoom(slug, guest.token, controller.signal);
+        token = guest.token;
+      }
+      if (action === 'join') {
+        const target = parseRoomJoinTarget(slug, window.location.origin);
+        if (!target.ok) throw new Error(target.message);
+        return getRoom(target.value, token, controller.signal);
       }
       const parsedTitle = parseRoomTitle(title);
       if (!parsedTitle.ok) throw new Error(parsedTitle.message);
       const mode = parseRoomMode(action);
       if (!mode.ok) throw new Error(mode.message);
-      const guest = await createGuest(name.value, controller.signal);
-      setSession(guest);
-      return createRoom(
-        { title: parsedTitle.value, mode: mode.value },
-        guest.token,
-        controller.signal,
-      );
+      return createRoom({ title: parsedTitle.value, mode: mode.value }, token, controller.signal);
     },
     onSuccess: (room) => {
       if (!pendingRequest.current?.signal.aborted) void navigate(`/r/${room.slug}`);
@@ -76,18 +81,42 @@ export function HomePage() {
         aria-busy={submit.isPending}
       >
         <legend className="sr-only">Your name and room options</legend>
-        <FormField
-          id="display-name"
-          name="displayName"
-          label="Your display name"
-          hint="The name others will see. No account needed."
-          autoComplete="nickname"
-          placeholder="e.g. Ava"
-          maxLength={DISPLAY_NAME_MAX_LENGTH}
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          className="grid items-center gap-4 border-b border-line p-6 layout:grid-cols-2 layout:gap-8 layout:px-7.5 layout:py-6.5"
-        />
+        {session ? (
+          <div className="grid items-center gap-4 border-b border-line p-6 layout:grid-cols-2 layout:gap-8 layout:px-7.5 layout:py-6.5">
+            <div>
+              <p className="mb-2.5 text-[13px] font-medium">Your display name</p>
+              <p className="m-0 text-sm">{session.displayName}</p>
+            </div>
+            <div>
+              <p className="mb-4 text-xs text-muted">
+                These rooms stay with this guest token. A new session cannot find them by display
+                name.
+              </p>
+              <Button
+                type="button"
+                onClick={() => {
+                  pendingRequest.current?.abort();
+                  clearSession();
+                }}
+              >
+                Use a different name
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <FormField
+            id="display-name"
+            name="displayName"
+            label="Your display name"
+            hint="The name others will see. No account needed."
+            autoComplete="nickname"
+            placeholder="e.g. Ava"
+            maxLength={DISPLAY_NAME_MAX_LENGTH}
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+            className="grid items-center gap-4 border-b border-line p-6 layout:grid-cols-2 layout:gap-8 layout:px-7.5 layout:py-6.5"
+          />
+        )}
         <div className="grid layout:grid-cols-2">
           <form
             className="min-w-0 px-6 py-6 layout:p-7.5"
@@ -141,18 +170,17 @@ export function HomePage() {
             </p>
             <h2 className="mb-2.5 text-[22px] font-medium tracking-tight">Have a room slug?</h2>
             <p className="mb-6 text-sm text-muted layout:mb-7 layout:min-h-11 layout:max-w-70">
-              Enter the slug shared with you to open that room.
+              Enter the slug or paste a room link from this app.
             </p>
             <FormField
               id="room-slug"
               name="slug"
               label="Room slug"
-              placeholder="12 character slug"
+              placeholder="Slug or room link"
               inputClassName="font-mono tracking-wide"
               autoComplete="off"
               autoCapitalize="none"
               spellCheck={false}
-              maxLength={ROOM_SLUG_LENGTH}
               value={slug}
               onChange={(event) => setSlug(event.target.value)}
             />
@@ -175,6 +203,27 @@ export function HomePage() {
           Error: {submit.error.message}
         </p>
       )}
+      <section className="mt-8" aria-labelledby="guest-rooms">
+        <h2 id="guest-rooms" className="mb-2 text-[22px] font-medium tracking-tight">
+          Rooms from this guest session
+        </h2>
+        {session ? (
+          <>
+            <p className="m-0 text-sm text-muted">
+              These rooms belong to this guest session. A new or expired session cannot find them by
+              typing the same display name.
+            </p>
+            <p className="mt-2 mb-0 text-sm text-muted">
+              LIVE means the room has not ended. It does not mean someone is connected.
+            </p>
+            <RoomList key={session.userId} session={session} />
+          </>
+        ) : (
+          <p className="mt-2 mb-0 text-sm text-muted">
+            Enter a display name to start a guest session. Rooms from that session appear here.
+          </p>
+        )}
+      </section>
       <aside className="mt-6.5 flex items-start gap-3 rounded-lg border border-dashed border-note-line px-5 py-4.5">
         <span
           className="mt-0.5 size-5 shrink-0 rounded-full border border-note-marker-line text-center font-serif text-xs leading-[18px] text-note-marker"

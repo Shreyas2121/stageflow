@@ -1,6 +1,6 @@
 # V2 Phase 1 — Room and replay workspace
 
-**Status:** V2P1-C03 broadcast history catalog is verified. The browser half of WS-01, the browser half of WS-02, and the browser half of WS-03 remain planned. WS-03 smoke is unverified.\
+**Status:** V2P1-C04 home workspace is verified. The browser checks for WS-01, WS-02, and WS-03 remain unverified. WS-03 smoke is unverified.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.2`, Sections 1, 3.1, 5, 6, 10, 11, and 12 (WS-01 through WS-03). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V2P1-C01 through V2P1-C05. Those ids are not the V1 commits in [V1/phase1/guide.md](V1/phase1/guide.md). This file owns the rules those commits must satisfy.\
@@ -185,7 +185,7 @@ Owning a room in the host list does not change who may open `/replay/{id}` or `G
 | WS-02 | The raw slug and this app's `/r/{slug}` URL open the same room. Another origin, a replay URL, a query string, and a short slug fail with `invalid_room_link` and do not navigate. Existing room and replay entry still render                        | Shared parser tests and a browser join                                                                    | planned |
 | WS-03 | One history page can show all five statuses. Only `READY` with a catalog playlist links to the current replay route. After an API restart the READY row is still listed and its replay plays. Smoke reads the page object and still finishes READY   | API catalog test, web history test, `pnpm smoke:broadcast` when disposable services exist, browser replay | planned |
 
-WS-01 includes the visible session-limit sentence. WS-03 includes a null thumbnail and a fallback. A missing browser or disposable Postgres leaves only the corresponding method unverified. On 2026-11-03 the broadcast catalog service test shows `STARTING`, `LIVE`, `STOPPING`, `READY`, and `FAILED` on one page. `pnpm smoke:broadcast` was not run because `FFMPEG_PATH` does not point at a file and `ffmpeg` is not on PATH, so that half of WS-03 stays unverified. Web history and browser replay stay planned.
+WS-01 includes the visible session-limit sentence. WS-03 includes a null thumbnail and a fallback. A missing browser or disposable Postgres leaves only the corresponding method unverified. On 2026-11-03 the broadcast catalog service test shows `STARTING`, `LIVE`, `STOPPING`, `READY`, and `FAILED` on one page. `pnpm smoke:broadcast` was not run because `FFMPEG_PATH` does not point at a file and `ffmpeg` is not on PATH, so that half of WS-03 stays unverified. The home workspace tests cover replay links, private catalog queries, and a home page that does not mention `hls`. The browser script for WS-01 through WS-03 was not run, so those observations stay unverified.
 
 ## 7. Verification commands
 

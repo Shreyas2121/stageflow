@@ -1,6 +1,6 @@
 # Guide — V2 Phase 1, commit by commit
 
-**Status:** V2P1-C01 and V2P1-C02 are committed. V2P1-C03 is verified. V2P1-C04 and V2P1-C05 remain planned.\
+**Status:** V2P1-C01, V2P1-C02, and V2P1-C03 are committed. V2P1-C04 is verified. V2P1-C05 remains planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.2`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -127,9 +127,9 @@ pnpm lint
 
 ## 4. V2P1-C03 — Paged broadcast history and thumbnail
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): page broadcast history and expose a thumbnail`\
-**Actual commit:**
+**Actual commit:** `595fe276a6af6e67e3c8526189340dd79e91c153`
 
 **Why:** The existing list is unbounded and smoke still depends on it. The catalog can name a thumbnail without generating one. Covers the catalog half of WS-03.
 
@@ -177,7 +177,7 @@ Run `pnpm smoke:broadcast` when disposable Postgres, Redis, and FFmpeg are avail
 
 ## 5. V2P1-C04 — Workspace on the home page
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-home): show this guest's rooms and recordings`\
 **Actual commit:**
 

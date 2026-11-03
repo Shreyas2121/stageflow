@@ -11,7 +11,13 @@ function source(path: string): string {
 
 describe('home entry', () => {
   it('does not mention hls on the home page or the web entry', () => {
-    expect(source('pages/HomePage.tsx').toLowerCase()).not.toContain('hls');
+    const home = source('pages/HomePage.tsx');
+    expect(home.toLowerCase()).not.toContain('hls');
+    expect(home).not.toContain('broadcast-player');
+    expect(home).not.toContain('broadcast-player-gate');
+    expect(home).not.toContain('hls.js');
+    expect(home).not.toContain('LiveRoom');
+    expect(home).toContain('Rooms from this guest session');
     expect(source('main.tsx').toLowerCase()).not.toContain('hls');
   });
 
