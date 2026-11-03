@@ -264,3 +264,205 @@ describe('LocalMedia lobby capture', () => {
     expect(media.previewStream()).toBeNull();
   });
 });
+
+describe('LocalMedia input replacement', () => {
+  function deferStream() {
+    let finish!: (value: MediaStream) => void;
+    const promise = new Promise<MediaStream>((resolve) => {
+      finish = resolve;
+    });
+    return { promise, finish: (value: MediaStream) => finish(value) };
+  }
+
+  it('replaces a microphone without requesting video or stopping the live inputs until commit', async () => {
+    await prepare();
+    media.applyFlags(true, false);
+    const next = track('audio');
+    const getUserMedia = vi.mocked(navigator.mediaDevices.getUserMedia);
+    getUserMedia.mockClear();
+    getUserMedia.mockResolvedValue(stream([next]));
+    const held = await media.replaceInput('microphone', 'mic-2');
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { deviceId: { exact: 'mic-2' } },
+      video: false,
+    });
+    expect(held).toBe(next);
+    expect(next.enabled).toBe(false);
+    expect(camera.readyState).toBe('live');
+    expect(microphone.readyState).toBe('live');
+    expect(media.cameraTrack()).toBe(camera);
+    expect(media.microphoneTrack()).toBe(microphone);
+    media.commitInput('microphone', next);
+    expect(microphone.readyState).toBe('ended');
+    expect(media.microphoneTrack()).toBe(next);
+    expect(media.cameraTrack()).toBe(camera);
+    expect(camera.readyState).toBe('live');
+  });
+
+  it('aborts a held microphone and leaves the stored microphone in place', async () => {
+    await prepare();
+    const next = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(stream([next]));
+    const held = await media.replaceInput('microphone', 'mic-2');
+    expect(held).toBe(next);
+    media.abortInput(next);
+    expect(next.readyState).toBe('ended');
+    expect(media.microphoneTrack()).toBe(microphone);
+    expect(microphone.readyState).toBe('live');
+    expect(media.cameraTrack()).toBe(camera);
+  });
+
+  it('keeps a live screen share in place while a camera replacement commits', async () => {
+    await prepare();
+    const screen = track('video');
+    display.mockResolvedValue(stream([screen]));
+    await media.startScreenShare();
+    media.applyFlags(false, true);
+    const next = track('video');
+    const getUserMedia = vi.mocked(navigator.mediaDevices.getUserMedia);
+    getUserMedia.mockClear();
+    getUserMedia.mockResolvedValue(stream([next]));
+    const held = await media.replaceInput('camera', '');
+    expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: false });
+    expect(held).toBe(next);
+    expect(next.enabled).toBe(false);
+    expect(screen.readyState).toBe('live');
+    expect(screen.enabled).toBe(true);
+    expect(media.screenTrack()).toBe(screen);
+    expect(media.cameraTrack()).toBe(camera);
+    expect(camera.readyState).toBe('live');
+    media.commitInput('camera', next);
+    expect(media.cameraTrack()).toBe(next);
+    expect(camera.readyState).toBe('ended');
+    expect(screen.readyState).toBe('live');
+    expect(media.screenTrack()).toBe(screen);
+    expect(microphone.readyState).toBe('live');
+  });
+
+  it('keeps the previous microphone when acquisition fails', async () => {
+    await prepare();
+    const getUserMedia = vi.mocked(navigator.mediaDevices.getUserMedia);
+    getUserMedia.mockClear();
+    getUserMedia.mockRejectedValueOnce(new Error('denied'));
+    await expect(media.replaceInput('microphone', 'mic-2')).rejects.toThrow(
+      'Unable to use your microphone. Allow microphone permission and check the selected device, then try again.',
+    );
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: { deviceId: { exact: 'mic-2' } },
+      video: false,
+    });
+    expect(media.microphoneTrack()).toBe(microphone);
+    expect(media.cameraTrack()).toBe(camera);
+    expect(microphone.readyState).toBe('live');
+    expect(camera.readyState).toBe('live');
+
+    getUserMedia.mockRejectedValueOnce(new Error('denied'));
+    await expect(media.replaceInput('camera', 'cam-2')).rejects.toThrow(
+      'Unable to use your camera. Allow camera permission and check the selected device, then try again.',
+    );
+    expect(getUserMedia).toHaveBeenLastCalledWith({
+      video: { deviceId: { exact: 'cam-2' } },
+      audio: false,
+    });
+    expect(microphone.readyState).toBe('live');
+    expect(camera.readyState).toBe('live');
+  });
+
+  it('ends a stream that resolves after stop and does not open a queued replacement', async () => {
+    await prepare();
+    const firstCapture = deferStream();
+    let calls = 0;
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(() => {
+      calls += 1;
+      return firstCapture.promise;
+    });
+    const pending = media.replaceInput('microphone', 'late');
+    await vi.waitFor(() => expect(calls).toBe(1));
+    const queued = media.replaceInput('microphone', 'queued');
+    media.stop();
+    const late = track('audio');
+    firstCapture.finish(stream([late]));
+    await expect(pending).resolves.toBeNull();
+    await expect(queued).resolves.toBeNull();
+    expect(calls).toBe(1);
+    expect(late.readyState).toBe('ended');
+    expect(media.microphoneTrack()).toBeNull();
+    expect(media.cameraTrack()).toBeNull();
+    expect(media.ready).toBe(false);
+  });
+
+  it('ends a stream that resolves after a newer replacement and skips the queued call', async () => {
+    await prepare();
+    const firstCapture = deferStream();
+    const newest = track('audio');
+    const seen: MediaStreamConstraints[] = [];
+    let calls = 0;
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation((constraints) => {
+      calls += 1;
+      seen.push(constraints ?? {});
+      if (calls === 1) return firstCapture.promise;
+      return Promise.resolve(stream([newest]));
+    });
+    const first = media.replaceInput('microphone', 'late');
+    await vi.waitFor(() => expect(calls).toBe(1));
+    const queued = media.replaceInput('microphone', 'queued');
+    const current = media.replaceInput('microphone', 'current');
+    const late = track('audio');
+    firstCapture.finish(stream([late]));
+    await expect(first).resolves.toBeNull();
+    await expect(queued).resolves.toBeNull();
+    await expect(current).resolves.toBe(newest);
+    expect(calls).toBe(2);
+    expect(seen).toEqual([
+      { audio: { deviceId: { exact: 'late' } }, video: false },
+      { audio: { deviceId: { exact: 'current' } }, video: false },
+    ]);
+    expect(late.readyState).toBe('ended');
+    expect(newest.readyState).toBe('live');
+    expect(media.microphoneTrack()).toBe(microphone);
+    expect(microphone.readyState).toBe('live');
+    expect(camera.readyState).toBe('live');
+    media.commitInput('microphone', newest);
+    expect(media.microphoneTrack()).toBe(newest);
+    expect(microphone.readyState).toBe('ended');
+  });
+
+  it('stops a commit or abort for a track that is no longer held', async () => {
+    await prepare();
+    const held = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(stream([held]));
+    await media.replaceInput('microphone', 'mic-2');
+    const unexpected = track('video');
+    media.commitInput('camera', unexpected);
+    expect(unexpected.readyState).toBe('ended');
+    expect(held.readyState).toBe('live');
+    expect(media.cameraTrack()).toBe(camera);
+    expect(media.microphoneTrack()).toBe(microphone);
+    media.abortInput(unexpected);
+    expect(held.readyState).toBe('live');
+    media.commitInput('camera', held);
+    expect(held.readyState).toBe('ended');
+    expect(media.microphoneTrack()).toBe(microphone);
+    expect(media.cameraTrack()).toBe(camera);
+    expect(camera.readyState).toBe('live');
+  });
+
+  it('stops a held track, the screen share, and both stored inputs', async () => {
+    await prepare();
+    const screen = track('video');
+    display.mockResolvedValue(stream([screen]));
+    await media.startScreenShare();
+    const held = track('audio');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(stream([held]));
+    await media.replaceInput('microphone', 'mic-2');
+    media.stop();
+    expect(held.readyState).toBe('ended');
+    expect(screen.readyState).toBe('ended');
+    expect(camera.readyState).toBe('ended');
+    expect(microphone.readyState).toBe('ended');
+    expect(media.screenTrack()).toBeNull();
+    expect(media.microphoneTrack()).toBeNull();
+    expect(media.cameraTrack()).toBeNull();
+  });
+});

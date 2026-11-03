@@ -1,8 +1,26 @@
 import { routeAudioOutput, type OutputRouteResult } from './output-route';
 
 export type DeviceChoices = { cameraId: string; microphoneId: string };
+export type InputKind = 'camera' | 'microphone';
 
 const METER_INTERVAL_MS = 100;
+
+type HeldInput = { kind: InputKind; stream: MediaStream; track: MediaStreamTrack };
+
+function inputRequest(kind: InputKind, deviceId: string): MediaStreamConstraints {
+  const requested: boolean | MediaTrackConstraints = deviceId
+    ? { deviceId: { exact: deviceId } }
+    : true;
+  return kind === 'camera'
+    ? { video: requested, audio: false }
+    : { audio: requested, video: false };
+}
+
+function inputError(kind: InputKind): Error {
+  return new Error(
+    `Unable to use your ${kind}. Allow ${kind} permission and check the selected device, then try again.`,
+  );
+}
 
 export class LocalMedia {
   private streams: MediaStream[] = [];
@@ -17,6 +35,9 @@ export class LocalMedia {
   private screenGeneration = 0;
   private isAudioMuted = false;
   private isVideoOff = false;
+  private inputGeneration = 0;
+  private replacement: Promise<void> = Promise.resolve();
+  private heldInput: HeldInput | null = null;
 
   setLevelListener(listener: ((level: number) => void) | null): void {
     this.levelListener = listener;
@@ -31,21 +52,7 @@ export class LocalMedia {
     try {
       for (const kind of ['camera', 'microphone'] as const) {
         const id = kind === 'camera' ? choices.cameraId : choices.microphoneId;
-        const constraints = id ? { deviceId: { exact: id } } : true;
-        let stream: MediaStream;
-        try {
-          if (!navigator.mediaDevices?.getUserMedia)
-            throw new Error('Media devices are unavailable.');
-          stream = await navigator.mediaDevices.getUserMedia(
-            kind === 'camera'
-              ? { video: constraints, audio: false }
-              : { audio: constraints, video: false },
-          );
-        } catch {
-          throw new Error(
-            `Unable to use your ${kind}. Allow ${kind} permission and check the selected device, then try again.`,
-          );
-        }
+        const stream = await this.capture(kind, id);
         if (stale()) {
           stream.getTracks().forEach((track) => track.stop());
           return false;
@@ -88,6 +95,41 @@ export class LocalMedia {
       this.stop();
       throw error;
     }
+  }
+
+  replaceInput(kind: InputKind, deviceId: string): Promise<MediaStreamTrack | null> {
+    const attempt = ++this.inputGeneration;
+    const result = this.replacement.then(() => this.finishReplacement(kind, deviceId, attempt));
+    this.replacement = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  commitInput(kind: InputKind, track: MediaStreamTrack): void {
+    const held = this.heldInput;
+    if (!held || held.track !== track || held.kind !== kind) {
+      if (held?.track === track) this.heldInput = null;
+      track.stop();
+      return;
+    }
+    this.heldInput = null;
+    const index = this.storedIndex(kind);
+    const previous = index >= 0 ? this.streams[index] : undefined;
+    if (index >= 0) this.streams[index] = held.stream;
+    else this.streams.push(held.stream);
+    if (previous && previous !== held.stream) previous.getTracks().forEach((item) => item.stop());
+  }
+
+  abortInput(track: MediaStreamTrack): void {
+    if (this.heldInput?.track === track) {
+      const held = this.heldInput;
+      this.heldInput = null;
+      held.stream.getTracks().forEach((item) => item.stop());
+      return;
+    }
+    track.stop();
   }
 
   applyFlags(isAudioMuted: boolean, isVideoOff: boolean): void {
@@ -173,10 +215,67 @@ export class LocalMedia {
 
   stop(): void {
     this.generation += 1;
+    this.inputGeneration += 1;
     this.stopScreenShare();
     this.releaseLobby();
+    const held = this.heldInput;
+    this.heldInput = null;
     for (const stream of this.streams) stream.getTracks().forEach((track) => track.stop());
     this.streams = [];
+    held?.stream.getTracks().forEach((track) => track.stop());
+  }
+
+  private async capture(kind: InputKind, deviceId: string): Promise<MediaStream> {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Media devices are unavailable.');
+      return await navigator.mediaDevices.getUserMedia(inputRequest(kind, deviceId));
+    } catch {
+      throw inputError(kind);
+    }
+  }
+
+  private async finishReplacement(
+    kind: InputKind,
+    deviceId: string,
+    attempt: number,
+  ): Promise<MediaStreamTrack | null> {
+    if (attempt !== this.inputGeneration) return null;
+    let stream: MediaStream;
+    try {
+      stream = await this.capture(kind, deviceId);
+    } catch (error) {
+      if (attempt !== this.inputGeneration) return null;
+      throw error;
+    }
+    if (attempt !== this.inputGeneration) {
+      stream.getTracks().forEach((track) => track.stop());
+      return null;
+    }
+    const track = (kind === 'camera' ? stream.getVideoTracks() : stream.getAudioTracks()).find(
+      (item) => item.readyState === 'live',
+    );
+    if (!track) {
+      stream.getTracks().forEach((item) => item.stop());
+      if (attempt !== this.inputGeneration) return null;
+      throw inputError(kind);
+    }
+    track.enabled = kind === 'microphone' ? !this.isAudioMuted : !this.isVideoOff;
+    if (attempt !== this.inputGeneration) {
+      stream.getTracks().forEach((item) => item.stop());
+      return null;
+    }
+    const previousHold = this.heldInput;
+    this.heldInput = { kind, stream, track };
+    if (previousHold && previousHold.stream !== stream)
+      previousHold.stream.getTracks().forEach((item) => item.stop());
+    return track;
+  }
+
+  private storedIndex(kind: InputKind): number {
+    return this.streams.findIndex(
+      (stream) =>
+        (kind === 'camera' ? stream.getVideoTracks() : stream.getAudioTracks()).length > 0,
+    );
   }
 
   private discardContext(context: AudioContext): void {
