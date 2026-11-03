@@ -22,6 +22,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stageflow
+          POSTGRES_PASSWORD: stageflow
+          POSTGRES_DB: stageflow_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U stageflow -d stageflow_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports: ['6379:6379']
@@ -35,7 +47,7 @@ jobs:
       HUSKY: '0'
       REDIS_URL: redis://127.0.0.1:6379
       JWT_SECRET: stageflow-ci-only-placeholder
-      DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
+      DATABASE_URL: postgresql://stageflow:stageflow@127.0.0.1:5432/stageflow_ci
       CORS_ORIGIN: http://127.0.0.1:5173
       LIVE_NAMESPACE: sf_ci
       VITE_API_BASE_URL: http://127.0.0.1:4000/api
@@ -56,4 +68,24 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - id: plan
+        name: Select integration prerequisites
+        shell: bash
+        run: |
+          node scripts/check-affected.mjs --plan > "$RUNNER_TEMP/stageflow-check-plan.json"
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/stageflow-check-plan.json"));
+            appendFileSync(process.env.GITHUB_OUTPUT, `integration=${plan.full || plan.packages.includes("api")}\n`);
+          '
+      - name: Install pinned integration FFmpeg
+        if: steps.plan.outputs.integration == 'true'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/ffmpeg.gz" https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz
+          echo "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f  $RUNNER_TEMP/ffmpeg.gz" | sha256sum --check
+          gzip --decompress "$RUNNER_TEMP/ffmpeg.gz"
+          chmod +x "$RUNNER_TEMP/ffmpeg"
+          "$RUNNER_TEMP/ffmpeg" -version
+          echo "FFMPEG_PATH=$RUNNER_TEMP/ffmpeg" >> "$GITHUB_ENV"
       - run: pnpm check:affected

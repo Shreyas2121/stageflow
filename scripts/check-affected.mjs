@@ -11,12 +11,15 @@ export function selectChecks(files, full = false) {
       )
     )
       audit = true;
+    if (file.endsWith('.md')) continue;
     if (file.startsWith('apps/web/')) packages.add('web');
     else if (file.startsWith('apps/api/')) packages.add('api');
     else if (file.startsWith('packages/shared/')) full = true;
-    else if (!file.endsWith('.md')) full = true;
+    else full = true;
     // Package manifests may change dependency resolution and the task graph.
     if (file.endsWith('/package.json')) full = true;
+    // Recorder/uploader changes also require the real HTTP/encoder boundary, including API build.
+    if (file.startsWith('apps/web/src/features/broadcast/services/')) full = true;
   }
   return { full, packages: full ? ['shared', 'api', 'web'] : [...packages].sort(), audit };
 }
@@ -29,7 +32,7 @@ export function checkCommands(plan) {
     for (const task of ['typecheck', 'lint', 'test', 'build'])
       commands.push(['--filter', `@stageflow/${name}`, task]);
     commands.push(['check:artifacts', `--${name}`]);
-    if (name === 'api') commands.push(['smoke:live']);
+    if (name === 'api') commands.push(['smoke:live'], ['smoke:broadcast']);
   }
   return commands;
 }

@@ -16,7 +16,13 @@ export function checkGraph(name) {
     'test:integration': tests.slice(2),
     build: builds,
     check,
-    'check:release': [['test:tooling'], ...check, ['check:artifacts'], ['smoke:live']],
+    'check:release': [
+      ['test:tooling'],
+      ...check,
+      ['check:artifacts'],
+      ['smoke:live'],
+      ['smoke:broadcast'],
+    ],
   };
   if (!Object.hasOwn(plans, name)) throw new Error(`Unknown check graph: ${name}`);
   return plans[name];

@@ -22,6 +22,7 @@
     "test:tooling": "node --test scripts/*.test.mjs",
     "check:artifacts": "node scripts/check-artifacts.mjs",
     "smoke:live": "pnpm --filter @stageflow/api exec dotenv -e ../../.env -- node ../../scripts/smoke-live.mjs",
+    "smoke:broadcast": "pnpm --filter @stageflow/api exec dotenv -e ../../.env -- node ../../scripts/smoke-broadcast.mjs",
     "check:release": "node scripts/checks.mjs check:release",
     "check:affected": "node scripts/check-affected.mjs",
     "audit:check": "node scripts/audit.mjs",

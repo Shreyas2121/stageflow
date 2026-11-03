@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkCommands, selectChecks } from './check-affected.mjs';
+import { checkGraph } from './checks.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -23,10 +24,11 @@ test('web-only checks include its dependency prerequisite through package script
     ],
   );
 });
-test('API changes require Redis tests, compiled artifacts, and socket smoke', () => {
+test('API changes require Redis tests, compiled artifacts, socket and real encoder smokes', () => {
   const commands = checkCommands(selectChecks(['apps/api/src/live/scripts/leave.lua']));
   assert(commands.some((args) => args.join(' ') === '--filter @stageflow/api test'));
-  assert.deepEqual(commands.at(-1), ['smoke:live']);
+  assert.deepEqual(commands.slice(-2), [['smoke:live'], ['smoke:broadcast']]);
+  assert.deepEqual(checkGraph('check:release').slice(-2), [['smoke:live'], ['smoke:broadcast']]);
 });
 test('shared and unknown/root configuration changes select every consumer', () => {
   for (const path of [
@@ -35,6 +37,8 @@ test('shared and unknown/root configuration changes select every consumer', () =
     '.github/workflows/checks.yml',
     'scripts/dev.mjs',
     '.env.example',
+    'apps/web/src/features/broadcast/services/chunk-upload.ts',
+    'apps/web/src/features/broadcast/services/stage-recorder.ts',
   ]) {
     const plan = selectChecks([path]);
     assert.equal(plan.full, true, path);
@@ -55,9 +59,17 @@ test('dependency changes require a full gate and audit', () => {
   }
 });
 test('docs-only changes format without application work; full releases override selection', () => {
-  assert.deepEqual(checkCommands(selectChecks(['README.md', 'plans/phase4.md'])), [
-    ['format:check'],
-  ]);
+  assert.deepEqual(
+    checkCommands(
+      selectChecks([
+        'README.md',
+        'plans/phase4.md',
+        'apps/api/README.md',
+        'apps/web/src/features/broadcast/services/README.md',
+      ]),
+    ),
+    [['format:check']],
+  );
   assert.deepEqual(checkCommands(selectChecks([], true)), [['check:release']]);
   assert.deepEqual(selectChecks(['apps/web/src/removed.ts', 'apps/api/src/added.ts']).packages, [
     'api',
