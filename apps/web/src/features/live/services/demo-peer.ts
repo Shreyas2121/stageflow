@@ -1,4 +1,9 @@
-import { demoPeerNames, type IceServer, type RoomSnapshot } from '@stageflow/shared';
+import {
+  connectedStageIds,
+  demoPeerNames,
+  type IceServer,
+  type RoomSnapshot,
+} from '@stageflow/shared';
 import { createGuest } from '../../session/api';
 import { PeerManager, type TrackSource } from './peer-manager';
 import { openIndependentSignaling, type RoomConnection } from './signaling';
@@ -17,7 +22,7 @@ export class DemoPeer implements TrackSource {
   private gain: GainNode | null = null;
   private frame: number | null = null;
   private snapshot: RoomSnapshot | null = null;
-  private selfSocketId: string | null = null;
+  private selfParticipantId: string | null = null;
   private iceServers: IceServer[] = [];
   private stopped = false;
   private readonly guestRequest = new AbortController();
@@ -43,12 +48,12 @@ export class DemoPeer implements TrackSource {
   }
 
   private sync(): void {
-    if (this.stopped || !this.selfSocketId || !this.snapshot) return;
+    if (this.stopped || !this.selfParticipantId || !this.snapshot) return;
     const wasOnStage = this.onStage;
-    this.onStage = this.snapshot.stageSocketIds.includes(this.selfSocketId);
+    this.onStage = this.snapshot.stageParticipantIds.includes(this.selfParticipantId);
     if (wasOnStage !== this.onStage) this.stageVersion++;
-    this.manager?.sync(this.selfSocketId, this.snapshot.stageSocketIds, this.iceServers);
-    const self = this.snapshot.participants.find((p) => p.socketId === this.selfSocketId);
+    this.manager?.sync(this.selfParticipantId, connectedStageIds(this.snapshot), this.iceServers);
+    const self = this.snapshot.participants.find((p) => p.participantId === this.selfParticipantId);
     if (this.audio)
       this.audio.enabled = this.onStage && !!self && !self.isAudioMuted && !self.hostAudioLocked;
     if (this.video)
@@ -92,7 +97,7 @@ export class DemoPeer implements TrackSource {
           if (track) track.enabled = false;
         },
         onJoined: (ack) => {
-          this.selfSocketId = ack.selfSocketId;
+          this.selfParticipantId = ack.participantId;
           this.iceServers = ack.iceServers;
           this.sync();
         },
@@ -167,7 +172,7 @@ export class DemoPeer implements TrackSource {
         lastFrame = Number.isFinite(lastFrame) ? now - ((now - lastFrame) % (1000 / 24)) : now;
         const role =
           this.snapshot?.participants.find(
-            (participant) => participant.socketId === this.selfSocketId,
+            (participant) => participant.participantId === this.selfParticipantId,
           )?.role ?? 'Joining';
         const level = time - pulseStarted < 0.75 ? pulseGain : 0;
         drawing.fillStyle = '#101b22';

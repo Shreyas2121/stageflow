@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
-import type { RoomSnapshot } from '@stageflow/shared';
+import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 import {
   BROADCAST_STOP_MS,
   openIndependentSignaling,
@@ -28,7 +28,7 @@ class FakeSocket extends EventEmitter {
   emitWithAck = vi.fn(async (event: string) => {
     if (event === 'room:join') {
       this.beforeAck();
-      return { ok: true, selfSocketId: this.id, iceServers: [] };
+      return { ok: true, participantId: this.id, iceServers: [] };
     }
     return { ok: true };
   });
@@ -42,16 +42,48 @@ const snapshot = (roomId: string): RoomSnapshot => ({
   mode: 'MEETING',
   status: 'LIVE',
   participants: [],
-  stageSocketIds: [],
-  handSocketIds: [],
+  stageParticipantIds: [],
+  handParticipantIds: [],
   broadcast: null,
 });
+function person(participantId: string): ParticipantState {
+  return {
+    participantId,
+    socketId: `transport-${participantId}`,
+    connectionGeneration: 1,
+    presence: 'connected',
+    userId: participantId,
+    displayName: participantId,
+    role: 'SPEAKER',
+    isAudioMuted: false,
+    isVideoOff: false,
+    isScreenSharing: false,
+    isHandRaised: false,
+    isSyntheticBot: false,
+    hostAudioLocked: false,
+    hostVideoLocked: false,
+    joinedAt: 1,
+  };
+}
 const joinRequest = {
   roomId: 'room',
   isAudioMuted: false,
   isVideoOff: false,
   isSyntheticBot: false,
 };
+
+it('stores the acknowledged participant id independently of the signaling socket id', async () => {
+  const connection = openSignaling('token', 'room', callbacks());
+  connections.push(connection);
+  sockets[0]!.emitWithAck.mockResolvedValueOnce({
+    ok: true,
+    participantId: 'membership',
+    iceServers: [],
+  });
+  expect(await connection.join(joinRequest)).toMatchObject({ participantId: 'membership' });
+  expect(useRoomStore.getState().selfParticipantId).toBe('membership');
+  expect(sockets[0]!.id).toBe('socket-0');
+});
 function callbacks() {
   return {
     onEnded: vi.fn(),
@@ -159,7 +191,7 @@ describe('signaling connection ownership', () => {
     expect(own.onState).toHaveBeenCalledWith(snapshot('room'));
     expect(own.onJoined).toHaveBeenCalledWith({
       ok: true,
-      selfSocketId: 'socket-1',
+      participantId: 'socket-1',
       iceServers: [],
     });
     expect(useRoomStore.getState()).toBe(hostState);
@@ -169,7 +201,7 @@ describe('signaling connection ownership', () => {
     demo.close();
     expect(sockets[1]!.disconnect).toHaveBeenCalledOnce();
     expect(useRoomStore.getState()).toBe(hostState);
-    expect(useRoomStore.getState().selfSocketId).toBe('socket-0');
+    expect(useRoomStore.getState().selfParticipantId).toBe('socket-0');
     expect(io).toHaveBeenLastCalledWith(
       'http://localhost:4000',
       expect.objectContaining({
@@ -184,12 +216,12 @@ describe('signaling connection ownership', () => {
     const first = openSignaling('first', 'room', callbacks());
     connections.push(first);
     await first.join(joinRequest);
-    expect(useRoomStore.getState().selfSocketId).toBe('socket-0');
+    expect(useRoomStore.getState().selfParticipantId).toBe('socket-0');
     const next = openSignaling('next', 'next-room', callbacks());
     connections.push(next);
     expect(sockets[0]!.disconnect).toHaveBeenCalledOnce();
     expect(useRoomStore.getState().roomId).toBe('next-room');
-    expect(useRoomStore.getState().selfSocketId).toBeNull();
+    expect(useRoomStore.getState().selfParticipantId).toBeNull();
     next.close();
     expect(useRoomStore.getState().roomId).toBeNull();
   });
@@ -209,15 +241,15 @@ describe('signaling connection ownership', () => {
     await expect(host.startBroadcast()).resolves.toEqual({ ok: true });
     await expect(host.stopBroadcast()).resolves.toEqual({ ok: true });
     await expect(
-      host.setLock({ targetSocketId: 'guest', kind: 'audio', locked: true }),
+      host.setLock({ targetParticipantId: 'guest', kind: 'audio', locked: true }),
     ).resolves.toEqual({ ok: true });
     expect(sockets[0]!.emitWithAck.mock.calls).toEqual([
       ['room:join', joinRequest],
-      ['stage:promote', { targetSocketId: 'guest' }],
-      ['stage:demote', { targetSocketId: 'guest' }],
+      ['stage:promote', { targetParticipantId: 'guest' }],
+      ['stage:demote', { targetParticipantId: 'guest' }],
       ['broadcast:start'],
       ['broadcast:stop'],
-      ['stage:set-lock', { targetSocketId: 'guest', kind: 'audio', locked: true }],
+      ['stage:set-lock', { targetParticipantId: 'guest', kind: 'audio', locked: true }],
     ]);
     expect(sockets[1]!.emitWithAck.mock.calls).toEqual([
       ['room:join', { ...joinRequest, isSyntheticBot: true }],
@@ -244,16 +276,17 @@ describe('signaling connection ownership', () => {
     sockets[0]!.beforeAck = () => {
       sockets[0]!.emit('room:state', {
         ...snapshot('room'),
-        stageSocketIds: ['socket-0', 'other'],
+        stageParticipantIds: ['socket-0', 'other'],
+        participants: [person('socket-0'), person('other')],
       });
       sockets[0]!.emit('webrtc:description', {
-        toSocketId: 'socket-0',
-        fromSocketId: 'other',
+        toParticipantId: 'socket-0',
+        fromParticipantId: 'other',
         description: { type: 'offer', sdp: 'test' },
       });
       sockets[0]!.emit('webrtc:ice-candidate', {
-        toSocketId: 'socket-0',
-        fromSocketId: 'other',
+        toParticipantId: 'socket-0',
+        fromParticipantId: 'other',
         candidate: null,
       });
     };
@@ -289,19 +322,20 @@ describe('signaling connection ownership', () => {
     sockets[0]!.beforeAck = () => {
       sockets[0]!.emit('room:state', snapshot('room'));
       sockets[0]!.emit('webrtc:description', {
-        toSocketId: 'socket-0',
-        fromSocketId: 'host',
+        toParticipantId: 'socket-0',
+        fromParticipantId: 'host',
         description: { type: 'offer', sdp: 'old' },
       });
       sockets[0]!.emit('webrtc:ice-candidate', {
-        toSocketId: 'socket-0',
-        fromSocketId: 'host',
+        toParticipantId: 'socket-0',
+        fromParticipantId: 'host',
         candidate: null,
       });
       sockets[0]!.emit('room:state', {
         ...snapshot('room'),
         revision: 2,
-        stageSocketIds: ['socket-0', 'host'],
+        stageParticipantIds: ['socket-0', 'host'],
+        participants: [person('socket-0'), person('host')],
       });
     };
     await peer.join(joinRequest);
@@ -356,7 +390,8 @@ describe('signaling connection ownership', () => {
     const own = callbacks();
     const peer = openIndependentSignaling('token', 'room', own);
     connections.push(peer);
-    let finish: (ack: { ok: true; selfSocketId: string; iceServers: [] }) => void = () => undefined;
+    let finish: (ack: { ok: true; participantId: string; iceServers: [] }) => void = () =>
+      undefined;
     sockets[0]!.emitWithAck = vi.fn((event: string) => {
       if (event === 'room:join') {
         sockets[0]!.emit('webrtc:ice-candidate', { candidate: null });
@@ -369,7 +404,7 @@ describe('signaling connection ownership', () => {
     const joining = peer.join(joinRequest);
     for (let step = 0; step < 10; step += 1) await Promise.resolve();
     peer.close();
-    finish({ ok: true, selfSocketId: 'socket-0', iceServers: [] });
+    finish({ ok: true, participantId: 'socket-0', iceServers: [] });
     await joining;
     expect(own.onCandidate).not.toHaveBeenCalled();
     expect(own.onJoined).not.toHaveBeenCalled();

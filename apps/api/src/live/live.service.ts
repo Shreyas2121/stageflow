@@ -25,6 +25,7 @@ export interface LiveSession {
   user: { id: string; displayName: string };
   readonly connected: boolean;
   room: LiveRoom | undefined;
+  participantId?: string;
 }
 // Transport effects run inside the operation queue to preserve snapshot/membership ordering.
 export interface LiveTransport {
@@ -49,7 +50,10 @@ export class LiveService {
   >();
   constructor(
     private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
-    private readonly live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom'>,
+    private readonly live: Pick<
+      LiveRepository,
+      'apply' | 'readStage' | 'readConnectedStage' | 'readSocket' | 'deleteRoom'
+    >,
     private readonly operations: SerializedOperations,
     private readonly availability: { isReady(): boolean } = { isReady: () => true },
     private readonly namespace = 'sf',
@@ -105,8 +109,8 @@ export class LiveService {
       status: state.status,
       revision,
       participants: state.participants,
-      stageSocketIds: state.stageSocketIds,
-      handSocketIds: state.hands.map((hand) => hand.socketId),
+      stageParticipantIds: state.stageParticipantIds,
+      handParticipantIds: state.hands.map((hand) => hand.participantId),
       broadcast: await this.broadcastProjection(state),
     };
   }
@@ -128,6 +132,7 @@ export class LiveService {
     client: LiveSession,
     request: JoinRoomRequest,
     transport: LiveTransport,
+    participantId: string,
   ): Promise<CommandAck> {
     return this.execute(client, async (): Promise<CommandAck> => {
       if (!client.connected) return failure('not_joined');
@@ -154,6 +159,7 @@ export class LiveService {
         const user = client.user;
         const result = await this.live.apply(roomPrefix(room.id, this.namespace), liveRoom, {
           type: 'join',
+          participantId,
           socketId: client.id,
           userId: user.id,
           displayName: user.displayName,
@@ -164,6 +170,7 @@ export class LiveService {
         });
         if (!result.ok) return failure(result.error);
         client.room = liveRoom;
+        client.participantId = participantId;
         await transport.join(client.id, room.id);
         await this.publish(result, transport);
         return { ok: true };
@@ -189,10 +196,12 @@ export class LiveService {
         );
         if (!result.ok) return failure(result.error);
         if (command.type === 'setHostLock' && result.changed) {
-          transport.forceMute(command.targetSocketId, {
-            kind: command.kind,
-            locked: command.locked,
-          });
+          const socketId = await this.live.readSocket(
+            roomPrefix(room.roomId, this.namespace),
+            command.targetParticipantId,
+          );
+          if (socketId)
+            transport.forceMute(socketId, { kind: command.kind, locked: command.locked });
         }
         await this.publish(result, transport);
         return { ok: true };
@@ -229,7 +238,9 @@ export class LiveService {
         const broadcasts = this.broadcasts;
         if (!broadcasts) return failure('broadcast_not_available');
         const prefix = roomPrefix(room.roomId, this.namespace);
-        const actor = await broadcasts.repository.readParticipant(prefix, client.id);
+        const actor = client.participantId
+          ? await broadcasts.repository.readParticipant(prefix, client.participantId)
+          : null;
         if (actor?.role !== 'HOST') return failure('not_host');
         if (!start) {
           await broadcasts.service.stopRoom(room.roomId);
@@ -264,20 +275,24 @@ export class LiveService {
 
   relay(
     client: LiveSession,
-    toSocketId: string,
+    toParticipantId: string,
     transport: LiveTransport,
-    send: () => void,
+    send: (socketId: string) => void,
   ): Promise<CommandAck> {
     return this.execute(client, async () => {
       const room = client.room;
       if (!room) return failure('not_joined');
       return this.operations.run(`room:${room.roomId}`, async () => {
         if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
-        const stage = await this.live.readStage(roomPrefix(room.roomId, this.namespace));
-        if (!canRelay(stage, client.id, toSocketId)) return failure('not_on_stage');
-        const target = transport.peer(toSocketId);
+        const prefix = roomPrefix(room.roomId, this.namespace);
+        const socketId = await this.live.readSocket(prefix, toParticipantId);
+        if (!socketId) return failure('not_connected');
+        const stage = await this.live.readConnectedStage(prefix);
+        if (!client.participantId || !canRelay(stage, client.participantId, toParticipantId))
+          return failure('not_on_stage');
+        const target = transport.peer(socketId);
         if (!target?.connected || target.roomId !== room.roomId) return failure('peer_unavailable');
-        send();
+        send(socketId);
         return { ok: true };
       });
     });
@@ -342,18 +357,20 @@ export class LiveService {
                 await this.broadcasts?.service.stopRoom(room.roomId);
               const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
                 type: 'leave',
-                socketId: client.id,
+                participantId: client.participantId!,
               });
               if (!result.ok) return failure(result.error);
               if (!result.roomEnded) {
                 await this.publish(result, transport);
                 await transport.leave(client.id, room.roomId);
                 client.room = undefined;
+                client.participantId = undefined;
                 return { ok: true };
               }
             }
             await this.finishShutdown(room, transport);
             client.room = undefined;
+            client.participantId = undefined;
             return { ok: true };
           },
           true,

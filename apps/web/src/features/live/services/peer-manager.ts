@@ -66,7 +66,7 @@ function toInit(candidate: StageIceCandidate): RTCIceCandidateInit {
 }
 export type RemoteStreams = ReadonlyMap<string, MediaStream>;
 export type PeerStatsSource = {
-  readonly socketId: string;
+  readonly participantId: string;
   /** Stable for one connection, even when source wrappers are recreated. */
   readonly identity: object;
   readonly getStats: () => Promise<RTCStatsReport>;
@@ -88,8 +88,8 @@ export class PeerManager {
   }
 
   statsConnections(): readonly PeerStatsSource[] {
-    return [...this.peers].map(([socketId, { pc }]) => ({
-      socketId,
+    return [...this.peers].map(([participantId, { pc }]) => ({
+      participantId,
       identity: pc,
       getStats: () => pc.getStats(),
     }));
@@ -128,8 +128,12 @@ export class PeerManager {
     if (!ack.ok) throw new Error(ack.error);
   }
 
-  sync(selfSocketId: string, stageSocketIds: readonly string[], iceServers: IceServer[]): void {
-    const wanted = new Set(meshPeers(selfSocketId, stageSocketIds));
+  sync(
+    selfParticipantId: string,
+    stageParticipantIds: readonly string[],
+    iceServers: IceServer[],
+  ): void {
+    const wanted = new Set(meshPeers(selfParticipantId, stageParticipantIds));
     for (const [id, peer] of this.peers) {
       if (!wanted.has(id)) {
         this.dispose(peer);
@@ -147,7 +151,7 @@ export class PeerManager {
         queueTimer: undefined,
         work: Promise.resolve(),
         flags: {
-          polite: selfSocketId < id,
+          polite: selfParticipantId < id,
           makingOffer: false,
           ignoreOffer: false,
           isSettingRemoteAnswerPending: false,
@@ -188,7 +192,7 @@ export class PeerManager {
         if (!this.alive(id, peer)) return;
         void this.acknowledged(
           this.signaling.candidate({
-            toSocketId: id,
+            toParticipantId: id,
             candidate: candidate
               ? {
                   candidate: candidate.candidate,
@@ -227,13 +231,13 @@ export class PeerManager {
     if (!description || (description.type !== 'offer' && description.type !== 'answer')) return;
     await this.acknowledged(
       this.signaling.description({
-        toSocketId: id,
+        toParticipantId: id,
         description: { type: description.type, sdp: description.sdp },
       }),
     );
   }
 
-  description({ fromSocketId: id, description }: RelayedDescription): void {
+  description({ fromParticipantId: id, description }: RelayedDescription): void {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.enqueue(id, peer, async () => {
@@ -255,7 +259,7 @@ export class PeerManager {
     });
   }
 
-  candidate({ fromSocketId: id, candidate }: RelayedIceCandidate): void {
+  candidate({ fromParticipantId: id, candidate }: RelayedIceCandidate): void {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.enqueue(id, peer, async () => {

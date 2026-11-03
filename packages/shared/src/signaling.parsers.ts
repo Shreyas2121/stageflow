@@ -10,7 +10,7 @@ import { isUuid } from './identifiers';
 import {
   SDP_MAX_LENGTH,
   ICE_CANDIDATE_MAX_LENGTH,
-  SOCKET_ID_MAX_LENGTH,
+  PARTICIPANT_ID_MAX_LENGTH,
   SDP_MID_MAX_LENGTH,
   SDP_MLINE_INDEX_MAX,
   ICE_UFRAG_MAX_LENGTH,
@@ -21,8 +21,8 @@ function record(value: unknown): value is Record<string, unknown> {
 function bounded(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.length <= max;
 }
-function socketId(value: unknown): value is string {
-  return bounded(value, SOCKET_ID_MAX_LENGTH) && value.length > 0;
+function participantId(value: unknown): value is string {
+  return bounded(value, PARTICIPANT_ID_MAX_LENGTH) && value.length > 0;
 }
 export function parseJoinRoomRequest(value: unknown): JoinRoomRequest | null {
   if (
@@ -41,14 +41,15 @@ export function parseJoinRoomRequest(value: unknown): JoinRoomRequest | null {
   };
 }
 export function parseDescriptionRequest(value: unknown): DescriptionRequest | null {
-  if (!record(value) || !socketId(value.toSocketId) || !record(value.description)) return null;
+  if (!record(value) || !participantId(value.toParticipantId) || !record(value.description))
+    return null;
   const { type, sdp } = value.description;
   if ((type !== 'offer' && type !== 'answer') || !bounded(sdp, SDP_MAX_LENGTH)) return null;
-  return { toSocketId: value.toSocketId, description: { type, sdp } };
+  return { toParticipantId: value.toParticipantId, description: { type, sdp } };
 }
 export function parseIceCandidateRequest(value: unknown): IceCandidateRequest | null {
-  if (!record(value) || !socketId(value.toSocketId)) return null;
-  if (value.candidate === null) return { toSocketId: value.toSocketId, candidate: null };
+  if (!record(value) || !participantId(value.toParticipantId)) return null;
+  if (value.candidate === null) return { toParticipantId: value.toParticipantId, candidate: null };
   if (!record(value.candidate)) return null;
   const { candidate, sdpMid, sdpMLineIndex, usernameFragment } = value.candidate;
   if (
@@ -67,7 +68,7 @@ export function parseIceCandidateRequest(value: unknown): IceCandidateRequest | 
     return null;
   if (candidate !== '' && sdpMid === null && sdpMLineIndex === null) return null;
   return {
-    toSocketId: value.toSocketId,
+    toParticipantId: value.toParticipantId,
     candidate: {
       candidate,
       sdpMid,
@@ -98,20 +99,20 @@ export function parseHandRequest(value: unknown): { raised: boolean } | null {
 export function parseStageTargetRequest(value: unknown): StageTargetRequest | null {
   if (
     !record(value) ||
-    !socketId(value.targetSocketId) ||
-    Object.keys(value).some((key) => key !== 'targetSocketId')
+    !participantId(value.targetParticipantId) ||
+    Object.keys(value).some((key) => key !== 'targetParticipantId')
   )
     return null;
-  return { targetSocketId: value.targetSocketId };
+  return { targetParticipantId: value.targetParticipantId };
 }
 export function parseStageLockRequest(value: unknown): StageLockRequest | null {
   if (
     !record(value) ||
-    !socketId(value.targetSocketId) ||
+    !participantId(value.targetParticipantId) ||
     (value.kind !== 'audio' && value.kind !== 'video') ||
     typeof value.locked !== 'boolean' ||
-    Object.keys(value).some((key) => !['targetSocketId', 'kind', 'locked'].includes(key))
+    Object.keys(value).some((key) => !['targetParticipantId', 'kind', 'locked'].includes(key))
   )
     return null;
-  return { targetSocketId: value.targetSocketId, kind: value.kind, locked: value.locked };
+  return { targetParticipantId: value.targetParticipantId, kind: value.kind, locked: value.locked };
 }

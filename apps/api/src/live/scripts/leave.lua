@@ -4,7 +4,7 @@ if redis.call('EXISTS', endingKey) == 1 then
   return finish(false, true)
 end
 if room.status == 'ENDED' then return finish(false, true) end
-local participant = participants[command.socketId]
+local participant = participants[command.participantId]
 if not participant then return finish(false) end
 if participant.role == 'HOST' then
   redis.call('SET', endingKey, '1', 'EX', 86400)
@@ -12,8 +12,9 @@ if participant.role == 'HOST' then
   clearRoom = true
   return finish(true, true)
 end
-participants[command.socketId] = nil
-saveParticipant(command.socketId)
-setStage(command.socketId, false)
-setHand(command.socketId, nil)
+participants[command.participantId] = nil
+if participant.socketId ~= cjson.null then redis.call('HDEL', transportsKey, participant.socketId) end
+saveParticipant(command.participantId)
+setStage(command.participantId, false)
+setHand(command.participantId, nil)
 return finish(true)

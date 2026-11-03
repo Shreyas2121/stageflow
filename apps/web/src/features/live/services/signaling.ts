@@ -1,3 +1,4 @@
+import { canRelay, connectedStageIds } from '@stageflow/shared';
 import { signalingUrl } from '../../../config/env';
 import { io, type Socket } from 'socket.io-client';
 import type {
@@ -31,8 +32,8 @@ export type RoomConnection = {
   join: (payload: JoinRoomRequest) => Promise<JoinAck>;
   media: (patch: MediaPatch) => Promise<CommandAck>;
   hand: (raised: boolean) => Promise<CommandAck>;
-  promote: (targetSocketId: string) => Promise<CommandAck>;
-  demote: (targetSocketId: string) => Promise<CommandAck>;
+  promote: (targetParticipantId: string) => Promise<CommandAck>;
+  demote: (targetParticipantId: string) => Promise<CommandAck>;
   setLock: (request: StageLockRequest) => Promise<CommandAck>;
   startBroadcast: () => Promise<CommandAck>;
   stopBroadcast: () => Promise<CommandAck>;
@@ -168,10 +169,10 @@ export function openIndependentSignaling(
     description: (payload) => socket.timeout(8000).emitWithAck('webrtc:description', payload),
     candidate: (payload) => socket.timeout(8000).emitWithAck('webrtc:ice-candidate', payload),
     hand: (raised) => socket.timeout(8000).emitWithAck('stage:raise-hand', { raised }),
-    promote: (targetSocketId) =>
-      socket.timeout(8000).emitWithAck('stage:promote', { targetSocketId }),
-    demote: (targetSocketId) =>
-      socket.timeout(8000).emitWithAck('stage:demote', { targetSocketId }),
+    promote: (targetParticipantId) =>
+      socket.timeout(8000).emitWithAck('stage:promote', { targetParticipantId }),
+    demote: (targetParticipantId) =>
+      socket.timeout(8000).emitWithAck('stage:demote', { targetParticipantId }),
     setLock: (request) => socket.timeout(8000).emitWithAck('stage:set-lock', request),
     startBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:start'),
     async stopBroadcast() {
@@ -214,8 +215,12 @@ export function openIndependentSignaling(
   socket.on('webrtc:description', (payload) => {
     if (closed) return;
     const onStage =
-      latestSnapshot?.stageSocketIds.includes(payload.toSocketId) &&
-      latestSnapshot.stageSocketIds.includes(payload.fromSocketId);
+      latestSnapshot &&
+      canRelay(
+        connectedStageIds(latestSnapshot),
+        payload.fromParticipantId,
+        payload.toParticipantId,
+      );
     if (joined) {
       if (onStage) callbacks.onDescription(payload);
     } else
@@ -226,8 +231,12 @@ export function openIndependentSignaling(
   socket.on('webrtc:ice-candidate', (payload) => {
     if (closed) return;
     const onStage =
-      latestSnapshot?.stageSocketIds.includes(payload.toSocketId) &&
-      latestSnapshot.stageSocketIds.includes(payload.fromSocketId);
+      latestSnapshot &&
+      canRelay(
+        connectedStageIds(latestSnapshot),
+        payload.fromParticipantId,
+        payload.toParticipantId,
+      );
     if (joined) {
       if (onStage) callbacks.onCandidate(payload);
     } else
@@ -267,7 +276,7 @@ export function openSignaling(
   const connection = openIndependentSignaling(token, roomId, {
     ...callbacks,
     onState: (snapshot) => useRoomStore.getState().receive(snapshot),
-    onJoined: (result) => useRoomStore.getState().joined(result.selfSocketId, result.iceServers),
+    onJoined: (result) => useRoomStore.getState().joined(result.participantId, result.iceServers),
     onClosed: () => {
       if (current === connection) {
         current = null;

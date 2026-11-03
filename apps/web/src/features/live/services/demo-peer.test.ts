@@ -72,7 +72,7 @@ beforeEach(() => {
     displayName: 'Demo Peer 1',
   });
   connection = {
-    join: vi.fn(async () => ({ ok: true as const, selfSocketId: 'demo', iceServers: [] })),
+    join: vi.fn(async () => ({ ok: true as const, participantId: 'demo', iceServers: [] })),
     leave: vi.fn(async () => ({ ok: true as const })),
     close: vi.fn(),
     description: vi.fn(async () => ({ ok: true as const })),
@@ -109,9 +109,12 @@ describe('DemoPeer cleanup', () => {
     const peer = new DemoPeer('Demo Peer 1', context, error);
     await peer.start('room');
     const callbacks = vi.mocked(openIndependentSignaling).mock.calls[0]![2];
-    callbacks.onJoined({ ok: true, selfSocketId: 'demo', iceServers: [] });
+    callbacks.onJoined({ ok: true, participantId: 'demo', iceServers: [] });
     const self: ParticipantState = {
-      socketId: 'demo',
+      participantId: 'demo',
+      socketId: 'socket-demo',
+      connectionGeneration: 1,
+      presence: 'connected',
       userId: 'demo-user',
       displayName: 'Demo Peer 1',
       role: 'ATTENDEE',
@@ -124,14 +127,20 @@ describe('DemoPeer cleanup', () => {
       hostVideoLocked: false,
       joinedAt: 1,
     };
+    const host: ParticipantState = {
+      ...self,
+      participantId: 'host',
+      socketId: 'socket-host',
+      role: 'HOST',
+    };
     const attendee: RoomSnapshot = {
       roomId: 'room',
       revision: 1,
       mode: 'WEBINAR',
       status: 'LIVE',
-      participants: [self],
-      stageSocketIds: ['host'],
-      handSocketIds: [],
+      participants: [self, host],
+      stageParticipantIds: ['host'],
+      handParticipantIds: [],
       broadcast: null,
     };
     callbacks.onState(attendee);
@@ -141,8 +150,8 @@ describe('DemoPeer cleanup', () => {
     const promoted: RoomSnapshot = {
       ...attendee,
       revision: 2,
-      participants: [{ ...self, role: 'SPEAKER' }],
-      stageSocketIds: ['demo', 'host'],
+      participants: [{ ...self, role: 'SPEAKER' }, host],
+      stageParticipantIds: ['demo', 'host'],
     };
     callbacks.onState(promoted);
     expect(pcs).toHaveLength(1);
@@ -154,7 +163,10 @@ describe('DemoPeer cleanup', () => {
     const active = {
       ...promoted,
       revision: 3,
-      participants: [{ ...promoted.participants[0]!, isAudioMuted: false, isVideoOff: false }],
+      participants: [
+        { ...promoted.participants[0]!, isAudioMuted: false, isVideoOff: false },
+        host,
+      ],
     };
     callbacks.onState(active);
     expect(audio.enabled).toBe(true);
@@ -192,15 +204,15 @@ describe('DemoPeer cleanup', () => {
     const peer = new DemoPeer('Demo Peer 1', context, error);
     await peer.start('room');
     const callbacks = vi.mocked(openIndependentSignaling).mock.calls[0]![2];
-    callbacks.onJoined({ ok: true, selfSocketId: 'demo', iceServers: [] });
+    callbacks.onJoined({ ok: true, participantId: 'demo', iceServers: [] });
     callbacks.onState({
       roomId: 'room',
       revision: 1,
       mode: 'WEBINAR',
       status: 'LIVE',
       participants: [],
-      stageSocketIds: ['demo', 'host'],
-      handSocketIds: [],
+      stageParticipantIds: ['demo', 'host'],
+      handParticipantIds: [],
       broadcast: null,
     });
     await vi.waitFor(() =>
@@ -224,22 +236,18 @@ describe('DemoPeer cleanup', () => {
     expect(peer.cameraTrack()).toBe(video);
     expect(peer.screenTrack()).toBeNull();
     const callbacks = vi.mocked(openIndependentSignaling).mock.calls[0]![2];
-    callbacks.onJoined({ ok: true, selfSocketId: 'demo', iceServers: [] });
+    callbacks.onJoined({ ok: true, participantId: 'demo', iceServers: [] });
     callbacks.onState({
       roomId: 'room',
       revision: 1,
       mode: 'WEBINAR',
       status: 'LIVE',
       participants: [],
-      stageSocketIds: ['host'],
-      handSocketIds: [],
+      stageParticipantIds: ['host'],
+      handParticipantIds: [],
       broadcast: null,
     });
-    expect(vi.mocked(PeerManager).mock.results[0]!.value.sync).toHaveBeenCalledWith(
-      'demo',
-      ['host'],
-      [],
-    );
+    expect(vi.mocked(PeerManager).mock.results[0]!.value.sync).toHaveBeenCalledWith('demo', [], []);
     peer.stop();
     peer.stop();
     expect(connection.leave).toHaveBeenCalledOnce();

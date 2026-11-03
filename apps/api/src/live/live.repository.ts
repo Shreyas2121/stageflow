@@ -40,6 +40,7 @@ export class LiveRepository {
   }
 
   async apply(prefix: string, room: LiveRoom, command: StageCommand): Promise<LiveResult> {
+    if (command.type === 'suspend') throw new Error('Suspension is not available yet.');
     const result = await this.execute(command.type, prefix, JSON.stringify({ ...command, room }));
     if (typeof result !== 'string') throw new Error('Invalid Redis stage result.');
     return JSON.parse(result) as LiveResult;
@@ -57,9 +58,23 @@ export class LiveRepository {
     return this.redis.get(`${prefix}:broadcast`);
   }
 
-  async readParticipant(prefix: string, socketId: string): Promise<ParticipantState | null> {
-    const value = await this.redis.hget(`${prefix}:participants`, socketId);
+  async readParticipant(prefix: string, participantId: string): Promise<ParticipantState | null> {
+    const value = await this.redis.hget(`${prefix}:participants`, participantId);
     return value ? (JSON.parse(value) as ParticipantState) : null;
+  }
+
+  async readSocket(prefix: string, participantId: string): Promise<string | null> {
+    const participant = await this.readParticipant(prefix, participantId);
+    if (participant?.presence !== 'connected' || !participant.socketId) return null;
+    return (await this.redis.hget(`${prefix}:transports`, participant.socketId)) === participantId
+      ? participant.socketId
+      : null;
+  }
+
+  async readConnectedStage(prefix: string): Promise<string[]> {
+    const stage = await this.readStage(prefix);
+    const sockets = await Promise.all(stage.map((id) => this.readSocket(prefix, id)));
+    return stage.filter((_id, index) => sockets[index] !== null);
   }
 
   async refreshSnapshot(

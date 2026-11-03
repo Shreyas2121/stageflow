@@ -150,8 +150,8 @@ describe('StatsCollector', () => {
     const publish = vi.fn();
     const collector = new StatsCollector(
       () => [
-        { socketId: 'stalled', identity: stalled, getStats: stalled },
-        { socketId: 'healthy', identity: healthy, getStats: healthy },
+        { participantId: 'stalled', identity: stalled, getStats: stalled },
+        { participantId: 'healthy', identity: healthy, getStats: healthy },
       ],
       publish,
     );
@@ -185,7 +185,7 @@ describe('StatsCollector', () => {
       .mockResolvedValue(rtpReport(4000, 34));
     const publish = vi.fn();
     const collector = new StatsCollector(
-      () => [{ socketId: 'peer', identity: getStats, getStats }],
+      () => [{ participantId: 'peer', identity: getStats, getStats }],
       publish,
     );
     await vi.advanceTimersByTimeAsync(1200);
@@ -213,11 +213,13 @@ describe('StatsCollector', () => {
       .fn()
       .mockResolvedValueOnce(rtpReport(2000, 100))
       .mockResolvedValue(rtpReport(3000, 124));
-    let sources: PeerStatsSource[] = [{ socketId: 'peer', identity: oldRead, getStats: oldRead }];
+    let sources: PeerStatsSource[] = [
+      { participantId: 'peer', identity: oldRead, getStats: oldRead },
+    ];
     const publish = vi.fn();
     const collector = new StatsCollector(() => sources, publish);
     await vi.advanceTimersByTimeAsync(10);
-    sources = [{ socketId: 'peer', identity: newRead, getStats: newRead }];
+    sources = [{ participantId: 'peer', identity: newRead, getStats: newRead }];
     resolve(rtpReport(1000, 0));
     await vi.advanceTimersByTimeAsync(0);
     expect(publish.mock.lastCall?.[0].size).toBe(0);
@@ -241,7 +243,7 @@ describe('StatsCollector', () => {
       )
       .mockResolvedValueOnce(rtpReport(2000, 100))
       .mockResolvedValue(rtpReport(3000, 124));
-    const sources = () => [{ socketId: 'peer', identity: getStats, getStats }];
+    const sources = () => [{ participantId: 'peer', identity: getStats, getStats }];
     const oldPublish = vi.fn(),
       newPublish = vi.fn();
     const old = new StatsCollector(sources, oldPublish);
@@ -270,7 +272,7 @@ describe('StatsCollector', () => {
       .mockResolvedValueOnce(rtpReport(2000, 24))
       .mockResolvedValueOnce(rtpReport(7000, 144))
       .mockResolvedValue(rtpReport(8000, 168));
-    const sources = () => [{ socketId: 'peer', identity: getStats, getStats }];
+    const sources = () => [{ participantId: 'peer', identity: getStats, getStats }];
     const firstPublish = vi.fn();
     const first = new StatsCollector(sources, firstPublish);
     await vi.advanceTimersByTimeAsync(1000);
@@ -300,7 +302,7 @@ describe('StatsCollector', () => {
       .mockResolvedValue(rtpReport(5000, 120));
     const publish = vi.fn();
     const collector = new StatsCollector(
-      () => [{ socketId: 'peer', identity: getStats, getStats }],
+      () => [{ participantId: 'peer', identity: getStats, getStats }],
       publish,
     );
     for (let index = 0; index < 6; index++) {
@@ -319,7 +321,7 @@ describe('StatsCollector', () => {
       .mockResolvedValue(rtpReport(2000, 24));
     const publish = vi.fn();
     const collector = new StatsCollector(
-      () => [{ socketId: 'peer', getStats, identity: getStats }],
+      () => [{ participantId: 'peer', getStats, identity: getStats }],
       publish,
     );
     await vi.advanceTimersByTimeAsync(0);
@@ -345,14 +347,16 @@ describe('StatsCollector', () => {
   it('drops removed rows and starts a fresh baseline for a returning connection', async () => {
     vi.useFakeTimers();
     const getStats = vi.fn().mockResolvedValue(rtpReport(1000, 10));
-    let sources: readonly PeerStatsSource[] = [{ socketId: 'peer', getStats, identity: getStats }];
+    let sources: readonly PeerStatsSource[] = [
+      { participantId: 'peer', getStats, identity: getStats },
+    ];
     const publish = vi.fn();
     const collector = new StatsCollector(() => sources, publish);
     await vi.advanceTimersByTimeAsync(0);
     sources = [];
     await vi.advanceTimersByTimeAsync(1000);
     expect(publish.mock.lastCall?.[0].size).toBe(0);
-    sources = [{ socketId: 'peer', getStats, identity: getStats }];
+    sources = [{ participantId: 'peer', getStats, identity: getStats }];
     getStats.mockResolvedValue(rtpReport(3000, 100));
     await vi.advanceTimersByTimeAsync(1000);
     expect(publish.mock.lastCall?.[0].get('peer').inboundBitrate).toBeNull();
@@ -373,8 +377,8 @@ describe('StatsCollector', () => {
     const publish = vi.fn();
     const collector = new StatsCollector(
       () => [
-        { socketId: 'failing', getStats: failing, identity: failing },
-        { socketId: 'healthy', getStats: healthy, identity: healthy },
+        { participantId: 'failing', getStats: failing, identity: failing },
+        { participantId: 'healthy', getStats: healthy, identity: healthy },
       ],
       publish,
     );
@@ -399,7 +403,7 @@ describe('StatsCollector', () => {
     );
     const publish = vi.fn();
     const collector = new StatsCollector(
-      () => [{ socketId: 'peer', getStats, identity: getStats }],
+      () => [{ participantId: 'peer', getStats, identity: getStats }],
       publish,
     );
     await vi.advanceTimersByTimeAsync(2000);

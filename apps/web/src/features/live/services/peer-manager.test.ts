@@ -184,13 +184,13 @@ describe('PeerManager screen sharing and initial negotiation', () => {
     expect(polite.setLocalDescription).not.toHaveBeenCalled();
     expect(polite.getTransceivers().map((t) => t.sender.track)).toEqual([microphone, camera]);
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'offer', sdp: 'test' },
     });
     await vi.waitFor(() =>
       expect(signaling.description).toHaveBeenCalledWith({
-        toSocketId: 'z',
+        toParticipantId: 'z',
         description: { type: 'answer', sdp: 'test' },
       }),
     );
@@ -199,7 +199,7 @@ describe('PeerManager screen sharing and initial negotiation', () => {
     connections[1]!.onnegotiationneeded?.();
     await vi.waitFor(() =>
       expect(signaling.description).toHaveBeenCalledWith({
-        toSocketId: 'a',
+        toParticipantId: 'a',
         description: { type: 'offer', sdp: 'test' },
       }),
     );
@@ -226,23 +226,23 @@ describe('PeerManager ICE candidate queue', () => {
     const pc = connections[0]!;
     pc.signalingState = 'have-local-offer';
     const from = (candidate: StageIceCandidate | null) => ({
-      fromSocketId: 'a',
-      toSocketId: 'z',
+      fromParticipantId: 'a',
+      toParticipantId: 'z',
       candidate,
     });
     manager.candidate(from(ice('early', 'new-ufrag')));
     manager.candidate(from(ice('abandoned', 'old-ufrag')));
     manager.candidate(from(null));
     manager.description({
-      fromSocketId: 'a',
-      toSocketId: 'z',
+      fromParticipantId: 'a',
+      toParticipantId: 'z',
       description: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:old-ufrag\r\n' },
     });
     manager.candidate(from(ice('during', 'new-ufrag')));
     manager.candidate(from(ice('during-old', 'old-ufrag')));
     manager.description({
-      fromSocketId: 'a',
-      toSocketId: 'z',
+      fromParticipantId: 'a',
+      toParticipantId: 'z',
       description: { type: 'answer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(pc.addIceCandidate).toHaveBeenCalledTimes(3));
@@ -269,8 +269,8 @@ describe('PeerManager ICE candidate queue', () => {
       .mockRejectedValueOnce(new Error('rejected'))
       .mockResolvedValueOnce(undefined);
     const from = (candidate: StageIceCandidate) => ({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       candidate,
     });
     manager.candidate(from(ice('one')));
@@ -278,8 +278,8 @@ describe('PeerManager ICE candidate queue', () => {
     manager.candidate(from(ice('three')));
     manager.candidate(from({ candidate: '', sdpMid: null, sdpMLineIndex: null }));
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'offer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(pc.addIceCandidate).toHaveBeenCalledTimes(4));
@@ -295,7 +295,7 @@ describe('PeerManager ICE candidate queue', () => {
     ]);
     await vi.waitFor(() =>
       expect(signaling.description).toHaveBeenCalledWith({
-        toSocketId: 'z',
+        toParticipantId: 'z',
         description: { type: 'answer', sdp: 'test' },
       }),
     );
@@ -306,13 +306,13 @@ describe('PeerManager ICE candidate queue', () => {
     const pc = connections[0]!;
     pc.setRemoteDescription.mockRejectedValueOnce(new Error('bad sdp'));
     manager.candidate({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       candidate: ice('kept', 'new-ufrag'),
     });
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'answer', sdp: 'not-sdp' },
     });
     await vi.waitFor(() =>
@@ -320,8 +320,8 @@ describe('PeerManager ICE candidate queue', () => {
     );
     expect(pc.addIceCandidate).not.toHaveBeenCalled();
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'answer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(pc.addIceCandidate).toHaveBeenCalledTimes(1));
@@ -335,14 +335,14 @@ describe('PeerManager ICE candidate queue', () => {
     const pc = connections[0]!;
     for (let index = 0; index < 33; index += 1) {
       manager.candidate({
-        fromSocketId: 'z',
-        toSocketId: 'a',
+        fromParticipantId: 'z',
+        toParticipantId: 'a',
         candidate: ice(`c${index}`, 'new-ufrag'),
       });
     }
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'answer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(pc.setRemoteDescription).toHaveBeenCalled());
@@ -354,13 +354,13 @@ describe('PeerManager ICE candidate queue', () => {
     manager.sync('a', ['a', 'b'], []);
     const other = connections.at(-1)!;
     manager.candidate({
-      fromSocketId: 'b',
-      toSocketId: 'a',
+      fromParticipantId: 'b',
+      toParticipantId: 'a',
       candidate: ice('x'.repeat(CANDIDATE_BYTES), 'new-ufrag'),
     });
     manager.description({
-      fromSocketId: 'b',
-      toSocketId: 'a',
+      fromParticipantId: 'b',
+      toParticipantId: 'a',
       description: { type: 'answer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(other.setRemoteDescription).toHaveBeenCalled());
@@ -380,8 +380,8 @@ describe('PeerManager ICE candidate queue', () => {
       manager.sync('a', ['a', 'z'], []);
       const pc = connections[0]!;
       manager.candidate({
-        fromSocketId: 'z',
-        toSocketId: 'a',
+        fromParticipantId: 'z',
+        toParticipantId: 'a',
         candidate: ice('waiting', 'new-ufrag'),
       });
       await settle();
@@ -392,8 +392,8 @@ describe('PeerManager ICE candidate queue', () => {
         'Stage media candidates expired before the connection was ready. Leave and join again to retry.',
       ]);
       manager.description({
-        fromSocketId: 'z',
-        toSocketId: 'a',
+        fromParticipantId: 'z',
+        toParticipantId: 'a',
         description: { type: 'answer', sdp: answerSdp },
       });
       await settle();
@@ -415,13 +415,13 @@ describe('PeerManager ICE candidate queue', () => {
         }),
     );
     manager.candidate({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       candidate: ice('closing', 'new-ufrag'),
     });
     manager.description({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       description: { type: 'answer', sdp: answerSdp },
     });
     await vi.waitFor(() => expect(pc.setRemoteDescription).toHaveBeenCalled());
@@ -430,8 +430,8 @@ describe('PeerManager ICE candidate queue', () => {
     await settle();
     expect(pc.addIceCandidate).not.toHaveBeenCalled();
     manager.candidate({
-      fromSocketId: 'z',
-      toSocketId: 'a',
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
       candidate: ice('late', 'new-ufrag'),
     });
     await settle();

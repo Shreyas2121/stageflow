@@ -1,3 +1,4 @@
+import { connectedStageIds } from '@stageflow/shared';
 import type {
   CommandAck,
   IceServer,
@@ -65,7 +66,7 @@ export type RoomSessionOptions = {
     publish: (streams: RemoteStreams) => void,
     onError: (message: string) => void,
   ) => PeerManager;
-  createSpeaker?: (publish: (socketId: string | null) => void) => RoomSpeaker;
+  createSpeaker?: (publish: (participantId: string | null) => void) => RoomSpeaker;
   createDemo?: DemoFactory;
   createAudioContext?: () => DemoAudio;
   enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
@@ -139,7 +140,7 @@ export class RoomSession {
     microphoneUnavailable: boolean;
     streams: RemoteStreams;
     peerManager: PeerManager | null;
-    activeSocketId: string | null;
+    activeParticipantId: string | null;
     needsCaptureConsent: boolean;
     sharing: boolean;
     role: ParticipantRole | null;
@@ -162,7 +163,7 @@ export class RoomSession {
     microphoneUnavailable: false,
     streams: new Map(),
     peerManager: null,
-    activeSocketId: null,
+    activeParticipantId: null,
     needsCaptureConsent: false,
     sharing: false,
     role: null,
@@ -196,8 +197,8 @@ export class RoomSession {
         this.emit();
       },
     });
-    const publishSpeaker = (socketId: string | null) => {
-      this.state.activeSocketId = socketId;
+    const publishSpeaker = (participantId: string | null) => {
+      this.state.activeParticipantId = participantId;
       this.emit();
     };
     this.speaker = options.createSpeaker
@@ -315,8 +316,8 @@ export class RoomSession {
   get peerManager(): PeerManager | null {
     return this.state.peerManager;
   }
-  get activeSocketId(): string | null {
-    return this.state.activeSocketId;
+  get activeParticipantId(): string | null {
+    return this.state.activeParticipantId;
   }
   get needsCaptureConsent(): boolean {
     return this.state.needsCaptureConsent;
@@ -614,8 +615,8 @@ export class RoomSession {
     void this.send((active) => active.hand(!self.isHandRaised));
   }
 
-  promote(targetSocketId: string): Promise<void> {
-    return this.moderate((active) => active.promote(targetSocketId));
+  promote(targetParticipantId: string): Promise<void> {
+    return this.moderate((active) => active.promote(targetParticipantId));
   }
 
   startBroadcast(): Promise<void> {
@@ -644,20 +645,20 @@ export class RoomSession {
     });
   }
 
-  setStageVideo(socketId: string, element: HTMLVideoElement | null): void {
-    const current = this.stageVideos.get(socketId) ?? null;
+  setStageVideo(participantId: string, element: HTMLVideoElement | null): void {
+    const current = this.stageVideos.get(participantId) ?? null;
     if (current === element) return;
-    if (element) this.stageVideos.set(socketId, element);
-    else this.stageVideos.delete(socketId);
+    if (element) this.stageVideos.set(participantId, element);
+    else this.stageVideos.delete(participantId);
     this.syncBroadcast();
   }
 
-  demote(targetSocketId: string): Promise<void> {
-    return this.moderate((active) => active.demote(targetSocketId));
+  demote(targetParticipantId: string): Promise<void> {
+    return this.moderate((active) => active.demote(targetParticipantId));
   }
 
-  setLock(targetSocketId: string, kind: 'audio' | 'video', locked: boolean): Promise<void> {
-    return this.moderate((active) => active.setLock({ targetSocketId, kind, locked }));
+  setLock(targetParticipantId: string, kind: 'audio' | 'video', locked: boolean): Promise<void> {
+    return this.moderate((active) => active.setLock({ targetParticipantId, kind, locked }));
   }
 
   private canModerate(): boolean {
@@ -762,7 +763,7 @@ export class RoomSession {
     this.state.needsCaptureConsent = false;
     this.state.role = null;
     this.state.onStage = false;
-    this.state.activeSocketId = null;
+    this.state.activeParticipantId = null;
   }
 
   private closePeers(): void {
@@ -774,21 +775,23 @@ export class RoomSession {
 
   private syncFromStore(): void {
     if (this.pageHidden || !this.connection) return;
-    const { selfSocketId, snapshot, iceServers } = useRoomStore.getState();
+    const { selfParticipantId, snapshot, iceServers } = useRoomStore.getState();
     if (snapshot && snapshot.revision > this.forceRevision) {
       this.forcedAudio = this.forcedVideo = false;
     }
     const self = snapshot?.participants.find(
-      (participant) => participant.socketId === selfSocketId,
+      (participant) => participant.participantId === selfParticipantId,
     );
-    if (self && selfSocketId && snapshot) {
-      this.observeRole(self.role, snapshot.stageSocketIds.includes(selfSocketId));
+    if (self && selfParticipantId && snapshot) {
+      this.observeRole(self.role, snapshot.stageParticipantIds.includes(selfParticipantId));
     }
-    const onStage = Boolean(selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId));
-    if (!selfSocketId || !onStage || !this.media.ready || this.state.needsCaptureConsent)
+    const onStage = Boolean(
+      selfParticipantId && snapshot?.stageParticipantIds.includes(selfParticipantId),
+    );
+    if (!selfParticipantId || !onStage || !this.media.ready || this.state.needsCaptureConsent)
       this.closePeers();
     else if (this.connection && snapshot)
-      this.ensurePeers(selfSocketId, snapshot.stageSocketIds, iceServers);
+      this.ensurePeers(selfParticipantId, connectedStageIds(snapshot), iceServers);
     if (this.peers) {
       const pending = this.pendingStageEvents;
       this.clearPendingStage();
@@ -841,8 +844,8 @@ export class RoomSession {
   }
 
   private ensurePeers(
-    selfSocketId: string,
-    stageSocketIds: readonly string[],
+    selfParticipantId: string,
+    stageParticipantIds: readonly string[],
     iceServers: IceServer[],
   ): void {
     try {
@@ -864,7 +867,7 @@ export class RoomSession {
         );
         this.state.peerManager = this.peers;
       }
-      this.peers?.sync(selfSocketId, stageSocketIds, iceServers);
+      this.peers?.sync(selfParticipantId, stageParticipantIds, iceServers);
     } catch {
       this.state.error =
         'Unable to start stage media. You can still use the roster and leave the room.';
@@ -1089,12 +1092,12 @@ export class RoomSession {
   }
 
   private receiveStage(event: PendingStageEvent): void {
-    const { snapshot, selfSocketId } = useRoomStore.getState();
+    const { snapshot, selfParticipantId } = useRoomStore.getState();
     if (
-      !selfSocketId ||
-      event.payload.toSocketId !== selfSocketId ||
-      !snapshot?.stageSocketIds.includes(selfSocketId) ||
-      !snapshot.stageSocketIds.includes(event.payload.fromSocketId)
+      !selfParticipantId ||
+      event.payload.toParticipantId !== selfParticipantId ||
+      !(snapshot && connectedStageIds(snapshot).includes(selfParticipantId)) ||
+      !connectedStageIds(snapshot).includes(event.payload.fromParticipantId)
     )
       return;
     if (this.peers) {
@@ -1118,14 +1121,20 @@ export class RoomSession {
 
   private syncSpeaker(): void {
     const tracks = new Map<string, MediaStreamTrack>();
-    const { snapshot, selfSocketId } = useRoomStore.getState();
-    if (this.peers && selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId)) {
-      for (const id of snapshot.stageSocketIds) {
+    const { snapshot, selfParticipantId } = useRoomStore.getState();
+    if (
+      this.peers &&
+      selfParticipantId &&
+      snapshot?.stageParticipantIds.includes(selfParticipantId)
+    ) {
+      for (const id of connectedStageIds(snapshot)) {
         const track =
-          id === selfSocketId
+          id === selfParticipantId
             ? this.media.microphoneTrack()
             : this.state.streams.get(id)?.getAudioTracks()[0];
-        const person = snapshot.participants.find((participant) => participant.socketId === id);
+        const person = snapshot.participants.find(
+          (participant) => participant.participantId === id,
+        );
         if (track && !person?.isAudioMuted) tracks.set(id, track);
       }
     }
@@ -1137,10 +1146,12 @@ export class RoomSession {
   }
 
   private selfParticipant(): ParticipantState | null {
-    const { snapshot, selfSocketId } = useRoomStore.getState();
-    if (!snapshot || !selfSocketId) return null;
+    const { snapshot, selfParticipantId } = useRoomStore.getState();
+    if (!snapshot || !selfParticipantId) return null;
     return (
-      snapshot.participants.find((participant) => participant.socketId === selfSocketId) ?? null
+      snapshot.participants.find(
+        (participant) => participant.participantId === selfParticipantId,
+      ) ?? null
     );
   }
 
@@ -1181,11 +1192,11 @@ export class RoomSession {
   }
 
   private stageSources(): StageSource[] {
-    const { snapshot, selfSocketId } = useRoomStore.getState();
-    if (!snapshot || !selfSocketId) return [];
+    const { snapshot, selfParticipantId } = useRoomStore.getState();
+    if (!snapshot || !selfParticipantId) return [];
     const sources: StageSource[] = [];
-    for (const id of snapshot.stageSocketIds) {
-      const person = snapshot.participants.find((participant) => participant.socketId === id);
+    for (const id of connectedStageIds(snapshot)) {
+      const person = snapshot.participants.find((participant) => participant.participantId === id);
       if (!person) continue;
       const remote = this.state.streams.get(id)?.getAudioTracks()[0] ?? null;
       sources.push({
@@ -1193,11 +1204,11 @@ export class RoomSession {
         video: this.stageVideos.get(id) ?? null,
         audioTrack: person.isAudioMuted
           ? null
-          : id === selfSocketId
+          : id === selfParticipantId
             ? this.media.microphoneTrack()
             : remote,
         muted: person.isAudioMuted,
-        screenSharing: person.isScreenSharing || (id === selfSocketId && this.state.sharing),
+        screenSharing: person.isScreenSharing || (id === selfParticipantId && this.state.sharing),
       });
     }
     return sources;

@@ -159,6 +159,8 @@ try {
     roomIds.push(room.id);
     return room;
   }
+  const memberId = (room, socketId) =>
+    redis.hget(`${roomPrefix(room.id, namespace)}:transports`, socketId);
   const meeting = room('MEETING');
   const join = (socket, room, flags = {}) =>
     command(socket, 'room:join', {
@@ -183,31 +185,34 @@ try {
     true,
   );
   const hostMedia = JSON.parse(
-    await redis.hget(`${roomPrefix(meeting.id, namespace)}:participants`, hostSocket.id),
+    await redis.hget(
+      `${roomPrefix(meeting.id, namespace)}:participants`,
+      await memberId(meeting, hostSocket.id),
+    ),
   );
   assert.equal(hostMedia.isAudioMuted, false);
   assert.equal(hostMedia.isVideoOff, false);
   assert.equal(hostMedia.isScreenSharing, true);
   assert.equal((await command(hostSocket, 'media:state', { isScreenSharing: false })).ok, true);
   const description = {
-    toSocketId: guestSocket.id,
+    toParticipantId: await memberId(meeting, guestSocket.id),
     description: { type: 'offer', sdp: 'v=0\r\n' },
   };
   const relay = once(guestSocket, 'webrtc:description');
   assert.equal((await command(hostSocket, 'webrtc:description', description)).ok, true);
-  assert.equal((await relay).fromSocketId, hostSocket.id);
+  assert.equal((await relay).fromParticipantId, await memberId(meeting, hostSocket.id));
   const ice = once(guestSocket, 'webrtc:ice-candidate');
   assert.equal(
     (
       await command(hostSocket, 'webrtc:ice-candidate', {
-        toSocketId: guestSocket.id,
+        toParticipantId: await memberId(meeting, guestSocket.id),
         candidate: null,
       })
     ).ok,
     true,
   );
   assert.equal((await ice).candidate, null);
-  const guestId = guestSocket.id;
+  const guestId = await memberId(meeting, guestSocket.id);
   guestSocket.disconnect();
   await eventually(
     async () =>
@@ -239,8 +244,9 @@ try {
     true,
   );
   assert.equal((await command(replacement, 'stage:raise-hand', { raised: true })).ok, true);
+  const attendeeId = await memberId(webinar, replacement.id);
   const attendeeKey = `${roomPrefix(webinar.id, namespace)}:participants`;
-  const attendeeBefore = await redis.hget(attendeeKey, replacement.id);
+  const attendeeBefore = await redis.hget(attendeeKey, attendeeId);
   const attendee = JSON.parse(attendeeBefore);
   assert.equal(attendee.role, 'ATTENDEE');
   assert.equal(attendee.isAudioMuted, true);
@@ -256,21 +262,21 @@ try {
     { isAudioMuted: true, isVideoOff: false, isScreenSharing: false },
   ]) {
     assert.equal((await command(replacement, 'media:state', patch)).error, 'not_on_stage');
-    assert.equal(await redis.hget(attendeeKey, replacement.id), attendeeBefore);
+    assert.equal(await redis.hget(attendeeKey, attendeeId), attendeeBefore);
     assert.equal(await redis.get(`${roomPrefix(webinar.id, namespace)}:rev`), revisionBefore);
   }
   for (const patch of [{}, { isAudioMuted: true, isVideoOff: true, isScreenSharing: false }]) {
     assert.equal((await command(replacement, 'media:state', patch)).ok, true);
-    assert.equal(await redis.hget(attendeeKey, replacement.id), attendeeBefore);
+    assert.equal(await redis.hget(attendeeKey, attendeeId), attendeeBefore);
     assert.equal(await redis.get(`${roomPrefix(webinar.id, namespace)}:rev`), revisionBefore);
   }
   assert.deepEqual(await redis.smembers(`${roomPrefix(webinar.id, namespace)}:stage`), [
-    hostSocket.id,
+    await memberId(webinar, hostSocket.id),
   ]);
   assert.equal(
     (
       await command(replacement, 'webrtc:description', {
-        toSocketId: hostSocket.id,
+        toParticipantId: await memberId(webinar, hostSocket.id),
         description: description.description,
       })
     ).error,

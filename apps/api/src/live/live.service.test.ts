@@ -23,7 +23,7 @@ function fixture(
     mode,
     status: 'LIVE',
     participants: [],
-    stageSocketIds: [],
+    stageParticipantIds: [],
     hands: [],
   };
   let revision = 0;
@@ -48,7 +48,10 @@ function fixture(
       catalogStatus = 'ENDED';
     }),
   };
-  const live: Pick<LiveRepository, 'apply' | 'readStage' | 'deleteRoom' | 'refreshSnapshot'> = {
+  const live: Pick<
+    LiveRepository,
+    'apply' | 'readStage' | 'readConnectedStage' | 'readSocket' | 'deleteRoom' | 'refreshSnapshot'
+  > = {
     refreshSnapshot: vi.fn<LiveRepository['refreshSnapshot']>(async () => ({
       ok: true,
       state,
@@ -65,7 +68,17 @@ function fixture(
       }
       return { ...result, revision };
     }),
-    readStage: vi.fn(async () => state.stageSocketIds),
+    readStage: vi.fn(async () => state.stageParticipantIds),
+    readConnectedStage: vi.fn(async () =>
+      state.stageParticipantIds.filter((id) =>
+        state.participants.some((p) => p.participantId === id && p.presence === 'connected'),
+      ),
+    ),
+    readSocket: vi.fn(
+      async (_prefix, id) =>
+        state.participants.find((p) => p.participantId === id && p.presence === 'connected')
+          ?.socketId ?? null,
+    ),
     deleteRoom: vi.fn(async () => {
       events.push('redis:delete');
     }),
@@ -100,12 +113,51 @@ function fixture(
       peer,
       { roomId: 'room', isAudioMuted: false, isVideoOff: false, isSyntheticBot: false },
       transport,
+      peer.id,
     );
   return { service, rooms, live, transport, client, join, events, snapshots };
 }
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+
+it('routes stable participant ids to their current transports and leaves by membership id', async () => {
+  const f = fixture();
+  const host = f.client('host');
+  const guest = f.client('guest');
+  const request = { roomId: 'room', isAudioMuted: false, isVideoOff: false, isSyntheticBot: false };
+  expect(await f.service.join(host, request, f.transport, 'member-host')).toEqual({ ok: true });
+  expect(await f.service.join(guest, request, f.transport, 'member-guest')).toEqual({ ok: true });
+  expect(host.participantId).toBe('member-host');
+  expect(f.snapshots.at(-1)?.stageParticipantIds).toEqual(['member-guest', 'member-host']);
+  const send = vi.fn();
+  expect(await f.service.relay(host, 'member-guest', f.transport, send)).toEqual({ ok: true });
+  expect(send).toHaveBeenCalledExactlyOnceWith('guest');
+  expect(await f.service.relay(host, 'missing', f.transport, send)).toMatchObject({
+    error: 'not_connected',
+  });
+  await f.service.update(
+    host,
+    {
+      type: 'setHostLock',
+      actorParticipantId: 'member-host',
+      targetParticipantId: 'member-guest',
+      kind: 'audio',
+      locked: true,
+    },
+    f.transport,
+  );
+  expect(f.transport.forceMute).toHaveBeenCalledExactlyOnceWith('guest', {
+    kind: 'audio',
+    locked: true,
+  });
+  await f.service.leave(guest, f.transport);
+  expect(f.live.apply).toHaveBeenLastCalledWith('sf:room:room', expect.anything(), {
+    type: 'leave',
+    participantId: 'member-guest',
+  });
+  expect(guest.participantId).toBeUndefined();
+});
 
 function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
   let active: string | null = null;
@@ -116,7 +168,7 @@ function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
       readBroadcast: vi.fn(async () => active),
       readParticipant: vi.fn(
         async (_prefix, id) =>
-          f.snapshots.at(-1)?.participants.find((p) => p.socketId === id) ?? null,
+          f.snapshots.at(-1)?.participants.find((p) => p.participantId === id) ?? null,
       ),
       refreshSnapshot: (_prefix, room) => f.live.refreshSnapshot(_prefix, room),
       tryBeginBroadcast: vi.fn(async (_prefix, id) => {
@@ -160,7 +212,7 @@ it('authorizes webinar broadcast commands from the stored socket role and reject
   expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
   const after = f.snapshots.at(-1)!;
   expect(after.revision).toBeGreaterThan(before.revision);
-  expect(after.stageSocketIds).toEqual(before.stageSocketIds);
+  expect(after.stageParticipantIds).toEqual(before.stageParticipantIds);
   expect(after.participants).toEqual(before.participants);
   expect(after.broadcast).toMatchObject({ status: 'LIVE' });
   expect(await f.service.startBroadcast(host, f.transport)).toMatchObject({
@@ -197,7 +249,7 @@ it('leaves the stage intact after a missing binary and stops the broadcast befor
   expect(await f.service.startBroadcast(host, f.transport)).toMatchObject({
     error: 'ffmpeg_unavailable',
   });
-  expect(f.snapshots.at(-1)!.stageSocketIds).toEqual(before.stageSocketIds);
+  expect(f.snapshots.at(-1)!.stageParticipantIds).toEqual(before.stageParticipantIds);
   expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
   f.events.length = 0;
   await f.service.leave(host, f.transport);
@@ -266,11 +318,17 @@ it('promotes a webinar attendee through only the promote repository command', as
   await f.join(f.client('guest'));
   vi.mocked(f.live.apply).mockClear();
   f.snapshots.length = 0;
-  const command = { type: 'promote', actorSocketId: host.id, targetSocketId: 'guest' } as const;
+  const command = {
+    type: 'promote',
+    actorParticipantId: host.id,
+    targetParticipantId: 'guest',
+  } as const;
   expect(await f.service.update(host, command, f.transport)).toEqual({ ok: true });
   expect(f.live.apply).toHaveBeenCalledExactlyOnceWith('sf:room:room', host.room, command);
   expect(f.snapshots).toHaveLength(1);
-  expect(f.snapshots[0]?.participants.find((p) => p.socketId === 'guest')?.role).toBe('SPEAKER');
+  expect(f.snapshots[0]?.participants.find((p) => p.participantId === 'guest')?.role).toBe(
+    'SPEAKER',
+  );
   expect(f.transport.forceMute).not.toHaveBeenCalled();
 });
 it('does not publish when the promote script rejects a full stage', async () => {
@@ -284,8 +342,8 @@ it('does not publish when the promote script rejects a full stage', async () => 
       host,
       {
         type: 'promote',
-        actorSocketId: host.id,
-        targetSocketId: 'guest',
+        actorParticipantId: host.id,
+        targetParticipantId: 'guest',
       },
       f.transport,
     ),
@@ -305,8 +363,8 @@ it('rejects demoting the host and a non-host promote without publishing', async 
       host,
       {
         type: 'demote',
-        actorSocketId: host.id,
-        targetSocketId: host.id,
+        actorParticipantId: host.id,
+        targetParticipantId: host.id,
       },
       f.transport,
     ),
@@ -316,8 +374,8 @@ it('rejects demoting the host and a non-host promote without publishing', async 
       guest,
       {
         type: 'promote',
-        actorSocketId: guest.id,
-        targetSocketId: guest.id,
+        actorParticipantId: guest.id,
+        targetParticipantId: guest.id,
       },
       f.transport,
     ),
@@ -335,8 +393,8 @@ it.each(['audio', 'video'] as const)(
     f.snapshots.length = 0;
     const command = {
       type: 'setHostLock',
-      actorSocketId: host.id,
-      targetSocketId: 'guest',
+      actorParticipantId: host.id,
+      targetParticipantId: 'guest',
       kind,
       locked: true,
     } as const;
@@ -344,7 +402,7 @@ it.each(['audio', 'video'] as const)(
     expect(f.transport.forceMute).toHaveBeenCalledExactlyOnceWith('guest', { kind, locked: true });
     expect(f.events).toEqual(['apply:setHostLock', 'force-mute:guest', 'publish']);
     expect(f.snapshots).toHaveLength(1);
-    expect(f.snapshots[0]?.participants.find((p) => p.socketId === 'guest')).toMatchObject(
+    expect(f.snapshots[0]?.participants.find((p) => p.participantId === 'guest')).toMatchObject(
       kind === 'audio'
         ? { hostAudioLocked: true, isAudioMuted: true }
         : { hostVideoLocked: true, isVideoOff: true },
@@ -387,7 +445,7 @@ it('uses the configured namespace for join, media, relay checks and shutdown', a
   await f.join(f.client('guest'));
   await f.service.update(
     host,
-    { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: true } },
+    { type: 'patchMedia', participantId: host.id, patch: { isAudioMuted: true } },
     f.transport,
   );
   expect(f.live.apply).toHaveBeenLastCalledWith(
@@ -396,7 +454,7 @@ it('uses the configured namespace for join, media, relay checks and shutdown', a
     expect.objectContaining({ type: 'patchMedia' }),
   );
   expect(await f.service.relay(host, 'guest', f.transport, vi.fn())).toEqual({ ok: true });
-  expect(f.live.readStage).toHaveBeenCalledWith('preview-blue:room:room');
+  expect(f.live.readConnectedStage).toHaveBeenCalledWith('preview-blue:room:room');
   await f.service.leave(host, f.transport);
   expect(f.live.apply).toHaveBeenLastCalledWith(
     'preview-blue:room:room',
@@ -426,7 +484,11 @@ it('uses trusted session identity, joins before snapshot, and suppresses no-op p
     displayName: 'host',
     role: 'HOST',
   });
-  await f.service.update(host, { type: 'patchMedia', socketId: host.id, patch: {} }, f.transport);
+  await f.service.update(
+    host,
+    { type: 'patchMedia', participantId: host.id, patch: {} },
+    f.transport,
+  );
   expect(f.snapshots).toHaveLength(1);
   expect(await f.join(host)).toMatchObject({ ok: false, error: 'already_joined' });
 });
@@ -447,7 +509,7 @@ it('delivers a committed join after broadcast enrichment fails once', async () =
     expect(f.snapshots).toHaveLength(1);
     expect(f.snapshots[0]).toMatchObject({
       revision: 1,
-      participants: [expect.objectContaining({ socketId: 'host', role: 'HOST' })],
+      participants: [expect.objectContaining({ participantId: 'host', role: 'HOST' })],
     });
     expect(await f.join(host)).toMatchObject({ ok: false, error: 'already_joined' });
     expect(f.snapshots).toHaveLength(1);
@@ -467,7 +529,11 @@ it('delivers a committed media change after publication fails without another ca
     vi.mocked(f.transport.publish).mockImplementationOnce(() => {
       throw new Error('socket down');
     });
-    const patch = { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: true } } as const;
+    const patch = {
+      type: 'patchMedia',
+      participantId: host.id,
+      patch: { isAudioMuted: true },
+    } as const;
     expect(await f.service.update(host, patch, f.transport)).toMatchObject({
       ok: false,
       error: 'server_error',
@@ -481,14 +547,14 @@ it('delivers a committed media change after publication fails without another ca
     expect(f.snapshots).toHaveLength(2);
     expect(f.snapshots[1]).toMatchObject({
       revision: 2,
-      participants: [expect.objectContaining({ socketId: 'host', isAudioMuted: true })],
+      participants: [expect.objectContaining({ participantId: 'host', isAudioMuted: true })],
     });
     expect(f.control.service.snapshot).toHaveBeenCalledTimes(1);
     expect(f.control.repository.readBroadcast).toHaveBeenCalledTimes(1);
     expect(
       await f.service.update(
         host,
-        { type: 'patchMedia', socketId: host.id, patch: { isAudioMuted: false } },
+        { type: 'patchMedia', participantId: host.id, patch: { isAudioMuted: false } },
         f.transport,
       ),
     ).toEqual({ ok: true });
@@ -575,7 +641,7 @@ it('completes host shutdown on retry when catalog ending fails first', async () 
     expect(f.live.apply).not.toHaveBeenCalledWith(
       expect.any(String),
       expect.anything(),
-      expect.objectContaining({ socketId: 'late' }),
+      expect.objectContaining({ participantId: 'late' }),
     );
     const applies = vi.mocked(f.live.apply).mock.calls.length;
     expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
@@ -667,7 +733,7 @@ it('retries notification after Redis deletion without another participant lookup
         mode: 'MEETING',
         status: 'LIVE',
         participants: [],
-        stageSocketIds: [],
+        stageParticipantIds: [],
         hands: [],
       },
     });
@@ -754,7 +820,7 @@ it('rejects a queued guest update after host leave clears its association', asyn
   const ending = f.service.leave(host, f.transport);
   const updating = f.service.update(
     guest,
-    { type: 'patchMedia', socketId: guest.id, patch: { isVideoOff: true } },
+    { type: 'patchMedia', participantId: guest.id, patch: { isVideoOff: true } },
     f.transport,
   );
   expect(await ending).toEqual({ ok: true });
@@ -780,13 +846,17 @@ it('rejects a burst early while allowing disconnected-host cleanup through reser
   });
   const active = f.service.update(
     host,
-    { type: 'patchMedia', socketId: host.id, patch: { isVideoOff: true } },
+    { type: 'patchMedia', participantId: host.id, patch: { isVideoOff: true } },
     f.transport,
   );
   await vi.waitFor(() => expect(f.live.apply).toHaveBeenCalledTimes(3));
   const burst = await Promise.all(
     Array.from({ length: 50 }, () =>
-      f.service.update(guest, { type: 'patchMedia', socketId: guest.id, patch: {} }, f.transport),
+      f.service.update(
+        guest,
+        { type: 'patchMedia', participantId: guest.id, patch: {} },
+        f.transport,
+      ),
     ),
   );
   expect(burst.every((result) => !result.ok && result.error === 'server_busy')).toBe(true);

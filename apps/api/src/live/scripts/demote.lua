@@ -7,7 +7,7 @@ target.isAudioMuted = true
 target.isVideoOff = true
 target.isScreenSharing = false
 target.isHandRaised = false
-saveParticipant(target.socketId)
-setHand(target.socketId, nil)
-setStage(target.socketId, false)
+saveParticipant(target.participantId)
+setHand(target.participantId, nil)
+setStage(target.participantId, false)
 return finish(true)

@@ -4,7 +4,7 @@ import { Redis } from 'ioredis';
 import { applyStageCommand, type LiveState, type StageCommand } from '@stageflow/shared';
 import { LiveRepository } from './live.repository';
 import { LiveConnection } from './live.connection';
-import { roomPrefix } from './live.keys';
+import { liveKeys, roomPrefix } from './live.keys';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SerializedOperations } from './serialized-operations';
@@ -16,52 +16,56 @@ function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
     mode,
     status: 'LIVE',
     participants: [],
-    stageSocketIds: [],
+    stageParticipantIds: [],
     hands: [],
   };
 }
 
-function join(socketId: string, userId = socketId): Extract<StageCommand, { type: 'join' }> {
+function join(
+  participantId: string,
+  userId = participantId,
+): Extract<StageCommand, { type: 'join' }> {
   return {
     type: 'join',
-    socketId,
+    participantId,
+    socketId: `socket-${participantId}`,
     userId,
-    displayName: `Guest ${socketId}`,
+    displayName: `Guest ${participantId}`,
     isAudioMuted: false,
     isVideoOff: false,
     isSyntheticBot: false,
     joinedAt: 1000,
   };
 }
-const hand = (socketId: string, raisedAt = 2000, raised = true): StageCommand => ({
+const hand = (participantId: string, raisedAt = 2000, raised = true): StageCommand => ({
   type: 'setHand',
-  socketId,
+  participantId,
   raisedAt,
   raised,
 });
-const promote = (targetSocketId: string): StageCommand => ({
+const promote = (targetParticipantId: string): StageCommand => ({
   type: 'promote',
-  actorSocketId: 'host',
-  targetSocketId,
+  actorParticipantId: 'host',
+  targetParticipantId,
 });
-const demote = (targetSocketId: string): StageCommand => ({
+const demote = (targetParticipantId: string): StageCommand => ({
   type: 'demote',
-  actorSocketId: 'host',
-  targetSocketId,
+  actorParticipantId: 'host',
+  targetParticipantId,
 });
 const lock = (kind: 'audio' | 'video', locked: boolean): StageCommand => ({
   type: 'setHostLock',
-  actorSocketId: 'host',
-  targetSocketId: 'a',
+  actorParticipantId: 'host',
+  targetParticipantId: 'a',
   kind,
   locked,
 });
 const patch = (
   values: Extract<StageCommand, { type: 'patchMedia' }>['patch'],
-  socketId = 'a',
+  participantId = 'a',
 ): StageCommand => ({
   type: 'patchMedia',
-  socketId,
+  participantId,
   patch: values,
 });
 const webinarJoins = [join('host'), join('c'), join('b'), join('a'), join('d')];
@@ -91,10 +95,10 @@ const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[
     name: 'unknown leave and speaker leave',
     initial: empty(),
     commands: [
-      { type: 'leave', socketId: 'missing' },
+      { type: 'leave', participantId: 'missing' },
       join('host'),
       join('a'),
-      { type: 'leave', socketId: 'a' },
+      { type: 'leave', participantId: 'a' },
     ],
   },
   {
@@ -103,9 +107,9 @@ const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[
     commands: [
       ...webinarJoins,
       hand('a'),
-      { type: 'leave', socketId: 'a' },
+      { type: 'leave', participantId: 'a' },
       hand('b'),
-      { type: 'leave', socketId: 'host' },
+      { type: 'leave', participantId: 'host' },
       join('new-user'),
     ],
   },
@@ -182,9 +186,9 @@ for (const type of ['promote', 'demote', 'setHostLock'] as const) {
     commands: [
       ...webinarJoins,
       ...[
-        { actorSocketId: 'a', targetSocketId: 'b' },
-        { actorSocketId: 'missing', targetSocketId: 'b' },
-        { actorSocketId: 'host', targetSocketId: 'missing' },
+        { actorParticipantId: 'a', targetParticipantId: 'b' },
+        { actorParticipantId: 'missing', targetParticipantId: 'b' },
+        { actorParticipantId: 'host', targetParticipantId: 'missing' },
       ].map((ids) => ({ type, ...ids, kind: 'audio', locked: true }) as StageCommand),
     ],
   });
@@ -195,9 +199,9 @@ describe('Redis Lua stage transitions', () => {
   let repository: LiveRepository;
   const prefixes = new Set<string>();
   const keys = (prefix: string) =>
-    ['rev', 'participants', 'stage', 'hands'].map((suffix) => `${prefix}:${suffix}`);
+    ['rev', 'participants', 'stage', 'hands', 'transports'].map((suffix) => `${prefix}:${suffix}`);
   async function remove(value: string) {
-    await redis.del(...keys(value), `${value}:ending`, `${value}:broadcast`);
+    await redis.del(...liveKeys(value));
   }
   function prefix() {
     const value = `sf:itest:${randomUUID()}`;
@@ -247,6 +251,7 @@ describe('Redis Lua stage transitions', () => {
       ),
       stage: (await redis.smembers(stageKey)).sort(),
       hands: await redis.zrange(handsKey, 0, '-1', 'WITHSCORES'),
+      transports: await redis.hgetall(`${value}:transports`),
     };
   }
 
@@ -274,9 +279,57 @@ describe('Redis Lua stage transitions', () => {
     const refreshed = await repository.refreshSnapshot(value, room);
     expect(refreshed.revision).toBe(before.revision + 1);
     expect(refreshed.state.participants).toEqual(before.participants);
-    expect(refreshed.state.stageSocketIds).toEqual(before.stage);
+    expect(refreshed.state.stageParticipantIds).toEqual(before.stage);
     await repository.deleteRoom(value);
     expect(await redis.exists(`${value}:broadcast`)).toBe(0);
+  });
+
+  it('resolves transports independently of membership ids and removes them on leave', async () => {
+    const value = prefix();
+    const room = empty('WEBINAR');
+    const command = { ...join('member'), socketId: 'transport' };
+    const result = await repository.apply(value, room, command);
+    expect(result.ok).toBe(true);
+    expect(await redis.hget(`${value}:transports`, 'transport')).toBe('member');
+    expect(await repository.readParticipant(value, 'transport')).toBeNull();
+    expect(await repository.readSocket(value, 'member')).toBe('transport');
+    await redis.hdel(`${value}:transports`, 'transport');
+    expect(await repository.readSocket(value, 'member')).toBeNull();
+    await redis.hset(`${value}:transports`, 'transport', 'member');
+    await repository.apply(value, room, { type: 'leave', participantId: 'member' });
+    expect(await redis.hlen(`${value}:transports`)).toBe(0);
+    expect(await repository.readParticipant(value, 'member')).toBeNull();
+  });
+
+  it('keeps suspended stage ids reserved and can demote a null-socket membership', async () => {
+    const value = prefix();
+    const room = empty('WEBINAR');
+    for (const command of [...webinarJoins, promote('a'), promote('b'), promote('c')])
+      await repository.apply(value, room, command);
+    const current = await repository.refreshSnapshot(value, room);
+    // Suspension reaches Lua in the next slice. Seed the reducer's suspended row here.
+    const suspended = applyStageCommand(current.state, { type: 'suspend', participantId: 'a' });
+    if (!suspended.ok) throw new Error(suspended.error);
+    const participant = suspended.state.participants.find((p) => p.participantId === 'a')!;
+    await redis.hset(`${value}:participants`, 'a', JSON.stringify(participant));
+    await redis.hdel(`${value}:transports`, 'socket-a');
+    expect((await repository.readParticipant(value, 'a'))?.socketId).toBeNull();
+    expect(await repository.readConnectedStage(value)).toEqual(
+      expect.arrayContaining(['host', 'b', 'c']),
+    );
+    expect(await repository.readConnectedStage(value)).not.toContain('a');
+    expect(await repository.apply(value, room, promote('d'))).toMatchObject({
+      error: 'stage_full',
+    });
+    const expected = applyStageCommand(suspended.state, demote('a'));
+    expect(await repository.apply(value, room, demote('a'))).toEqual({
+      ...expected,
+      revision: current.revision + 1,
+    });
+    expect(await repository.apply(value, room, promote('a'))).toMatchObject({
+      error: 'not_connected',
+    });
+    expect(await repository.apply(value, room, promote('d'))).toMatchObject({ ok: true });
   });
 
   it.each(scenarios)(
@@ -301,9 +354,16 @@ describe('Redis Lua stage transitions', () => {
             expect(persisted.revision).toBe(revision);
             expect(persisted.participants).toEqual(expect.arrayContaining(state.participants));
             expect(persisted.participants).toHaveLength(state.participants.length);
-            expect(persisted.stage).toEqual(state.stageSocketIds);
+            expect(persisted.stage).toEqual(state.stageParticipantIds);
+            expect(persisted.transports).toEqual(
+              Object.fromEntries(
+                state.participants
+                  .filter((p) => p.socketId !== null)
+                  .map((p) => [p.socketId, p.participantId]),
+              ),
+            );
             expect(persisted.hands).toEqual(
-              state.hands.flatMap((h) => [h.socketId, String(h.raisedAt)]),
+              state.hands.flatMap((h) => [h.participantId, String(h.raisedAt)]),
             );
             if (!expected.changed) expect(persisted).toEqual(before);
             for (const key of keys(value)) {
@@ -332,7 +392,7 @@ describe('Redis Lua stage transitions', () => {
       changed: true,
       revision: 1,
       state: {
-        stageSocketIds: [],
+        stageParticipantIds: [],
         participants: [
           {
             role: 'ATTENDEE',
@@ -398,7 +458,7 @@ describe('Redis Lua stage transitions', () => {
     const legacy: LiveState = {
       ...result.state,
       participants: result.state.participants.map((p) =>
-        p.socketId === 'a'
+        p.participantId === 'a'
           ? {
               ...p,
               isAudioMuted: false,
@@ -409,7 +469,7 @@ describe('Redis Lua stage transitions', () => {
           : p,
       ),
     };
-    const participant = legacy.participants.find((p) => p.socketId === 'a')!;
+    const participant = legacy.participants.find((p) => p.participantId === 'a')!;
     await redis.hset(`${value}:participants`, 'a', JSON.stringify(participant));
     const before = await stored(value);
     expect(await repository.apply(value, room, patch({ isAudioMuted: false }))).toEqual({
@@ -456,13 +516,13 @@ describe('Redis Lua stage transitions', () => {
       if (expected.ok) state = expected.state;
     }
     expect(revision).toBe(5);
-    expect(state.participants.find((p) => p.socketId === 'a')).toMatchObject({
+    expect(state.participants.find((p) => p.participantId === 'a')).toMatchObject({
       role: 'ATTENDEE',
       isAudioMuted: true,
       isVideoOff: true,
       isScreenSharing: false,
     });
-    expect(state.stageSocketIds).toEqual(['host']);
+    expect(state.stageParticipantIds).toEqual(['host']);
   });
 
   it('refreshes all live key TTLs only on changes', async () => {
@@ -473,7 +533,7 @@ describe('Redis Lua stage transitions', () => {
     await repository.apply(value, room, hand('a'));
     for (const key of keys(value)) await redis.expire(key, 120);
     await repository.apply(value, room, join('new-socket', 'a'));
-    await repository.apply(value, room, { type: 'leave', socketId: 'missing' });
+    await repository.apply(value, room, { type: 'leave', participantId: 'missing' });
     await repository.apply(
       value,
       room,
@@ -600,8 +660,9 @@ describe('Redis Lua stage transitions', () => {
         ['SREM', `${value}:stage`, 'a'],
       ]);
       await writes(hand('a'));
-      const leave = await writes({ type: 'leave', socketId: 'a' });
+      const leave = await writes({ type: 'leave', participantId: 'a' });
       expect(leave.map((args) => args.slice(0, 3))).toEqual([
+        ['HDEL', `${value}:transports`, 'socket-a'],
         ['HDEL', `${value}:participants`, 'a'],
         ['ZREM', `${value}:hands`, 'a'],
       ]);
@@ -659,7 +720,7 @@ describe('Redis Lua stage transitions', () => {
     const result = await repository.apply(value, room, patch({}));
     expect(result).toMatchObject({ ok: true, changed: false, revision: 4 });
     if (!result.ok) throw new Error(result.error);
-    expect(result.state.participants.find((p) => p.socketId === 'a')).toMatchObject({
+    expect(result.state.participants.find((p) => p.participantId === 'a')).toMatchObject({
       isAudioMuted: true,
       isVideoOff: true,
     });
@@ -671,7 +732,7 @@ describe('Redis Lua stage transitions', () => {
     try {
       await repository.apply(value, room, join('host'));
       await repository.apply(value, room, join('guest'));
-      const ended = await repository.apply(value, room, { type: 'leave', socketId: 'host' });
+      const ended = await repository.apply(value, room, { type: 'leave', participantId: 'host' });
       expect(ended).toMatchObject({
         ok: true,
         changed: true,
@@ -684,7 +745,7 @@ describe('Redis Lua stage transitions', () => {
       const revision = Number(await redis.get(`${value}:rev`));
       await redis.expire(`${value}:ending`, 120);
       await redis.expire(`${value}:rev`, 120);
-      const retry = await repository.apply(value, room, { type: 'leave', socketId: 'guest' });
+      const retry = await repository.apply(value, room, { type: 'leave', participantId: 'guest' });
       expect(retry).toMatchObject({ ok: true, changed: false, roomEnded: true, revision });
       expect(Number(await redis.get(`${value}:rev`))).toBe(revision);
       expect(await redis.ttl(`${value}:ending`)).toBeGreaterThan(86390);

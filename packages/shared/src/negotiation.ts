@@ -31,21 +31,24 @@ export type NegotiationAction =
 
 export type NegotiationResult = { flags: NegotiationFlags; action: NegotiationAction };
 
-export function meshPeers(selfSocketId: string, stageSocketIds: readonly string[]): string[] {
-  return stageSocketIds.includes(selfSocketId)
-    ? stageSocketIds.filter((id) => id !== selfSocketId)
+export function meshPeers(
+  selfParticipantId: string,
+  connectedStageParticipantIds: readonly string[],
+): string[] {
+  return connectedStageParticipantIds.includes(selfParticipantId)
+    ? connectedStageParticipantIds.filter((id) => id !== selfParticipantId)
     : [];
 }
 
 export function canRelay(
-  stageSocketIds: readonly string[],
-  fromSocketId: string,
-  toSocketId: string,
+  connectedStageParticipantIds: readonly string[],
+  fromParticipantId: string,
+  toParticipantId: string,
 ): boolean {
   return (
-    fromSocketId !== toSocketId &&
-    stageSocketIds.includes(fromSocketId) &&
-    stageSocketIds.includes(toSocketId)
+    fromParticipantId !== toParticipantId &&
+    connectedStageParticipantIds.includes(fromParticipantId) &&
+    connectedStageParticipantIds.includes(toParticipantId)
   );
 }
 

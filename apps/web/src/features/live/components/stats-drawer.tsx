@@ -73,11 +73,12 @@ function StatsContents({ manager, snapshot }: StatsProps) {
               </tr>
             </thead>
             <tbody>
-              {[...stats].map(([socketId, view]) => (
-                <tr key={socketId}>
+              {[...stats].map(([participantId, view]) => (
+                <tr key={participantId}>
                   <th scope="row">
-                    {snapshot.participants.find((participant) => participant.socketId === socketId)
-                      ?.displayName ?? 'Participant'}
+                    {snapshot.participants.find(
+                      (participant) => participant.participantId === participantId,
+                    )?.displayName ?? 'Participant'}
                   </th>
                   <td>{metric(view.outboundBitrate, 'bit/s')}</td>
                   <td>{metric(view.inboundBitrate, 'bit/s')}</td>

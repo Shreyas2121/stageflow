@@ -13,7 +13,7 @@ export class ActiveSpeaker {
   private pending: string | null = null;
   private leadingSince = 0;
 
-  constructor(private publish: (socketId: string | null) => void) {}
+  constructor(private publish: (participantId: string | null) => void) {}
 
   sync(tracks: ReadonlyMap<string, MediaStreamTrack>): void {
     for (const [id, input] of this.inputs) {

@@ -30,11 +30,14 @@ const room: RoomResponse = {
 
 const webinar: RoomResponse = { ...room, mode: 'WEBINAR', hostId: 'host-user' };
 
-function person(socketId: string, role: ParticipantRole): ParticipantState {
+function person(participantId: string, role: ParticipantRole): ParticipantState {
   return {
-    socketId,
-    userId: socketId,
-    displayName: socketId,
+    participantId,
+    socketId: `socket-${participantId}`,
+    connectionGeneration: 1,
+    presence: 'connected',
+    userId: participantId,
+    displayName: participantId,
     role,
     isAudioMuted: false,
     isVideoOff: false,
@@ -48,7 +51,7 @@ function person(socketId: string, role: ParticipantRole): ParticipantState {
 }
 
 function snapshot(
-  socketId: string,
+  participantId: string,
   role: ParticipantRole,
   onStage: boolean,
   revision: number,
@@ -58,9 +61,9 @@ function snapshot(
     roomId: room.id,
     mode: 'MEETING',
     status: 'LIVE',
-    participants: [person(socketId, role)],
-    stageSocketIds: onStage ? [socketId] : [],
-    handSocketIds: [],
+    participants: [person(participantId, role)],
+    stageParticipantIds: onStage ? [participantId] : [],
+    handParticipantIds: [],
     broadcast: null,
   };
 }
@@ -177,7 +180,7 @@ function fakeConnection() {
     description: vi.fn(() => Promise.resolve({ ok: true as const })),
     candidate: vi.fn(() => Promise.resolve({ ok: true as const })),
     join: vi.fn<() => Promise<JoinAck>>(() =>
-      Promise.resolve({ ok: true, selfSocketId: 'self', iceServers: [] }),
+      Promise.resolve({ ok: true, participantId: 'self', iceServers: [] }),
     ),
     media: vi.fn<RoomConnection['media']>(async () => ({ ok: true })),
     hand: vi.fn(() => Promise.resolve({ ok: true as const })),
@@ -342,7 +345,7 @@ describe('RoomSession', () => {
     const joining = h.session.join();
     page('pagehide');
     page('pageshow');
-    resolveJoin({ ok: true, selfSocketId: 'self', iceServers: [] });
+    resolveJoin({ ok: true, participantId: 'self', iceServers: [] });
     await joining;
     h.callbacks()?.onDisconnect();
     h.callbacks()?.onEnded();
@@ -387,19 +390,21 @@ describe('RoomSession', () => {
     const { session, media, peers, connection, callbacks } = open();
     media.ready = true;
     const description: RelayedDescription = {
-      fromSocketId: 'other',
-      toSocketId: 'self',
+      fromParticipantId: 'other',
+      toParticipantId: 'self',
       description: { type: 'offer', sdp: 'v=0' },
     };
     connection.join.mockImplementation(async () => {
-      useRoomStore
-        .getState()
-        .receive({ ...snapshot('self', 'HOST', true, 1), stageSocketIds: ['self', 'other'] });
+      useRoomStore.getState().receive({
+        ...snapshot('self', 'HOST', true, 1),
+        participants: [person('self', 'HOST'), person('other', 'SPEAKER')],
+        stageParticipantIds: ['self', 'other'],
+      });
       useRoomStore.getState().joined('self', []);
       order.push('after-store');
       callbacks()?.onDescription(description);
       order.push('after-description');
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     peers.sync.mockImplementation(() => order.push('sync'));
     peers.description.mockImplementation(() => order.push('description'));
@@ -447,7 +452,7 @@ describe('RoomSession', () => {
     const joining = session.join();
     expect(session.phase).toBe('joining');
     expect(session.preparing).toBe(false);
-    finishJoin({ ok: true, selfSocketId: 'self', iceServers: [] });
+    finishJoin({ ok: true, participantId: 'self', iceServers: [] });
     await joining;
     expect(session.phase).toBe('joined');
   });
@@ -769,7 +774,7 @@ describe('RoomSession', () => {
       useRoomStore
         .getState()
         .receive({ ...snapshot('self', 'ATTENDEE', false, 1), mode: 'WEBINAR' });
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await guest.session.join();
     await guest.session.startBroadcast();
@@ -785,12 +790,12 @@ describe('RoomSession', () => {
       ...snapshot('self', 'HOST', true, 1),
       mode: 'WEBINAR',
       participants: [person('self', 'HOST'), person('guest', 'ATTENDEE')],
-      handSocketIds: ['guest'],
+      handParticipantIds: ['guest'],
     };
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(original);
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await session.join();
     connection.promote.mockResolvedValueOnce({
@@ -809,8 +814,8 @@ describe('RoomSession', () => {
     const promoted = {
       ...original,
       participants: [person('self', 'HOST'), person('guest', 'SPEAKER')],
-      stageSocketIds: ['self', 'guest'],
-      handSocketIds: [],
+      stageParticipantIds: ['self', 'guest'],
+      handParticipantIds: [],
     };
     useRoomStore.getState().receive(promoted);
     expect(useRoomStore.getState().snapshot).toBe(original);
@@ -820,7 +825,7 @@ describe('RoomSession', () => {
     await session.setLock('guest', 'video', true);
     await session.demote('guest');
     expect(connection.setLock).toHaveBeenCalledExactlyOnceWith({
-      targetSocketId: 'guest',
+      targetParticipantId: 'guest',
       kind: 'video',
       locked: true,
     });
@@ -836,7 +841,7 @@ describe('RoomSession', () => {
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 1));
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await session.join();
     await session.promote('other');
@@ -852,7 +857,7 @@ describe('RoomSession', () => {
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(snapshot('self', 'ATTENDEE', false, 1));
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
 
     await session.join();
@@ -876,7 +881,7 @@ describe('RoomSession', () => {
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(snapshot('self', 'HOST', true, 1));
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
 
     await session.join();
@@ -909,13 +914,13 @@ describe('RoomSession', () => {
     h.connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(offStage);
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await h.session.join();
     const promoted: RoomSnapshot = {
       ...offStage,
       revision: 2,
-      stageSocketIds: ['self', 'host'],
+      stageParticipantIds: ['self', 'host'],
       participants: [{ ...offStage.participants[0]!, role: 'SPEAKER' }, person('host', 'HOST')],
     };
     useRoomStore.getState().receive(promoted);
@@ -928,7 +933,7 @@ describe('RoomSession', () => {
   it('opens peers only after consent and sends one on-stage patch with green-room intentions', async () => {
     const h = await promotedAttendee();
     h.connection.media.mockImplementation(async (patch) => {
-      expect(useRoomStore.getState().snapshot?.stageSocketIds).toContain('self');
+      expect(useRoomStore.getState().snapshot?.stageParticipantIds).toContain('self');
       expect(h.peers.sync).toHaveBeenCalledWith('self', ['self', 'host'], []);
       expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
       useRoomStore.getState().receive({
@@ -980,8 +985,8 @@ describe('RoomSession', () => {
   it('retains only current-stage signaling during consent and discards it on demotion', async () => {
     const h = await promotedAttendee();
     const description: RelayedDescription = {
-      toSocketId: 'self',
-      fromSocketId: 'host',
+      toParticipantId: 'self',
+      fromParticipantId: 'host',
       description: { type: 'offer', sdp: 'on-stage' },
     };
     h.callbacks()?.onDescription(description);
@@ -1006,8 +1011,8 @@ describe('RoomSession', () => {
     const h = await promotedAttendee();
     for (let i = 0; i < 33; i++)
       h.callbacks()?.onDescription({
-        toSocketId: 'self',
-        fromSocketId: 'host',
+        toParticipantId: 'self',
+        fromParticipantId: 'host',
         description: { type: 'offer', sdp: 'pending' },
       });
     expect(h.session.error).toContain('Stage signaling overflowed');
@@ -1096,7 +1101,7 @@ describe('RoomSession', () => {
     h.connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive({ ...snapshot('self', 'HOST', true, 1), mode: 'WEBINAR' });
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await h.session.join();
   }
@@ -1110,7 +1115,7 @@ describe('RoomSession', () => {
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(snapshot('self', 'HOST', true, 1));
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await session.join();
   }
@@ -1199,7 +1204,7 @@ describe('RoomSession', () => {
     connection.join.mockImplementation(async () => {
       useRoomStore.getState().joined('self', []);
       useRoomStore.getState().receive(snapshot('self', 'HOST', true, 1));
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await session.join();
 
@@ -1232,7 +1237,7 @@ describe('RoomSession', () => {
       useRoomStore
         .getState()
         .receive({ ...snapshot('self', 'ATTENDEE', false, 1), mode: 'WEBINAR' });
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await attendee.session.join();
     await attendee.session.replaceDevice('camera', 'cam-2');
@@ -1287,7 +1292,7 @@ describe('RoomSession', () => {
         ...snapshot('self', 'HOST', true, 1),
         participants: [{ ...person('self', 'HOST'), hostAudioLocked: true, isAudioMuted: true }],
       });
-      return { ok: true, selfSocketId: 'self', iceServers: [] };
+      return { ok: true, participantId: 'self', iceServers: [] };
     });
     await h.session.join();
     h.connection.media.mockClear();

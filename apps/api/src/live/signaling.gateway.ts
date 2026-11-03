@@ -1,4 +1,5 @@
 import { OnModuleDestroy } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   ConnectedSocket,
   MessageBody,
@@ -38,7 +39,7 @@ import { socketOptions } from './socket-options';
 import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
 
-type SocketData = { user: User; room?: LiveRoom };
+type SocketData = { user: User; room?: LiveRoom; participantId?: string };
 type GuestSocket = Socket<
   ClientToServerEvents,
   ServerToClientEvents,
@@ -83,6 +84,13 @@ export class SignalingGateway
     return {
       id: client.id,
       user: client.data.user,
+      get participantId() {
+        return client.data.participantId;
+      },
+      set participantId(participantId: string | undefined) {
+        if (participantId) client.data.participantId = participantId;
+        else delete client.data.participantId;
+      },
       get connected() {
         return client.connected;
       },
@@ -115,8 +123,12 @@ export class SignalingGateway
     end: async (roomId) => {
       this.server.to(roomId).emit('room:ended', { roomId });
       await this.server.in(roomId).socketsLeave(roomId);
-      for (const socket of this.server.sockets.sockets.values())
-        if (socket.data.room?.roomId === roomId) delete socket.data.room;
+      for (const socket of this.server.sockets.sockets.values()) {
+        if (socket.data.room?.roomId === roomId) {
+          delete socket.data.room;
+          delete socket.data.participantId;
+        }
+      }
     },
   };
   afterInit(server: RoomServer): void {
@@ -165,8 +177,15 @@ export class SignalingGateway
   ): Promise<JoinAck> {
     const request = parseJoinRoomRequest(payload);
     if (!request) return failure('invalid_payload');
-    const result = await this.live.join(this.session(client), request, this.transport);
-    return result.ok ? { ok: true, selfSocketId: client.id, iceServers: this.iceServers } : result;
+    const result = await this.live.join(
+      this.session(client),
+      request,
+      this.transport,
+      randomUUID(),
+    );
+    return result.ok
+      ? { ok: true, participantId: client.data.participantId!, iceServers: this.iceServers }
+      : result;
   }
   @SubscribeMessage('webrtc:description')
   description(
@@ -175,12 +194,12 @@ export class SignalingGateway
   ): Promise<CommandAck> | CommandAck {
     const request = parseDescriptionRequest(payload);
     if (!request) return failure('invalid_payload');
-    const { toSocketId, description } = request;
-    return this.live.relay(this.session(client), toSocketId, this.transport, () => {
-      const target = this.server.sockets.sockets.get(toSocketId)!;
+    const { toParticipantId, description } = request;
+    return this.live.relay(this.session(client), toParticipantId, this.transport, (socketId) => {
+      const target = this.server.sockets.sockets.get(socketId)!;
       target.emit('webrtc:description', {
-        toSocketId,
-        fromSocketId: client.id,
+        toParticipantId,
+        fromParticipantId: client.data.participantId!,
         description: { type: description.type, sdp: description.sdp },
       });
     });
@@ -193,24 +212,29 @@ export class SignalingGateway
   ): Promise<CommandAck> | CommandAck {
     const request = parseIceCandidateRequest(payload);
     if (!request) return failure('invalid_payload');
-    return this.live.relay(this.session(client), request.toSocketId, this.transport, () => {
-      const target = this.server.sockets.sockets.get(request.toSocketId)!;
-      target.emit('webrtc:ice-candidate', {
-        toSocketId: request.toSocketId,
-        fromSocketId: client.id,
-        candidate:
-          request.candidate === null
-            ? null
-            : {
-                candidate: request.candidate.candidate,
-                sdpMid: request.candidate.sdpMid,
-                sdpMLineIndex: request.candidate.sdpMLineIndex,
-                ...(request.candidate.usernameFragment
-                  ? { usernameFragment: request.candidate.usernameFragment }
-                  : {}),
-              },
-      });
-    });
+    return this.live.relay(
+      this.session(client),
+      request.toParticipantId,
+      this.transport,
+      (socketId) => {
+        const target = this.server.sockets.sockets.get(socketId)!;
+        target.emit('webrtc:ice-candidate', {
+          toParticipantId: request.toParticipantId,
+          fromParticipantId: client.data.participantId!,
+          candidate:
+            request.candidate === null
+              ? null
+              : {
+                  candidate: request.candidate.candidate,
+                  sdpMid: request.candidate.sdpMid,
+                  sdpMLineIndex: request.candidate.sdpMLineIndex,
+                  ...(request.candidate.usernameFragment
+                    ? { usernameFragment: request.candidate.usernameFragment }
+                    : {}),
+                },
+        });
+      },
+    );
   }
 
   @SubscribeMessage('media:state')
@@ -224,7 +248,7 @@ export class SignalingGateway
       this.session(client),
       {
         type: 'patchMedia',
-        socketId: client.id,
+        participantId: client.data.participantId!,
         patch,
       },
       this.transport,
@@ -242,7 +266,7 @@ export class SignalingGateway
       this.session(client),
       {
         type: 'setHand',
-        socketId: client.id,
+        participantId: client.data.participantId!,
         raised: request.raised,
         raisedAt: Date.now(),
       },
@@ -261,8 +285,8 @@ export class SignalingGateway
       this.session(client),
       {
         type: 'promote',
-        actorSocketId: client.id,
-        targetSocketId: request.targetSocketId,
+        actorParticipantId: client.data.participantId!,
+        targetParticipantId: request.targetParticipantId,
       },
       this.transport,
     );
@@ -279,8 +303,8 @@ export class SignalingGateway
       this.session(client),
       {
         type: 'demote',
-        actorSocketId: client.id,
-        targetSocketId: request.targetSocketId,
+        actorParticipantId: client.data.participantId!,
+        targetParticipantId: request.targetParticipantId,
       },
       this.transport,
     );
@@ -297,7 +321,7 @@ export class SignalingGateway
       this.session(client),
       {
         type: 'setHostLock',
-        actorSocketId: client.id,
+        actorParticipantId: client.data.participantId!,
         ...request,
       },
       this.transport,

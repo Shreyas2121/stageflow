@@ -2,6 +2,7 @@
 local command = cjson.decode(ARGV[1])
 local room = command.room
 local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)
+local transportsKey = KEYS[7]
 local revision = tonumber(redis.call('GET', revKey)) or 0
 local participants = {}
 local raw = redis.call('HGETALL', participantsKey)
@@ -39,9 +40,9 @@ local function stageCount()
 end
 
 local function hostTarget()
-  local actor = participants[command.actorSocketId]
+  local actor = participants[command.actorParticipantId]
   if not actor or actor.role ~= 'HOST' then return nil, 'not_host' end
-  local target = participants[command.targetSocketId]
+  local target = participants[command.targetParticipantId]
   if not target then return nil, 'participant_not_found' end
   return target, nil
 end
@@ -56,7 +57,7 @@ end
 local function finish(changed, roomEnded)
   if changed then
     if clearRoom then
-      redis.call('DEL', participantsKey, stageKey, handsKey)
+      redis.call('DEL', participantsKey, stageKey, handsKey, transportsKey)
     else
       for id in pairs(dirtyParticipants) do
         if participants[id] then redis.call('HSET', participantsKey, id, cjson.encode(participants[id]))
@@ -72,18 +73,18 @@ local function finish(changed, roomEnded)
       end
     end
     revision = redis.call('INCR', revKey)
-    local expiring = { revKey, participantsKey, stageKey, handsKey }
+    local expiring = { revKey, participantsKey, stageKey, handsKey, transportsKey }
     if redis.call('EXISTS', endingKey) == 1 then expiring[#expiring + 1] = endingKey end
     for _, key in ipairs(expiring) do redis.call('EXPIRE', key, 86400) end
   end
   local participantList, stageList, handList = {}, {}, {}
   for _, participant in pairs(participants) do participantList[#participantList + 1] = participant end
   for id in pairs(stage) do stageList[#stageList + 1] = id end
-  for id, raisedAt in pairs(hands) do handList[#handList + 1] = { socketId = id, raisedAt = raisedAt } end
-  table.sort(participantList, function(a, b) return a.socketId < b.socketId end)
+  for id, raisedAt in pairs(hands) do handList[#handList + 1] = { participantId = id, raisedAt = raisedAt } end
+  table.sort(participantList, function(a, b) return a.participantId < b.participantId end)
   table.sort(stageList)
   table.sort(handList, function(a, b)
-    if a.raisedAt == b.raisedAt then return a.socketId < b.socketId end
+    if a.raisedAt == b.raisedAt then return a.participantId < b.participantId end
     return a.raisedAt < b.raisedAt
   end)
   local state = '{"roomId":' .. cjson.encode(room.roomId)
@@ -91,7 +92,7 @@ local function finish(changed, roomEnded)
     .. ',"mode":' .. cjson.encode(room.mode)
     .. ',"status":' .. cjson.encode(roomEnded and 'ENDED' or room.status)
     .. ',"participants":' .. arrayJson(participantList)
-    .. ',"stageSocketIds":' .. arrayJson(stageList)
+    .. ',"stageParticipantIds":' .. arrayJson(stageList)
     .. ',"hands":' .. arrayJson(handList) .. '}'
   return '{"ok":true,"revision":' .. revision
     .. ',"changed":' .. tostring(changed)

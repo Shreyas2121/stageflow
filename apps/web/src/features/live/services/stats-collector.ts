@@ -116,7 +116,7 @@ export class StatsCollector {
     this.polling = true;
     try {
       const sources = this.connections();
-      const identities = new Map(sources.map((source) => [source.socketId, source.identity]));
+      const identities = new Map(sources.map((source) => [source.participantId, source.identity]));
       for (const [id, baseline] of this.previous) {
         if (identities.get(id) !== baseline.identity) this.previous.delete(id);
       }
@@ -125,23 +125,23 @@ export class StatsCollector {
           const report = await this.read(source);
           if (this.closed) return null;
           const sample = report ? statsSample(report) : null;
-          const previous = this.previous.get(source.socketId)?.sample;
+          const previous = this.previous.get(source.participantId)?.sample;
           if (
             !sample ||
             !Number.isFinite(sample.timestamp) ||
             (previous && sample.timestamp <= previous.timestamp)
           ) {
-            this.previous.delete(source.socketId);
-            return [source.socketId, deltaStats(null, statsSample(new Map()))] as const;
+            this.previous.delete(source.participantId);
+            return [source.participantId, deltaStats(null, statsSample(new Map()))] as const;
           }
           const view = deltaStats(previous ?? null, sample);
-          this.previous.set(source.socketId, { identity: source.identity, sample });
-          return [source.socketId, view] as const;
+          this.previous.set(source.participantId, { identity: source.identity, sample });
+          return [source.participantId, view] as const;
         }),
       );
       if (this.closed) return;
       const current = new Map(
-        this.connections().map((source) => [source.socketId, source.identity]),
+        this.connections().map((source) => [source.participantId, source.identity]),
       );
       for (const [id, baseline] of this.previous) {
         if (current.get(id) !== baseline.identity) this.previous.delete(id);

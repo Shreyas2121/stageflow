@@ -10,7 +10,7 @@ export function roomPrefix(roomId: string, namespace: string): string {
 }
 
 // These are real Redis keys, passed together to every script. Standalone Redis only.
-export function liveKeys(prefix: string): [string, string, string, string, string, string] {
+export function liveKeys(prefix: string): [string, string, string, string, string, string, string] {
   return [
     `${prefix}:rev`,
     `${prefix}:participants`,
@@ -18,5 +18,6 @@ export function liveKeys(prefix: string): [string, string, string, string, strin
     `${prefix}:hands`,
     `${prefix}:ending`,
     `${prefix}:broadcast`,
+    `${prefix}:transports`,
   ];
 }

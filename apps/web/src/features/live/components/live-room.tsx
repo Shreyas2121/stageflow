@@ -27,17 +27,21 @@ export function LiveRoom({
   const share = useScreenShare(live);
   const demos = useDemoPeers(live);
   const snapshot = useRoomStore((state) => state.snapshot);
-  const selfSocketId = useRoomStore((state) => state.selfSocketId);
-  const self = snapshot?.participants.find((participant) => participant.socketId === selfSocketId);
+  const selfParticipantId = useRoomStore((state) => state.selfParticipantId);
+  const self = snapshot?.participants.find(
+    (participant) => participant.participantId === selfParticipantId,
+  );
   const inRoom = live.phase === 'joined' || live.phase === 'leaving';
-  const onStage = Boolean(selfSocketId && snapshot?.stageSocketIds.includes(selfSocketId));
+  const onStage = Boolean(
+    selfParticipantId && snapshot?.stageParticipantIds.includes(selfParticipantId),
+  );
   const showLobby = !inRoom || live.needsCaptureConsent;
   const showPreview = showLobby && live.audience === 'stage';
   const audioMuted = self?.isAudioMuted ?? live.isAudioMuted;
   const videoOff = self?.isVideoOff ?? live.isVideoOff;
   const onStageVideo = useCallback(
-    (socketId: string, element: HTMLVideoElement | null) => {
-      live.setStageVideo(socketId, element);
+    (participantId: string, element: HTMLVideoElement | null) => {
+      live.setStageVideo(participantId, element);
     },
     [live],
   );
@@ -62,14 +66,14 @@ export function LiveRoom({
           {live.audience === 'attendee' ? 'Joining as an attendee' : 'Up to 4 people on stage'}
         </span>
       </div>
-      {inRoom && onStage && snapshot && selfSocketId && live.peerManager && (
+      {inRoom && onStage && snapshot && selfParticipantId && live.peerManager && (
         <StageGrid
           snapshot={snapshot}
-          selfSocketId={selfSocketId}
+          selfParticipantId={selfParticipantId}
           localStream={live.media.previewStream()}
           streams={live.streams}
           manager={live.peerManager}
-          activeSocketId={live.activeSocketId}
+          activeParticipantId={live.activeParticipantId}
           onVideo={onStageVideo}
         />
       )}
@@ -116,16 +120,16 @@ export function LiveRoom({
         {inRoom && snapshot && (
           <ParticipantList
             participants={snapshot.participants}
-            selfSocketId={selfSocketId}
-            handSocketIds={snapshot.handSocketIds}
+            selfParticipantId={selfParticipantId}
+            handParticipantIds={snapshot.handParticipantIds}
             moderation={
               live.phase === 'joined' && self?.role === 'HOST'
                 ? {
                     disabled: live.mediaPending,
-                    onPromote: (socketId) => void live.promote(socketId),
-                    onDemote: (socketId) => void live.demote(socketId),
-                    onSetLock: (socketId, kind, locked) =>
-                      void live.setLock(socketId, kind, locked),
+                    onPromote: (participantId) => void live.promote(participantId),
+                    onDemote: (participantId) => void live.demote(participantId),
+                    onSetLock: (participantId, kind, locked) =>
+                      void live.setLock(participantId, kind, locked),
                   }
                 : undefined
             }

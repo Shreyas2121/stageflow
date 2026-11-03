@@ -52,7 +52,7 @@ if (!args.length || args.includes('--api')) {
   const { LiveRepository } = require(join(dist, 'live/live.repository.js'));
   const { roomPrefix, liveKeys } = require(join(dist, 'live/live.keys.js'));
   new LiveRepository({}); // Loads every compiled Lua asset without connecting to a service.
-  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 6);
+  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 7);
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(

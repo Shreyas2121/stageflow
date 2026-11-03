@@ -8,8 +8,8 @@ export type RoomSnapshot = {
   mode: RoomMode;
   status: RoomStatus;
   participants: ParticipantState[];
-  stageSocketIds: string[];
-  handSocketIds: string[];
+  stageParticipantIds: string[];
+  handParticipantIds: string[];
   broadcast: {
     id: string;
     status: BroadcastStatus;
@@ -33,7 +33,7 @@ export type SignalingError =
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
 export type JoinAck =
-  { ok: true; selfSocketId: string; iceServers: IceServer[] } | Extract<CommandAck, { ok: false }>;
+  { ok: true; participantId: string; iceServers: IceServer[] } | Extract<CommandAck, { ok: false }>;
 export type JoinRoomRequest = {
   roomId: string;
   isAudioMuted: boolean;
@@ -48,11 +48,11 @@ export type StageIceCandidate = {
   sdpMLineIndex: number | null;
   usernameFragment?: string;
 };
-export type DescriptionRequest = { toSocketId: string; description: StageDescription };
-export type IceCandidateRequest = { toSocketId: string; candidate: StageIceCandidate | null };
-export type RelayedDescription = DescriptionRequest & { fromSocketId: string };
-export type RelayedIceCandidate = IceCandidateRequest & { fromSocketId: string };
-export type StageTargetRequest = { targetSocketId: string };
+export type DescriptionRequest = { toParticipantId: string; description: StageDescription };
+export type IceCandidateRequest = { toParticipantId: string; candidate: StageIceCandidate | null };
+export type RelayedDescription = DescriptionRequest & { fromParticipantId: string };
+export type RelayedIceCandidate = IceCandidateRequest & { fromParticipantId: string };
+export type StageTargetRequest = { targetParticipantId: string };
 export type StageLockRequest = StageTargetRequest & { kind: 'audio' | 'video'; locked: boolean };
 export type StageForceMute = Pick<StageLockRequest, 'kind' | 'locked'>;
 

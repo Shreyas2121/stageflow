@@ -4,15 +4,15 @@ import type { IceServer, RoomSnapshot } from '@stageflow/shared';
 type RoomStore = {
   roomId: string | null;
   snapshot: RoomSnapshot | null;
-  selfSocketId: string | null;
+  selfParticipantId: string | null;
   iceServers: IceServer[];
   begin: (roomId: string) => void;
   receive: (snapshot: RoomSnapshot) => void;
-  joined: (selfSocketId: string, iceServers: IceServer[]) => void;
+  joined: (selfParticipantId: string, iceServers: IceServer[]) => void;
   clear: () => void;
 };
 
-const initial = { roomId: null, snapshot: null, selfSocketId: null, iceServers: [] };
+const initial = { roomId: null, snapshot: null, selfParticipantId: null, iceServers: [] };
 export const useRoomStore = create<RoomStore>((set) => ({
   ...initial,
   begin: (roomId) => set({ ...initial, roomId }),
@@ -22,6 +22,6 @@ export const useRoomStore = create<RoomStore>((set) => ({
         ? { snapshot }
         : current,
     ),
-  joined: (selfSocketId, iceServers) => set({ selfSocketId, iceServers }),
+  joined: (selfParticipantId, iceServers) => set({ selfParticipantId, iceServers }),
   clear: () => set(initial),
 }));

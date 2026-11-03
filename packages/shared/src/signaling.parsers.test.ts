@@ -12,7 +12,7 @@ import {
   SDP_MAX_LENGTH,
   ICE_CANDIDATE_MAX_LENGTH,
   ICE_UFRAG_MAX_LENGTH,
-  SOCKET_ID_MAX_LENGTH,
+  PARTICIPANT_ID_MAX_LENGTH,
   SDP_MID_MAX_LENGTH,
 } from './limits';
 const join = {
@@ -23,16 +23,18 @@ const join = {
 };
 const ice = { candidate: 'candidate', sdpMid: '0', sdpMLineIndex: 0 };
 it('accepts bounded moderation targets and rejects missing targets and unknown keys', () => {
-  expect(parseStageTargetRequest({ targetSocketId: 'peer' })).toEqual({ targetSocketId: 'peer' });
+  expect(parseStageTargetRequest({ targetParticipantId: 'peer' })).toEqual({
+    targetParticipantId: 'peer',
+  });
   expect(
-    parseStageTargetRequest({ targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH) }),
+    parseStageTargetRequest({ targetParticipantId: 'x'.repeat(PARTICIPANT_ID_MAX_LENGTH) }),
   ).not.toBeNull();
   for (const value of [
     {},
-    { targetSocketId: '' },
-    { targetSocketId: 1 },
-    { targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH + 1) },
-    { targetSocketId: 'peer', role: 'SPEAKER' },
+    { targetParticipantId: '' },
+    { targetParticipantId: 1 },
+    { targetParticipantId: 'x'.repeat(PARTICIPANT_ID_MAX_LENGTH + 1) },
+    { targetParticipantId: 'peer', role: 'SPEAKER' },
   ]) {
     expect(parseStageTargetRequest(value)).toBeNull();
   }
@@ -40,22 +42,22 @@ it('accepts bounded moderation targets and rejects missing targets and unknown k
 it('accepts only audio/video boolean host locks with no extra fields', () => {
   for (const kind of ['audio', 'video']) {
     for (const locked of [true, false]) {
-      const request = { targetSocketId: 'peer', kind, locked };
+      const request = { targetParticipantId: 'peer', kind, locked };
       expect(parseStageLockRequest(request)).toEqual(request);
     }
   }
-  const request = { targetSocketId: 'peer', kind: 'audio', locked: true };
+  const request = { targetParticipantId: 'peer', kind: 'audio', locked: true };
   for (const value of [
     {},
     { kind: 'audio', locked: true },
-    { ...request, targetSocketId: '' },
-    { ...request, targetSocketId: 1 },
-    { ...request, targetSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH + 1) },
+    { ...request, targetParticipantId: '' },
+    { ...request, targetParticipantId: 1 },
+    { ...request, targetParticipantId: 'x'.repeat(PARTICIPANT_ID_MAX_LENGTH + 1) },
     { ...request, kind: 'screen' },
     { ...request, kind: undefined },
     { ...request, locked: 'true' },
     { ...request, locked: undefined },
-    { ...request, actorSocketId: 'host' },
+    { ...request, actorParticipantId: 'host' },
   ]) {
     expect(parseStageLockRequest(value)).toBeNull();
   }
@@ -79,7 +81,7 @@ it.each([null, undefined, [], 'text', 42])('rejects non-object payload %j', (val
 });
 it('bounds descriptions and strips extra fields', () => {
   const value = {
-    toSocketId: 'peer',
+    toParticipantId: 'peer',
     description: { type: 'offer', sdp: 'a'.repeat(SDP_MAX_LENGTH) },
   };
   expect(parseDescriptionRequest({ ...value, extra: 1 })).toEqual(value);
@@ -92,45 +94,51 @@ it('bounds descriptions and strips extra fields', () => {
   expect(
     parseDescriptionRequest({ ...value, description: { type: 'rollback', sdp: '' } }),
   ).toBeNull();
-  for (const id of ['', 'x'.repeat(SOCKET_ID_MAX_LENGTH + 1), null])
-    expect(parseDescriptionRequest({ ...value, toSocketId: id })).toBeNull();
+  for (const id of ['', 'x'.repeat(PARTICIPANT_ID_MAX_LENGTH + 1), null])
+    expect(parseDescriptionRequest({ ...value, toParticipantId: id })).toBeNull();
 });
 it('preserves both end markers and rejects unidentified nonempty candidates', () => {
-  expect(parseIceCandidateRequest({ toSocketId: 'peer', candidate: null })).toEqual({
-    toSocketId: 'peer',
+  expect(parseIceCandidateRequest({ toParticipantId: 'peer', candidate: null })).toEqual({
+    toParticipantId: 'peer',
     candidate: null,
   });
   expect(
     parseIceCandidateRequest({
-      toSocketId: 'peer',
+      toParticipantId: 'peer',
       candidate: { candidate: '', sdpMid: null, sdpMLineIndex: null },
     }),
   ).not.toBeNull();
   expect(
     parseIceCandidateRequest({
-      toSocketId: 'peer',
+      toParticipantId: 'peer',
       candidate: { ...ice, sdpMid: null, sdpMLineIndex: null },
     }),
   ).toBeNull();
   expect(
-    parseIceCandidateRequest({ toSocketId: 'peer', candidate: { ...ice, sdpMid: null } }),
+    parseIceCandidateRequest({ toParticipantId: 'peer', candidate: { ...ice, sdpMid: null } }),
   ).not.toBeNull();
   expect(
-    parseIceCandidateRequest({ toSocketId: 'peer', candidate: { ...ice, sdpMLineIndex: null } }),
+    parseIceCandidateRequest({
+      toParticipantId: 'peer',
+      candidate: { ...ice, sdpMLineIndex: null },
+    }),
   ).not.toBeNull();
 });
 it.each([-1, 0.5, NaN, Infinity, 65536, undefined])(
   'rejects invalid candidate index %s',
   (index) => {
     expect(
-      parseIceCandidateRequest({ toSocketId: 'peer', candidate: { ...ice, sdpMLineIndex: index } }),
+      parseIceCandidateRequest({
+        toParticipantId: 'peer',
+        candidate: { ...ice, sdpMLineIndex: index },
+      }),
     ).toBeNull();
   },
 );
 it('bounds candidate strings, identifiers and mid', () => {
   expect(
     parseIceCandidateRequest({
-      toSocketId: 'x'.repeat(SOCKET_ID_MAX_LENGTH),
+      toParticipantId: 'x'.repeat(PARTICIPANT_ID_MAX_LENGTH),
       candidate: {
         ...ice,
         candidate: 'x'.repeat(ICE_CANDIDATE_MAX_LENGTH),
@@ -144,32 +152,35 @@ it('bounds candidate strings, identifiers and mid', () => {
     { ...ice, sdpMid: 'x'.repeat(SDP_MID_MAX_LENGTH + 1) },
     { ...ice, sdpMid: undefined },
   ])
-    expect(parseIceCandidateRequest({ toSocketId: 'peer', candidate })).toBeNull();
-  expect(parseIceCandidateRequest({ toSocketId: '', candidate: ice })).toBeNull();
-  expect(parseIceCandidateRequest({ toSocketId: 'peer' })).toBeNull();
+    expect(parseIceCandidateRequest({ toParticipantId: 'peer', candidate })).toBeNull();
+  expect(parseIceCandidateRequest({ toParticipantId: '', candidate: ice })).toBeNull();
+  expect(parseIceCandidateRequest({ toParticipantId: 'peer' })).toBeNull();
 });
 it('preserves an ICE username fragment without requiring one', () => {
   expect(
     parseIceCandidateRequest({
-      toSocketId: 'peer',
+      toParticipantId: 'peer',
       candidate: { ...ice, usernameFragment: 'answer-ufrag' },
     }),
   ).toEqual({
-    toSocketId: 'peer',
+    toParticipantId: 'peer',
     candidate: { ...ice, usernameFragment: 'answer-ufrag' },
   });
   expect(
-    parseIceCandidateRequest({ toSocketId: 'peer', candidate: ice })?.candidate,
+    parseIceCandidateRequest({ toParticipantId: 'peer', candidate: ice })?.candidate,
   ).not.toHaveProperty('usernameFragment');
   expect(
     parseIceCandidateRequest({
-      toSocketId: 'peer',
+      toParticipantId: 'peer',
       candidate: { ...ice, usernameFragment: null },
     })?.candidate,
   ).not.toHaveProperty('usernameFragment');
   for (const usernameFragment of ['', 'x'.repeat(ICE_UFRAG_MAX_LENGTH + 1), 1, {}]) {
     expect(
-      parseIceCandidateRequest({ toSocketId: 'peer', candidate: { ...ice, usernameFragment } }),
+      parseIceCandidateRequest({
+        toParticipantId: 'peer',
+        candidate: { ...ice, usernameFragment },
+      }),
     ).toBeNull();
   }
 });

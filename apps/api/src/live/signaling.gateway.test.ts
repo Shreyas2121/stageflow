@@ -5,6 +5,46 @@ import { SignalingGateway } from './signaling.gateway';
 import type { LiveService } from './live.service';
 import type { SessionsService } from '../sessions/sessions.service';
 import { env } from '../config/env';
+import { isUuid } from '@stageflow/shared';
+
+it('issues a membership UUID and uses it for later commands instead of the socket id', async () => {
+  const join = vi.fn<LiveService['join']>(async (session, _request, _transport, participantId) => {
+    session.participantId = participantId;
+    return { ok: true };
+  });
+  const update = vi.fn<LiveService['update']>(async () => ({ ok: true }));
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    { join, update } as unknown as LiveService,
+    {} as LiveConnection,
+  );
+  const client = {
+    id: 'transport-id',
+    connected: true,
+    data: { user: { id: 'guest' }, participantId: undefined as string | undefined },
+  };
+  const ack = await gateway.join(client as never, {
+    roomId: '01234567-89ab-cdef-0123-456789abcdef',
+    isAudioMuted: true,
+    isVideoOff: true,
+    isSyntheticBot: false,
+  });
+  expect(ack.ok).toBe(true);
+  if (!ack.ok) throw new Error(ack.error);
+  expect(isUuid(ack.participantId)).toBe(true);
+  expect(ack.participantId).not.toBe(client.id);
+  expect(client.data.participantId).toBe(ack.participantId);
+  await gateway.media(client as never, { isAudioMuted: true });
+  expect(update).toHaveBeenCalledWith(
+    expect.anything(),
+    {
+      type: 'patchMedia',
+      participantId: ack.participantId,
+      patch: { isAudioMuted: true },
+    },
+    expect.anything(),
+  );
+});
 
 class ClosingRedis {
   status = 'wait';

@@ -28,26 +28,26 @@ const tileBorder = {
 
 export function StageGrid({
   snapshot,
-  selfSocketId,
+  selfParticipantId,
   localStream,
   streams,
   manager,
-  activeSocketId,
+  activeParticipantId,
   onVideo,
 }: {
   snapshot: RoomSnapshot;
-  selfSocketId: string;
+  selfParticipantId: string;
   localStream: MediaStream | null;
   streams: RemoteStreams;
   manager: PeerManager;
-  activeSocketId: string | null;
-  onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
+  activeParticipantId: string | null;
+  onVideo?: (participantId: string, element: HTMLVideoElement | null) => void;
 }) {
-  const stage = snapshot.stageSocketIds.flatMap((id) => {
-    const participant = snapshot.participants.find((person) => person.socketId === id);
+  const stage = snapshot.stageParticipantIds.flatMap((id) => {
+    const participant = snapshot.participants.find((person) => person.participantId === id);
     return participant ? [participant] : [];
   });
-  const sharing = stage.find((person) => person.isScreenSharing)?.socketId;
+  const sharing = stage.find((person) => person.isScreenSharing)?.participantId;
   return (
     <div
       className={`mb-7 grid gap-3 ${gridColumns[sharing ? 'sharing' : stage.length === 1 ? 'single' : 'multiple']}`}
@@ -55,15 +55,17 @@ export function StageGrid({
     >
       {stage.map((person) => (
         <StageTile
-          key={person.socketId}
+          key={person.participantId}
           person={person}
-          local={person.socketId === selfSocketId}
+          local={person.participantId === selfParticipantId}
           stream={
-            person.socketId === selfSocketId ? localStream : (streams.get(person.socketId) ?? null)
+            person.participantId === selfParticipantId
+              ? localStream
+              : (streams.get(person.participantId) ?? null)
           }
           manager={manager}
-          large={person.socketId === sharing}
-          speaking={person.socketId === activeSocketId}
+          large={person.participantId === sharing}
+          speaking={person.participantId === activeParticipantId}
           onVideo={onVideo}
         />
       ))}
@@ -86,16 +88,16 @@ function StageTile({
   manager: PeerManager;
   large: boolean;
   speaking: boolean;
-  onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
+  onVideo?: (participantId: string, element: HTMLVideoElement | null) => void;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [outputError, setOutputError] = useState<string | null>(null);
   useEffect(() => {
     if (!onVideo) return;
-    onVideo(person.socketId, video.current);
-    return () => onVideo(person.socketId, null);
-  }, [onVideo, person.socketId]);
+    onVideo(person.participantId, video.current);
+    return () => onVideo(person.participantId, null);
+  }, [onVideo, person.participantId]);
   useEffect(() => {
     const element = video.current;
     if (!element) return;

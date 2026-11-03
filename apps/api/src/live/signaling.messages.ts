@@ -12,6 +12,7 @@ const messages: Record<SignalingError, string> = {
   audio_locked: 'The host has muted your microphone.',
   video_locked: 'The host has turned off your camera.',
   participant_not_found: 'This participant is no longer in the room.',
+  not_connected: 'This participant is not connected.',
   not_host: 'Only the host can do that.',
   cannot_demote_host: 'The host must stay on stage.',
   not_speaker: 'This participant is not a speaker.',

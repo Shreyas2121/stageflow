@@ -5,7 +5,7 @@ import { LiveRepository } from './live.repository';
 import { liveKeys, parseLiveNamespace, roomPrefix } from './live.keys';
 
 const room = { roomId: 'room', hostId: 'host', mode: 'MEETING', status: 'LIVE' } as const;
-const command = { type: 'leave', socketId: 'missing' } as const;
+const command = { type: 'leave', participantId: 'missing' } as const;
 const result = JSON.stringify({ ok: true, revision: 0, changed: false, roomEnded: false });
 function fixture() {
   const redis = {
@@ -16,7 +16,7 @@ function fixture() {
 }
 
 describe('Lua script cache', () => {
-  it('uses a SHA with six actual keys and falls back only on a cache miss', async () => {
+  it('uses a SHA with seven actual keys and falls back only on a cache miss', async () => {
     const { redis, repository } = fixture();
     redis.evalsha.mockRejectedValueOnce(new Error('NOSCRIPT No matching script. Please use EVAL.'));
     await repository.apply('test:room:one', room, command);
@@ -24,7 +24,7 @@ describe('Lua script cache', () => {
     const cached = redis.evalsha.mock.calls[0] as unknown as [string, number, ...string[]];
     expect(cached).toEqual([
       createHash('sha1').update(loaded[0]).digest('hex'),
-      6,
+      7,
       ...liveKeys('test:room:one'),
       JSON.stringify({ ...command, room }),
     ]);
