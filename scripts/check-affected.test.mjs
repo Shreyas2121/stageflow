@@ -14,6 +14,7 @@ test('web-only checks include its dependency prerequisite through package script
     checkCommands(plan).map((args) => args.join(' ')),
     [
       'format:check',
+      'shared:prepare',
       '--filter @stageflow/web typecheck',
       '--filter @stageflow/web lint',
       '--filter @stageflow/web test',

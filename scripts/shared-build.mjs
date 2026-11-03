@@ -75,6 +75,7 @@ export function createSharedBuilder({ root = workspace, timeoutMs = 60_000, poll
   const config = join(shared, 'tsconfig.build.json');
   const dist = join(shared, 'dist');
   const cache = join(root, 'node_modules/.cache');
+  const successes = join(cache, 'stageflow-shared-builds');
   const lock = join(cache, 'stageflow-shared-writer');
   const ts = () => require('typescript');
 
@@ -230,27 +231,102 @@ export function createSharedBuilder({ root = workspace, timeoutMs = 60_000, poll
         reads.set(file, '(missing)');
       }
     }
-    for (const file of [join(shared, 'package.json'), join(root, 'pnpm-lock.yaml')]) {
+    for (const file of [
+      join(shared, 'package.json'),
+      join(root, 'package.json'),
+      join(root, 'pnpm-lock.yaml'),
+      join(root, 'pnpm-workspace.yaml'),
+    ]) {
       try {
         reads.set(file, readFileSync(file));
       } catch (error) {
         missing(error);
       }
     }
-    const hash = createHash('sha256').update(ts().version);
+    const hash = createHash('sha256')
+      .update(ts().version)
+      .update(readFileSync(fileURLToPath(import.meta.url)));
     for (const [file, content] of [...reads].sort(([a], [b]) => a.localeCompare(b)))
       hash.update(file).update('\0').update(content).update('\0');
     return hash.digest('hex');
   }
   const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  function outputsMatch(snapshot) {
+    if (!Array.isArray(snapshot.files) || !snapshot.files.length) return false;
+    const expected = new Set();
+    try {
+      for (const file of snapshot.files) {
+        if (
+          !file ||
+          typeof file.path !== 'string' ||
+          typeof file.hash !== 'string' ||
+          isAbsolute(file.path) ||
+          file.path.startsWith('..')
+        )
+          return false;
+        const path = resolve(dist, file.path);
+        if (relative(dist, path).startsWith('..')) return false;
+        if (digest(readFileSync(path)) !== file.hash) return false;
+        expected.add(path);
+      }
+      if (!expected.has(join(dist, 'index.js')) || !expected.has(join(dist, 'index.d.ts')))
+        return false;
+      const visit = (directory) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          const path = join(directory, entry.name);
+          if (entry.isDirectory()) {
+            if (!visit(path)) return false;
+          } else if (!entry.isFile() || !expected.delete(path)) return false;
+        }
+        return true;
+      };
+      return visit(dist) && expected.size === 0;
+    } catch (error) {
+      missing(error);
+      return false;
+    }
+  }
+  function reusableBuild() {
+    if (!existsSync(successes)) return false;
+    const input = inputHash();
+    for (const file of readdirSync(successes)
+      .filter((name) => name.endsWith('.json'))
+      .sort()
+      .reverse()) {
+      let record;
+      try {
+        record = JSON.parse(readFileSync(join(successes, file), 'utf8'));
+      } catch (error) {
+        if (error instanceof SyntaxError || error.code === 'ENOENT') continue;
+        throw error;
+      }
+      if (
+        record?.version === 1 &&
+        record.input === input &&
+        outputsMatch(record) &&
+        input === inputHash()
+      )
+        return true;
+    }
+    return false;
+  }
+  function rememberBuild(owner) {
+    mkdirSync(successes, { recursive: true });
+    const name = `${Date.now()}-${randomUUID()}.json`;
+    atomicJson(join(successes, name), { version: 1, input: owner.input, files: owner.files });
+    for (const file of readdirSync(successes)) {
+      if (file === name || !file.endsWith('.json')) continue;
+      try {
+        unlinkSync(join(successes, file));
+      } catch (error) {
+        if (!['ENOENT', 'EPERM', 'EACCES', 'EBUSY'].includes(error.code)) throw error;
+      }
+    }
+  }
   function currentReady(owner) {
     if (!owner || owner.status !== 'ready' || owner.input !== inputHash()) return false;
     try {
-      for (const file of owner.files) {
-        const path = resolve(dist, file.path);
-        inside(dist, path);
-        if (digest(readFileSync(path)) !== file.hash) return false;
-      }
+      if (!outputsMatch(owner)) return false;
       const current = readOwner();
       return (
         current?.token === owner.token &&
@@ -370,6 +446,7 @@ export function createSharedBuilder({ root = workspace, timeoutMs = 60_000, poll
     }));
     owner.status = 'ready';
     save(owner);
+    rememberBuild(owner);
   }
   function compilerOptions(owner) {
     return {
@@ -379,18 +456,22 @@ export function createSharedBuilder({ root = workspace, timeoutMs = 60_000, poll
       outDir: join(cache, `stageflow-shared-output-${owner.token}`),
     };
   }
-  async function buildShared() {
+  async function buildShared({ force = false } = {}) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const { owner, owned } = await acquire('build', deadline);
       if (!owned) {
         if (await waitForOwner(owner, deadline)) {
           console.log(`[shared] Using watcher generation ${readOwner()?.generation}.`);
-          return;
+          return { built: false };
         }
         continue;
       }
       try {
+        if (!force && reusableBuild()) {
+          console.log('[shared] Reusing verified output.');
+          return { built: false };
+        }
         begin(owner);
         const { parsed, errors } = parseConfig();
         if (errors.length)
@@ -406,7 +487,8 @@ export function createSharedBuilder({ root = workspace, timeoutMs = 60_000, poll
           options: { ...parsed.options, ...compilerOptions(owner) },
         });
         emit(owner, program);
-        return;
+        console.log(`[shared] Compiled ${shared}.`);
+        return { built: true };
       } catch (error) {
         failed(owner, error);
         throw error;
@@ -536,8 +618,10 @@ export const { buildShared, watchShared, waitForSharedReady } = defaultBuilder;
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const command = process.argv[2];
   const run = async () => {
-    if (command === 'build') return buildShared();
-    if (command !== 'watch') throw new Error('Usage: node scripts/shared-build.mjs <build|watch>');
+    if (command === 'build') return buildShared({ force: true });
+    if (command === 'ensure') return buildShared();
+    if (command !== 'watch')
+      throw new Error('Usage: node scripts/shared-build.mjs <build|ensure|watch>');
     let watch;
     const stop = async (code) => {
       await watch?.stop();

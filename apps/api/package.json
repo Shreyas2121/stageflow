@@ -23,11 +23,11 @@
     "zod": "^4.6.7"
   },
   "scripts": {
-    "test": "node ../../scripts/shared-build.mjs build && dotenv -e ../../.env -- vitest run",
-    "typecheck": "node ../../scripts/shared-build.mjs build && tsc -p tsconfig.check.json",
+    "test": "node ../../scripts/shared-build.mjs ensure && dotenv -e ../../.env -- vitest run",
+    "typecheck": "node ../../scripts/shared-build.mjs ensure && tsc -p tsconfig.check.json",
     "lint": "node ../../scripts/lint.mjs src *.config.ts",
     "dev": "node ../../scripts/dev.mjs api",
-    "build": "node ../../scripts/shared-build.mjs build && nest build",
+    "build": "node ../../scripts/shared-build.mjs ensure && nest build",
     "migration:run": "dotenv -e ../../.env -- typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts"
   },
   "devDependencies": {

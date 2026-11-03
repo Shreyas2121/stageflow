@@ -24,6 +24,7 @@ export function selectChecks(files, full = false) {
 export function checkCommands(plan) {
   if (plan.full) return [['check:release']];
   const commands = [['format:check']];
+  if (plan.packages.length) commands.push(['shared:prepare']);
   for (const name of plan.packages) {
     for (const task of ['typecheck', 'lint', 'test', 'build'])
       commands.push(['--filter', `@stageflow/${name}`, task]);

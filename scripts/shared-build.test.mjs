@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { createSharedBuilder } from './shared-build.mjs';
+import { checkGraph, runChecks } from './checks.mjs';
 
 const script = new URL('./shared-build.mjs', import.meta.url).href;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -385,5 +386,157 @@ test(
     } finally {
       await reader.close();
     }
+  },
+);
+
+test(
+  'one release preparation is reused by all six independent app tasks',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    let prepared = 0;
+    const consumers = [];
+    await runChecks('check:release', {
+      prepare: async () => {
+        assert.equal((await f.builder.buildShared({ force: true })).built, true);
+        prepared++;
+      },
+      run: async (args) => {
+        if (args[0] !== '--filter' || args[1] === '@stageflow/shared') return;
+        const consumer = await f.worker('console.log(JSON.stringify(await builder.buildShared()));')
+          .done;
+        assert.equal(consumer.code, 0, consumer.stderr);
+        assert.match(consumer.stdout, /"built":false/);
+        assert.doesNotMatch(consumer.stdout, /\[shared\] Compiled/);
+        consumers.push(args);
+      },
+    });
+    assert.equal(prepared, 1);
+    assert.equal(consumers.length, 6);
+    // Production reuse does not remove the shared test-source typecheck from the graph.
+    assert.ok(
+      checkGraph('check:release').some(
+        (args) => args.join(' ') === '--filter @stageflow/shared typecheck',
+      ),
+    );
+  },
+);
+
+test(
+  'standalone ensure repairs deleted, changed and extra artifacts instead of trusting the cache',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    assert.equal((await f.builder.buildShared()).built, true);
+    assert.equal((await f.builder.buildShared()).built, false);
+    await rm(join(f.dist, 'index.d.ts'));
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(join(f.dist, 'index.js'), 'corrupt output');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(join(f.dist, 'accidental.test.js'), 'unwanted test artifact');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await assert.rejects(access(join(f.dist, 'accidental.test.js')), { code: 'ENOENT' });
+    // The explicitly disposable dist may be deleted completely, as in a cold clone.
+    assert.equal(dirname(resolve(f.dist)), resolve(f.shared));
+    await rm(f.dist, { recursive: true });
+    assert.equal((await f.builder.buildShared()).built, true);
+    const result = await f.worker('console.log(JSON.stringify(await builder.buildShared()));').done;
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /"built":false/);
+  },
+);
+
+test(
+  'source, inherited configuration, dependency metadata and manifests invalidate reuse',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const config = join(f.shared, 'tsconfig.build.json');
+    const base = join(f.root, 'tsconfig.base.json');
+    const parsed = JSON.parse(await readFile(config, 'utf8'));
+    parsed.extends = '../../tsconfig.base.json';
+    await writeFile(base, '{"compilerOptions":{"strictNullChecks":true}}');
+    await writeFile(config, JSON.stringify(parsed));
+    await f.builder.buildShared();
+    assert.equal((await f.builder.buildShared()).built, false);
+    await writeFile(f.source, 'export const value: number = 9;\n');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(base, '{"compilerOptions":{"strictNullChecks":false}}');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(join(f.root, 'pnpm-lock.yaml'), 'lockfileVersion: 9.0\n');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(join(f.shared, 'package.json'), '{"type":"commonjs","version":"0.0.1"}');
+    assert.equal((await f.builder.buildShared()).built, true);
+    assert.equal((await f.builder.buildShared()).built, false);
+  },
+);
+
+test(
+  'a failed changed build cannot reuse old success, while excluded tests stay out of production',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    await f.builder.buildShared();
+    await writeFile(f.source, 'export const value: number = "invalid";\n');
+    await assert.rejects(f.builder.buildShared(), /not assignable/);
+    const failed = await f.worker('await builder.buildShared();').done;
+    assert.notEqual(failed.code, 0);
+    await writeFile(f.source, 'export const value: number = 10;\n');
+    assert.equal((await f.builder.buildShared()).built, true);
+    await writeFile(
+      join(f.shared, 'src/index.test.ts'),
+      'const invalid: number = "test must still be typechecked";\n',
+    );
+    assert.equal((await f.builder.buildShared()).built, false);
+    assert.deepEqual((await readdir(f.dist)).sort(), ['index.d.ts', 'index.js']);
+  },
+);
+
+test(
+  'a malformed success record is repaired and a graph aborts when preparation fails',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    await f.builder.buildShared();
+    const directory = join(f.root, 'node_modules/.cache/stageflow-shared-builds');
+    const record = (await readdir(directory)).find((file) => file.endsWith('.json'));
+    await writeFile(join(directory, record), '{bad');
+    assert.equal((await f.builder.buildShared()).built, true);
+    const repaired = (await readdir(directory)).find((file) => file.endsWith('.json'));
+    const malformed = JSON.parse(await readFile(join(directory, repaired), 'utf8'));
+    malformed.files = [null];
+    await writeFile(join(directory, repaired), JSON.stringify(malformed));
+    assert.equal((await f.builder.buildShared()).built, true);
+    let ran = false;
+    await assert.rejects(
+      runChecks('build', {
+        prepare: async () => {
+          throw new Error('expected preparation failure');
+        },
+        run: async () => {
+          ran = true;
+        },
+      }),
+      /expected preparation failure/,
+    );
+    assert.equal(ran, false);
+  },
+);
+
+test(
+  'a source edit between graph tasks is rebuilt rather than skipped by graph preparation',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const builds = [];
+    await runChecks('build', {
+      prepare: () => f.builder.buildShared({ force: true }),
+      run: async () => {
+        if (!builds.length) await writeFile(f.source, 'export const value: number = 11;\n');
+        builds.push((await f.builder.buildShared()).built);
+      },
+    });
+    assert.deepEqual(builds, [true, false]);
+    assert.match(await readFile(join(f.dist, 'index.js'), 'utf8'), /value = 11/);
   },
 );
