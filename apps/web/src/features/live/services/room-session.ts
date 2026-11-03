@@ -8,10 +8,10 @@ import type {
   RelayedDescription,
   RelayedIceCandidate,
 } from '@stageflow/shared';
+import { BroadcastSession, recordingFinishError } from '../../broadcast/services/broadcast-session';
 import {
   StageRecorder,
   type BroadcastRecorder,
-  type RecorderFinish,
   type StageSource,
 } from '../../broadcast/services/stage-recorder';
 import { ActiveSpeaker } from './active-speaker';
@@ -77,6 +77,7 @@ export type RoomSessionOptions = {
  * Peer sync runs inside the room-store subscriber so a snapshot is applied
  * before a description or ICE candidate queued behind it.
  * Promotion asks for device consent. Demotion releases capture.
+ * Broadcast start, sync, finish, and abort belong to BroadcastSession.
  */
 export class RoomSession {
   private activationPending = false;
@@ -99,13 +100,10 @@ export class RoomSession {
   private readonly enumerateDevices: () => Promise<MediaDeviceInfo[]>;
   private readonly speaker: RoomSpeaker;
   private readonly listeners = new Set<() => void>();
-  private readonly createRecorder: NonNullable<RoomSessionOptions['createRecorder']>;
 
   private connection: RoomConnection | null = null;
   private peers: PeerManager | null = null;
-  private recorder: BroadcastRecorder | null = null;
-  private recordingId: string | null = null;
-  private armedBroadcast = false;
+  private readonly broadcastSession: BroadcastSession;
   private readonly stageVideos = new Map<string, HTMLVideoElement>();
   private unsubscribe: (() => void) | null = null;
   private attached = false;
@@ -173,7 +171,19 @@ export class RoomSession {
         new PeerManager(media, connection, publish, onError));
     this.enumerateDevices =
       options.enumerateDevices ?? (() => navigator.mediaDevices.enumerateDevices());
-    this.createRecorder = options.createRecorder ?? ((recorder) => new StageRecorder(recorder));
+    this.broadcastSession = new BroadcastSession({
+      token: this.token,
+      createRecorder: options.createRecorder ?? ((recorder) => new StageRecorder(recorder)),
+      stopBroadcast: () => {
+        const active = this.connection;
+        if (active && this.state.phase === 'joined')
+          void active.stopBroadcast().catch(() => undefined);
+      },
+      onError: (message) => {
+        this.state.error = message;
+        this.emit();
+      },
+    });
     const publishSpeaker = (socketId: string | null) => {
       this.state.activeSocketId = socketId;
       this.emit();
@@ -198,7 +208,7 @@ export class RoomSession {
       onStage: () => this.state.onStage && this.state.phase === 'joined',
       setSharing: (sharing) => {
         this.state.sharing = sharing;
-        this.syncRecorder();
+        this.syncBroadcast();
         this.emit();
       },
       setPending: (pending) => {
@@ -314,8 +324,7 @@ export class RoomSession {
   get broadcastActive(): boolean {
     const status = useRoomStore.getState().snapshot?.broadcast?.status;
     return (
-      this.armedBroadcast ||
-      this.recorder !== null ||
+      this.broadcastSession.active ||
       status === 'STARTING' ||
       status === 'LIVE' ||
       status === 'STOPPING'
@@ -578,8 +587,10 @@ export class RoomSession {
     if (this.room.mode !== 'WEBINAR' || !this.canModerate()) return Promise.resolve();
     return this.send(async (active) => {
       const result = await active.startBroadcast();
-      if (result.ok && this.connection === active && this.state.phase === 'joined')
-        this.armRecorder();
+      if (result.ok && this.connection === active && this.state.phase === 'joined') {
+        this.broadcastSession.arm();
+        this.syncBroadcast();
+      }
       return result;
     });
   }
@@ -587,16 +598,12 @@ export class RoomSession {
   stopBroadcast(): Promise<void> {
     if (this.room.mode !== 'WEBINAR') return Promise.resolve();
     return this.moderate(async (active) => {
-      const finished = await this.finishRecorder();
+      const finished = await this.broadcastSession.finish();
       if (this.connection !== active || this.state.phase !== 'joined') return { ok: true };
       const result = await active.stopBroadcast();
-      if (
-        this.connection === active &&
-        result.ok &&
-        !finished.ok &&
-        finished.reason !== 'aborted'
-      ) {
-        this.state.error = unfinishedRecordingMessage(finished.reason);
+      if (this.connection === active && result.ok) {
+        const message = recordingFinishError(finished);
+        if (message) this.state.error = message;
       }
       return result;
     });
@@ -607,7 +614,7 @@ export class RoomSession {
     if (current === element) return;
     if (element) this.stageVideos.set(socketId, element);
     else this.stageVideos.delete(socketId);
-    this.syncRecorder();
+    this.syncBroadcast();
   }
 
   demote(targetSocketId: string): Promise<void> {
@@ -695,7 +702,7 @@ export class RoomSession {
   private teardownLocal(): void {
     if (this.locallyTornDown) return;
     this.locallyTornDown = true;
-    this.stopRecorder();
+    this.broadcastSession.abort();
     this.stageVideos.clear();
     this.consentSignalingFailed = false;
     this.clearPendingStage();
@@ -752,7 +759,7 @@ export class RoomSession {
     }
     this.applyLocalFlags();
     this.syncSpeaker();
-    this.syncRecorder();
+    this.syncBroadcast();
     this.emit();
   }
 
@@ -807,7 +814,7 @@ export class RoomSession {
           (streams) => {
             this.state.streams = streams;
             this.syncSpeaker();
-            this.syncRecorder();
+            this.syncBroadcast();
             this.emit();
           },
           (message) => {
@@ -931,80 +938,12 @@ export class RoomSession {
     active?.close();
   }
 
-  private armRecorder(): void {
-    this.armedBroadcast = true;
-    this.syncRecorder();
-  }
-
-  /** Chunks are accepted only while the broadcast is LIVE, which the start ack already waited for. */
-  private syncRecorder(): void {
-    const broadcast = useRoomStore.getState().snapshot?.broadcast ?? null;
-    if (this.recorder) {
-      const live =
-        this.state.phase === 'joined' &&
-        broadcast?.id === this.recordingId &&
-        broadcast.status === 'LIVE';
-      if (!live) {
-        this.stopRecorder();
-        return;
-      }
-      this.recorder.update(this.stageSources());
-      return;
-    }
-    if (!this.armedBroadcast || this.state.phase !== 'joined' || broadcast?.status !== 'LIVE')
-      return;
-    this.armedBroadcast = false;
-    this.recordingId = broadcast.id;
-    try {
-      const recorder = this.createRecorder({
-        broadcastId: broadcast.id,
-        token: this.token,
-        onCap: () => {
-          if (this.recorder === recorder) this.onRecorderCap();
-        },
-      });
-      this.recorder = recorder;
-      recorder.start();
-      recorder.update(this.stageSources());
-    } catch {
-      this.recorder?.stop();
-      this.recorder = null;
-      this.recordingId = null;
-      const active = this.connection;
-      if (active && this.state.phase === 'joined')
-        void active.stopBroadcast().catch(() => undefined);
-      this.state.error = 'The broadcast recorder could not start. Room media is still available.';
-      this.emit();
-    }
-  }
-
-  private onRecorderCap(): void {
-    this.stopRecorder();
-    const active = this.connection;
-    this.state.error = 'The broadcast producer failed. Room media is still available.';
-    this.emit();
-    if (active && this.state.phase === 'joined') void active.stopBroadcast().catch(() => undefined);
-  }
-
-  /** Uploads the final blob before the caller sends broadcast:stop. */
-  private finishRecorder(): Promise<RecorderFinish> {
-    this.armedBroadcast = false;
-    const recorder = this.recorder;
-    if (!recorder) return Promise.resolve({ ok: true });
-    return recorder.finish().finally(() => {
-      if (this.recorder === recorder) {
-        this.recorder = null;
-        this.recordingId = null;
-      }
+  private syncBroadcast(): void {
+    this.broadcastSession.sync({
+      joined: this.state.phase === 'joined',
+      broadcast: useRoomStore.getState().snapshot?.broadcast ?? null,
+      sources: () => this.stageSources(),
     });
-  }
-
-  private stopRecorder(): void {
-    this.armedBroadcast = false;
-    const recorder = this.recorder;
-    this.recorder = null;
-    this.recordingId = null;
-    recorder?.stop();
   }
 
   private stageSources(): StageSource[] {
@@ -1029,11 +968,4 @@ export class RoomSession {
     }
     return sources;
   }
-}
-
-function unfinishedRecordingMessage(reason: 'timeout' | 'upload' | 'recorder'): string {
-  if (reason === 'recorder') return 'The broadcast recorder failed before recording finished.';
-  return reason === 'timeout'
-    ? 'The broadcast stopped before the last of the recording uploaded.'
-    : 'The broadcast stopped before every recorded chunk was accepted.';
 }
