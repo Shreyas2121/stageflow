@@ -1,4 +1,4 @@
-import { routeAudioOutput, type OutputRouteResult } from './output-route';
+import { bindAudioOutput, selectAudioOutput, type OutputRouteResult } from './output-route';
 
 export type DeviceChoices = { cameraId: string; microphoneId: string };
 export type InputKind = 'camera' | 'microphone';
@@ -211,8 +211,12 @@ export class LocalMedia {
   }
 
   async setSpeaker(deviceId: string): Promise<OutputRouteResult> {
-    if (!this.preview) return { ok: true, supported: false, deviceId: '', message: '' };
-    return routeAudioOutput(this.preview, deviceId);
+    const release = this.preview ? bindAudioOutput(this.preview) : undefined;
+    try {
+      return await selectAudioOutput(deviceId);
+    } finally {
+      release?.();
+    }
   }
 
   releaseLobby(): void {

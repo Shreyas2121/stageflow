@@ -1,11 +1,61 @@
 import { Button } from '../../../components/ui/button';
 import type { DeviceSelects } from '../services/device-controls';
+import { defaultSpeakerSentence } from '../services/output-route';
 
 type InputName = 'camera' | 'microphone';
 
 function lossMessage(kind: InputName): string {
   const name = kind === 'camera' ? 'camera' : 'microphone';
   return `Your ${name} stopped. This room is still open. Another ${name} starts only when you choose one.`;
+}
+
+export function SpeakerSelect({
+  id,
+  devices,
+  speakerId,
+  sinkSupported,
+  speakerError,
+  onSpeaker,
+}: {
+  id: string;
+  devices: readonly MediaDeviceInfo[];
+  speakerId: string;
+  sinkSupported: boolean;
+  speakerError: string;
+  onSpeaker: (deviceId: string) => void;
+}) {
+  const outputs = devices.filter((device) => device.kind === 'audiooutput' && device.deviceId);
+  const selectedMissing =
+    sinkSupported && speakerId !== '' && !outputs.some((device) => device.deviceId === speakerId);
+  return (
+    <>
+      <label htmlFor={id}>Speaker</label>
+      <select
+        id={id}
+        value={sinkSupported ? speakerId : ''}
+        disabled={!sinkSupported}
+        onChange={(event) => onSpeaker(event.target.value)}
+      >
+        <option value="">System default</option>
+        {selectedMissing && <option value={speakerId}>Selected speaker</option>}
+        {sinkSupported &&
+          outputs.map((device, index) => (
+            <option key={device.deviceId} value={device.deviceId}>
+              {device.label || `Speaker ${index + 1}`}
+            </option>
+          ))}
+      </select>
+      {!sinkSupported && <p className="mt-2 mb-0 text-xs text-hint">{defaultSpeakerSentence}</p>}
+      {speakerError && (
+        <p
+          className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
+          role="alert"
+        >
+          {speakerError}
+        </p>
+      )}
+    </>
+  );
 }
 
 function inputOptions(devices: readonly MediaDeviceInfo[], kind: MediaDeviceKind, label: string) {
@@ -129,31 +179,14 @@ export function DevicePanel({
         </>
       )}
       {selects.speaker && (
-        <>
-          <label htmlFor="stage-speaker-device">Speaker</label>
-          <select
-            id="stage-speaker-device"
-            value={speakerId}
-            disabled={!sinkSupported}
-            onChange={(event) => onSpeaker(event.target.value)}
-          >
-            <option value="">System default</option>
-            {sinkSupported && inputOptions(devices, 'audiooutput', 'Speaker')}
-          </select>
-          {!sinkSupported && (
-            <p className="mt-2 mb-0 text-xs text-hint">
-              This browser uses the default speaker output.
-            </p>
-          )}
-          {speakerError && (
-            <p
-              className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
-              role="alert"
-            >
-              {speakerError}
-            </p>
-          )}
-        </>
+        <SpeakerSelect
+          id="stage-speaker-device"
+          devices={devices}
+          speakerId={speakerId}
+          sinkSupported={sinkSupported}
+          speakerError={speakerError}
+          onSpeaker={onSpeaker}
+        />
       )}
     </fieldset>
   );

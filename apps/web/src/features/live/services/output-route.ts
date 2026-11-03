@@ -10,6 +10,47 @@ type SinkElement = HTMLMediaElement & {
   sinkId?: string;
 };
 
+export const defaultSpeakerSentence = 'This browser uses the default speaker output.';
+
+const outputStorageKey = 'stageflow.output';
+
+let memoryId = '';
+let memoryAhead = false;
+
+function readStoredId(): string {
+  if (memoryAhead || typeof sessionStorage === 'undefined') return memoryId;
+  try {
+    const stored = sessionStorage.getItem(outputStorageKey);
+    if (typeof stored === 'string') memoryId = stored;
+  } catch {
+    return memoryId;
+  }
+  return memoryId;
+}
+
+function writeStoredId(deviceId: string): void {
+  memoryId = deviceId;
+  if (typeof sessionStorage === 'undefined') {
+    memoryAhead = false;
+    return;
+  }
+  try {
+    sessionStorage.setItem(outputStorageKey, deviceId);
+    memoryAhead = false;
+  } catch {
+    // Keep the id in memory. The next write tries storage again.
+    memoryAhead = true;
+  }
+}
+
+export function selectedOutputId(): string {
+  return readStoredId();
+}
+
+export function audioOutputSupported(): boolean {
+  return typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
+}
+
 function routeMessage(error: unknown): string {
   const detail = error instanceof Error && error.message ? error.message : '';
   return detail
@@ -40,4 +81,113 @@ export async function routeAudioOutput(
     }
     return { ok: false, supported: true, deviceId: '', message: routeMessage(error) };
   }
+}
+
+type Binding = {
+  element: SinkElement;
+  onResult?: (result: OutputRouteResult) => void;
+};
+
+type Routed = { binding: Binding; result: OutputRouteResult };
+
+const bindings = new Set<Binding>();
+
+// Binds and selects share this queue. A task must not wait on the queue.
+let queue: Promise<unknown> = Promise.resolve();
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task, task);
+  queue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function routeBinding(binding: Binding, deviceId: string): Promise<OutputRouteResult> {
+  if (!bindings.has(binding)) {
+    return { ok: true, supported: false, deviceId, message: '' };
+  }
+  const result = await routeAudioOutput(binding.element, deviceId);
+  if (bindings.has(binding)) binding.onResult?.(result);
+  return result;
+}
+
+async function routeAll(deviceId: string): Promise<Routed[]> {
+  const routed: Routed[] = [];
+  const seen = new Set<Binding>();
+  let pending = [...bindings];
+  while (pending.length > 0) {
+    for (const binding of pending) {
+      seen.add(binding);
+      routed.push({ binding, result: await routeBinding(binding, deviceId) });
+    }
+    pending = [...bindings].filter((binding) => !seen.has(binding));
+  }
+  return routed;
+}
+
+function stillBound(routed: Routed[]): Routed[] {
+  return routed.filter((item) => bindings.has(item.binding));
+}
+
+async function applySelection(deviceId: string): Promise<OutputRouteResult> {
+  const previous = readStoredId();
+  if (deviceId === '') {
+    writeStoredId('');
+    const live = stillBound(await routeAll(''));
+    const failure = live.find((item) => !item.result.ok);
+    if (failure) {
+      return { ok: false, supported: true, deviceId: '', message: failure.result.message };
+    }
+    if (live.length === 0) {
+      return { ok: true, supported: audioOutputSupported(), deviceId: '', message: '' };
+    }
+    return {
+      ok: true,
+      supported: live.some((item) => item.result.supported),
+      deviceId: '',
+      message: '',
+    };
+  }
+
+  const live = stillBound(await routeAll(deviceId));
+  if (live.length === 0) {
+    writeStoredId(deviceId);
+    return { ok: true, supported: audioOutputSupported(), deviceId, message: '' };
+  }
+  if (!live.some((item) => item.result.supported)) {
+    return { ok: true, supported: false, deviceId: previous, message: '' };
+  }
+  const failure = live.find((item) => !item.result.ok);
+  if (failure) {
+    await routeAll(previous);
+    return {
+      ok: false,
+      supported: true,
+      deviceId: previous,
+      message: failure.result.message,
+    };
+  }
+  writeStoredId(deviceId);
+  return { ok: true, supported: true, deviceId, message: '' };
+}
+
+export function selectAudioOutput(deviceId: string): Promise<OutputRouteResult> {
+  return enqueue(() => applySelection(deviceId));
+}
+
+export function bindAudioOutput(
+  element: HTMLMediaElement,
+  onResult?: (result: OutputRouteResult) => void,
+): () => void {
+  const binding: Binding = { element, onResult };
+  bindings.add(binding);
+  void enqueue(async () => {
+    if (!bindings.has(binding)) return;
+    await routeBinding(binding, readStoredId());
+  });
+  return () => {
+    bindings.delete(binding);
+  };
 }

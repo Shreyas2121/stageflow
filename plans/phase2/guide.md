@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01, V2P2-C02, and V2P2-C03 are committed. V2P2-C04 is verified. Its two-window browser pass is unverified. V2P2-C05 and V2P2-C06 remain planned.\
+**Status:** V2P2-C01 through V2P2-C04 are committed. V2P2-C04's two-window browser pass is unverified. V2P2-C05 is verified. Its playback browser pass is unverified. V2P2-C06 remains planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -162,9 +162,9 @@ pnpm lint
 
 ## 5. V2P2-C04 — On-stage device controls
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): change devices while on stage`\
-**Actual commit:**
+**Actual commit:** `aa68c2fb41a0bedc6bb56f0baf67bec8be5ea9f2`
 
 **Why:** The service can change devices, and a joined member still only sees mute and screen-share controls. Covers the browser half of MEDIA-01 through MEDIA-03.
 
@@ -213,7 +213,7 @@ If no browser is available, leave this pass unverified. A synthetic device does 
 
 ## 6. V2P2-C05 — Speaker output for later playback
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-playback): route the selected speaker through playback`\
 **Actual commit:**
 
@@ -258,6 +258,8 @@ Browser:
 3. Replace the microphone during a webinar broadcast. The recording mix uses the new track. After stop, the READY replay contains that later audio. A synthetic device is enough for the track-identity check. Leave human audible confirmation unverified unless someone listens.
 
 If no browser is available, leave this pass unverified.
+
+**Browser result:** Unverified on 2026-11-03. No browser tool was available, so the playback script was not run. Human audible confirmation was not made. P3-A03, P3-A05, and P3-A06 stay open.
 
 **Done when:** The output tests pass, the browser result is recorded or explicitly unverified, and the slice is committed.
 

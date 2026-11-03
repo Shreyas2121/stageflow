@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { apiUrl } from '../../../config/env';
+import { bindAudioOutput } from '../../live/services/output-route';
 import { bindBroadcastPlayback, PLAYBACK_FAILURE } from '../services/player-session';
 import { broadcastMediaUrl, hlsPlayerConfig } from '../services/playback';
 
@@ -16,6 +17,12 @@ export function BroadcastPlayer({ playlistUrl, token, mode }: BroadcastPlayerPro
   const apiBase = apiUrl();
   const source = broadcastMediaUrl(playlistUrl, apiBase);
   const supported = Hls.isSupported();
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    return bindAudioOutput(video);
+  }, [supported, source]);
 
   useEffect(() => {
     const video = videoRef.current;

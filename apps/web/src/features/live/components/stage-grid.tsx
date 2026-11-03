@@ -2,7 +2,7 @@ import { Button } from '../../../components/ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
 import type { PeerManager, RemoteStreams } from '../services/peer-manager';
-import { routeAudioOutput } from '../services/output-route';
+import { bindAudioOutput, routeAudioOutput, selectedOutputId } from '../services/output-route';
 
 const gridColumns = {
   single: 'grid-cols-1',
@@ -32,7 +32,6 @@ export function StageGrid({
   localStream,
   streams,
   manager,
-  speakerId,
   activeSocketId,
   onVideo,
 }: {
@@ -41,7 +40,6 @@ export function StageGrid({
   localStream: MediaStream | null;
   streams: RemoteStreams;
   manager: PeerManager;
-  speakerId: string;
   activeSocketId: string | null;
   onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
 }) {
@@ -64,7 +62,6 @@ export function StageGrid({
             person.socketId === selfSocketId ? localStream : (streams.get(person.socketId) ?? null)
           }
           manager={manager}
-          speakerId={speakerId}
           large={person.socketId === sharing}
           speaking={person.socketId === activeSocketId}
           onVideo={onVideo}
@@ -79,7 +76,6 @@ function StageTile({
   local,
   stream,
   manager,
-  speakerId,
   large,
   speaking,
   onVideo,
@@ -88,7 +84,6 @@ function StageTile({
   local: boolean;
   stream: MediaStream | null;
   manager: PeerManager;
-  speakerId: string;
   large: boolean;
   speaking: boolean;
   onVideo?: (socketId: string, element: HTMLVideoElement | null) => void;
@@ -123,21 +118,22 @@ function StageTile({
   }, [stream, manager]);
   useEffect(() => {
     const element = video.current;
-    if (local || !element || !('setSinkId' in element)) return;
+    if (local || !element) return;
     let active = true;
-    void routeAudioOutput(element, speakerId).then((result) => {
+    const unbind = bindAudioOutput(element, (result) => {
       if (!active) return;
       setOutputError(result.ok ? null : result.message);
     });
     return () => {
       active = false;
+      unbind();
     };
-  }, [local, speakerId]);
+  }, [local]);
   async function retryBlockedPlayback() {
     const element = video.current;
     if (!element) return;
     if (outputError) {
-      const result = await routeAudioOutput(element, speakerId);
+      const result = await routeAudioOutput(element, selectedOutputId());
       if (!result.ok) {
         setOutputError(result.message);
         return;

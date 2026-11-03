@@ -18,7 +18,7 @@ import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
 import { DemoRegistry, type DemoAudio, type DemoFactory } from './demo-registry';
 import { LocalMedia, type DeviceChoices, type InputKind } from './local-media';
-import type { OutputRouteResult } from './output-route';
+import { audioOutputSupported, selectedOutputId, type OutputRouteResult } from './output-route';
 import { PeerManager, type RemoteStreams, type TrackSource } from './peer-manager';
 import { audienceFor, roleTransition, type StageMembership } from './role-transition';
 import { ScreenShareController } from './screen-share';
@@ -153,9 +153,9 @@ export class RoomSession {
     error: '',
     speakerError: '',
     choices: { cameraId: '', microphoneId: '' },
-    speakerId: '',
+    speakerId: selectedOutputId(),
     devices: [],
-    sinkSupported: false,
+    sinkSupported: audioOutputSupported(),
     isAudioMuted: false,
     isVideoOff: false,
     cameraUnavailable: false,
@@ -414,11 +414,8 @@ export class RoomSession {
       const route = await this.media.setSpeaker(this.state.speakerId);
       if (token !== this.prepareToken || generation !== this.generation) return;
       this.state.sinkSupported = route.supported;
-      if (route.ok) this.state.speakerId = route.deviceId;
-      else {
-        this.state.speakerId = '';
-        this.state.speakerError = route.message;
-      }
+      this.state.speakerId = route.deviceId;
+      this.state.speakerError = route.ok ? '' : route.message;
       this.state.ready = this.media.ready;
       this.applyLocalFlags();
       if (this.state.phase === 'joined' && this.media.ready) {
@@ -478,13 +475,8 @@ export class RoomSession {
     const route = await this.media.setSpeaker(deviceId);
     if (generation !== this.generation) return;
     this.state.sinkSupported = route.supported;
-    if (route.ok) {
-      this.state.speakerId = route.deviceId;
-      this.state.speakerError = '';
-    } else {
-      this.state.speakerId = '';
-      this.state.speakerError = route.message;
-    }
+    this.state.speakerId = route.deviceId;
+    this.state.speakerError = route.ok ? '' : route.message;
     this.emit();
   }
 

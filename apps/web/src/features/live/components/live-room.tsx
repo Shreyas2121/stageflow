@@ -69,7 +69,6 @@ export function LiveRoom({
           localStream={live.media.previewStream()}
           streams={live.streams}
           manager={live.peerManager}
-          speakerId={live.speakerId}
           activeSocketId={live.activeSocketId}
           onVideo={onStageVideo}
         />

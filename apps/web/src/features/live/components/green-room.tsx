@@ -2,6 +2,7 @@ import './green-room.css';
 import { Button } from '../../../components/ui/button';
 import { useEffect, useRef, useState } from 'react';
 import type { DeviceChoices } from '../services/local-media';
+import { SpeakerSelect } from './device-panel';
 
 type LobbyMedia = {
   setLevelListener(listener: ((level: number) => void) | null): void;
@@ -158,36 +159,14 @@ export function GreenRoom({
                 </option>
               ))}
           </select>
-          <label htmlFor="speaker-device">Speaker</label>
-          <select
+          <SpeakerSelect
             id="speaker-device"
-            value={speakerId}
-            disabled={!sinkSupported}
-            onChange={(event) => onSpeaker(event.target.value)}
-          >
-            <option value="">System default</option>
-            {sinkSupported &&
-              devices
-                .filter((device) => device.kind === 'audiooutput' && device.deviceId)
-                .map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Speaker ${index + 1}`}
-                  </option>
-                ))}
-          </select>
-          {!sinkSupported && (
-            <p className="mt-2 mb-0 text-xs text-hint">
-              This browser uses the default speaker output.
-            </p>
-          )}
-          {speakerError && (
-            <p
-              className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
-              role="alert"
-            >
-              {speakerError}
-            </p>
-          )}
+            devices={devices}
+            speakerId={speakerId}
+            sinkSupported={sinkSupported}
+            speakerError={speakerError}
+            onSpeaker={onSpeaker}
+          />
         </fieldset>
       </div>
     </>

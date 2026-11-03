@@ -1,6 +1,6 @@
 import { DISPLAY_NAME_MAX_LENGTH } from '@stageflow/shared';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Button } from '../components/ui/button';
 import { FormField } from '../components/ui/form-field';
@@ -8,6 +8,12 @@ import { PageState } from '../components/ui/page-state';
 import { BroadcastPlayerGate } from '../features/broadcast/components/broadcast-player-gate';
 import { broadcastQueryOptions } from '../features/broadcast/query-options';
 import { replayPlayback } from '../features/broadcast/services/playback';
+import { SpeakerSelect } from '../features/live/components/device-panel';
+import {
+  audioOutputSupported,
+  selectAudioOutput,
+  selectedOutputId,
+} from '../features/live/services/output-route';
 import {
   GuestEntryCancelled,
   replayPathFor,
@@ -42,25 +48,32 @@ export function ReplayPage() {
 
   if (!session) return <ReplayGuestForm destination={destination} />;
 
-  if (broadcastQuery.isPending)
+  if (broadcastQuery.isPending) {
     return (
-      <p className="py-16 text-sm text-muted" role="status">
-        Opening replay…
-      </p>
+      <>
+        <ReplayOutput />
+        <p className="py-16 text-sm text-muted" role="status">
+          Opening replay…
+        </p>
+      </>
     );
+  }
   if (broadcastQuery.isError) {
     return (
-      <PageState title="Unable to open this replay.">
-        <p className={alertClass} role="alert">
-          Error: {broadcastQuery.error.message}
-        </p>
-        <Link
-          className="mt-4 inline-flex items-center gap-5 text-[13px] text-accent underline-offset-4 hover:underline"
-          to="/"
-        >
-          Back to home <span aria-hidden="true">↗</span>
-        </Link>
-      </PageState>
+      <>
+        <ReplayOutput />
+        <PageState title="Unable to open this replay.">
+          <p className={alertClass} role="alert">
+            Error: {broadcastQuery.error.message}
+          </p>
+          <Link
+            className="mt-4 inline-flex items-center gap-5 text-[13px] text-accent underline-offset-4 hover:underline"
+            to="/"
+          >
+            Back to home <span aria-hidden="true">↗</span>
+          </Link>
+        </PageState>
+      </>
     );
   }
 
@@ -82,6 +95,7 @@ export function ReplayPage() {
         </h1>
       </div>
       <p className="mt-6 text-sm text-muted">Status: {broadcastQuery.data.status}</p>
+      <ReplayOutput />
       {view.kind === 'unavailable' && view.message && (
         <p className={alertClass} role="alert">
           Error: {view.message}
@@ -91,6 +105,56 @@ export function ReplayPage() {
         <BroadcastPlayerGate playlistUrl={view.playlistUrl} token={session.token} mode="vod" />
       )}
     </section>
+  );
+}
+
+function useOutputDevices(): MediaDeviceInfo[] {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const media = typeof navigator === 'undefined' ? undefined : navigator.mediaDevices;
+    if (!media?.enumerateDevices) return;
+    let active = true;
+    const refresh = () => {
+      void media.enumerateDevices().then(
+        (list) => {
+          if (active) setDevices(list);
+        },
+        () => {
+          if (active) setDevices([]);
+        },
+      );
+    };
+    refresh();
+    media.addEventListener('devicechange', refresh);
+    return () => {
+      active = false;
+      media.removeEventListener('devicechange', refresh);
+    };
+  }, []);
+  return devices;
+}
+
+function ReplayOutput() {
+  const devices = useOutputDevices();
+  const [speakerId, setSpeakerId] = useState(() => selectedOutputId());
+  const [speakerError, setSpeakerError] = useState('');
+  return (
+    <fieldset className="mt-6 min-w-0 border-0 p-0">
+      <legend className="sr-only">Replay speaker</legend>
+      <SpeakerSelect
+        id="replay-speaker-device"
+        devices={devices}
+        speakerId={speakerId}
+        sinkSupported={audioOutputSupported()}
+        speakerError={speakerError}
+        onSpeaker={(deviceId) => {
+          void selectAudioOutput(deviceId).then((result) => {
+            setSpeakerId(result.deviceId);
+            setSpeakerError(result.ok ? '' : result.message);
+          });
+        }}
+      />
+    </fieldset>
   );
 }
 

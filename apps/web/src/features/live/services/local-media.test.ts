@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalMedia } from './local-media';
+import { selectAudioOutput } from './output-route';
 
 function track(kind: 'audio' | 'video') {
   const captured = {
@@ -62,9 +63,10 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   media.stop();
   vi.unstubAllGlobals();
+  await selectAudioOutput('');
 });
 
 function preview() {

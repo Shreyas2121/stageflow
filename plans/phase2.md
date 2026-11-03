@@ -1,6 +1,6 @@
 # V2 Phase 2 — In-call devices
 
-**Status:** V2P2-C04 on-stage device controls are verified. The two-window browser pass for MEDIA-01 through MEDIA-03 is unverified. MEDIA-04 remains planned.\
+**Status:** V2P2-C05 speaker routing is verified. Its playback browser pass is unverified. The two-window browser pass for MEDIA-01 through MEDIA-03 is unverified.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
@@ -146,7 +146,7 @@ The four-person mesh, Perfect Negotiation, demo peers, host locks, screen share,
 | MEDIA-03 | Acquisition failure keeps the previous live tracks. Leave and demotion during acquisition stop the late track and do not attach it. An ended microphone mutes and stays joined. No second device is opened                                   | `local-media` and `room-session` tests. Physical unplug stays unverified unless observed     | planned |
 | MEDIA-04 | A speaker id chosen before a playback element exists is applied when that element is created. Unsupported output shows the default-speaker sentence. The recording mix receives the replaced microphone track                                | Output tests and a browser playback check. Human audible proof stays unverified unless heard | planned |
 
-A missing browser, disposable FFmpeg run, physical device, or native picker leaves only that method unverified. On 2026-11-03 the V2P2-C04 web tests passed. The two-window browser script was not run, so that half of MEDIA-01 through MEDIA-03 stays unverified. P3-A03, P3-A05, and P3-A06 stay open.
+A missing browser, disposable FFmpeg run, physical device, or native picker leaves only that method unverified. On 2026-11-03 the V2P2-C04 web tests passed. The two-window browser script was not run, so that half of MEDIA-01 through MEDIA-03 stays unverified. On 2026-11-03 the V2P2-C05 output tests passed. The playback browser script was not run, so that half of MEDIA-04 stays unverified. Human audible confirmation was not made. P3-A03, P3-A05, and P3-A06 stay open.
 
 ## 7. Verification commands
 
