@@ -316,6 +316,19 @@ export class BroadcastsService {
     await this.finish(entry, await this.childOutcome(entry));
   }
 
+  async failInterrupted(roomId: string): Promise<void> {
+    const entry = [...this.running.values()].find((value) => value.row.roomId === roomId);
+    if (!entry) return;
+    // Own the abort/cleanup so the child-exit callback cannot queue a competing graceful stop.
+    entry.stopping = true;
+    entry.supervisor.abort('Host connection lost.');
+    if (!entry.cleanup?.saved) {
+      entry.outcome = { code: null, premature: true, error: 'Host connection lost.' };
+      entry.terminal = undefined;
+    }
+    await this.finish(entry, { code: null, premature: true, error: 'Host connection lost.' });
+  }
+
   async upload(id: string, userId: string, sequence: number, bytes: Buffer): Promise<void> {
     const entry = this.running.get(id);
     if (!entry || entry.row.status !== 'LIVE' || entry.supervisor.outcome)

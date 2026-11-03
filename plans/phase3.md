@@ -1,6 +1,6 @@
 # V2 Phase 3 — Bounded reconnect
 
-**Status:** in progress. V2P3-C01 is implemented; verification is recorded in the execution guide. V2P3-C02 through V2P3-C04 have not started.\
+**Status:** in progress. V2P3-C01 is committed and V2P3-C02 is implemented; verification is recorded in the execution guide. V2P3-C03 and V2P3-C04 have not started.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.4`, Sections 1, 5, 8, 10, 11, and 12 (REC-01 through REC-05). Unchanged mesh, lock, device, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P2 contract.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V2P3-C01 through V2P3-C04. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md). This file owns the rules those commits must satisfy.\

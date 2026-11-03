@@ -92,6 +92,28 @@ it('loads an unknown room projection once and does not keep a reservation that f
   expect(f.repository.findOne).toHaveBeenCalledTimes(2);
 });
 
+it('aborts an interrupted host broadcast as FAILED and rejects every later chunk', async () => {
+  const f = await fixture();
+  expect(await f.start()).toEqual({ ok: true });
+  const row = f.rows[0]!;
+  // Even a complete playlist must not turn unexpected host loss into a READY attempt.
+  await writeFile(join(f.root, 'broadcasts', row.id, 'index.m3u8'), '#EXTM3U\n#EXT-X-ENDLIST\n');
+  await f.service.failInterrupted(row.roomId);
+  expect(f.child.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
+  expect(row).toMatchObject({
+    status: 'FAILED',
+    errorMessage: 'Host connection lost.',
+    playlistPath: null,
+  });
+  expect(row.endedAt).toBeInstanceOf(Date);
+  expect(f.hooks.clear).toHaveBeenCalledExactlyOnceWith(row.id);
+  await expect(f.service.upload(row.id, 'host', 0, Buffer.from('late'))).rejects.toMatchObject({
+    response: { error: 'broadcast_not_active' },
+  });
+  await f.service.stopRoom(row.roomId);
+  expect(row.status).toBe('FAILED');
+});
+
 it('inserts STARTING and reserves before spawn, then marks LIVE and publishes', async () => {
   const f = await fixture();
   expect(await f.start()).toEqual({ ok: true });

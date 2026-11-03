@@ -1,5 +1,6 @@
 local participant = participants[command.participantId]
 if not participant then return reject('participant_not_found') end
+if participant.presence ~= 'connected' then return reject('not_connected') end
 if participant.role ~= 'ATTENDEE' then return reject('not_attendee') end
 if participant.isHandRaised == command.raised then return finish(false) end
 participant.isHandRaised = command.raised

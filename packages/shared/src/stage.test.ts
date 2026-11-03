@@ -17,6 +17,8 @@ function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
     participants: [],
     stageParticipantIds: [],
     hands: [],
+    resumeDigests: {},
+    deadlines: {},
   };
 }
 
@@ -41,6 +43,8 @@ function run(state: LiveState, command: StageCommand) {
   Object.freeze(state.participants);
   Object.freeze(state.stageParticipantIds);
   Object.freeze(state.hands);
+  Object.freeze(state.deadlines);
+  Object.freeze(state.resumeDigests);
   Object.freeze(state);
   const before = structuredClone(state);
   const result = applyStageCommand(state, command);
@@ -76,6 +80,81 @@ const hand = (id: string, raisedAt = 2000): StageCommand => ({
   participantId: id,
   raised: true,
   raisedAt,
+});
+
+function resumable(mode: LiveState['mode'] = 'MEETING') {
+  let state = step(empty(mode), { ...join('host'), resumeDigest: 'host-digest' } as StageCommand);
+  state = step(state, { ...join('a'), resumeDigest: 'guest-digest' } as StageCommand);
+  return state;
+}
+const resumeGuest = (now = 2001): StageCommand => ({
+  type: 'resume',
+  participantId: 'a',
+  userId: 'a',
+  socketId: 'new-a',
+  resumeDigest: 'guest-digest',
+  expectedGeneration: 1,
+  now,
+});
+
+it('resumes within grace to the same locked membership with media off and a higher generation', () => {
+  let state = resumable('WEBINAR');
+  state = step(state, hand('a'));
+  state = step(state, {
+    type: 'setHostLock',
+    actorParticipantId: 'host',
+    targetParticipantId: 'a',
+    kind: 'audio',
+    locked: true,
+  });
+  const before = state.participants.find((p) => p.participantId === 'a')!;
+  state = step(state, { type: 'suspend', participantId: 'a', now: 2000 });
+  expect(state.deadlines.a).toBe(22000);
+  state = step(state, resumeGuest());
+  expect(state.participants.find((p) => p.participantId === 'a')).toEqual({
+    ...before,
+    socketId: 'new-a',
+    connectionGeneration: 2,
+  });
+  expect(state.deadlines).toEqual({});
+  expect(state.hands).toEqual([{ participantId: 'a', raisedAt: 2000 }]);
+  rejects(state, resumeGuest(), 'resume_lost');
+  rejects(state, { ...resumeGuest(), expectedGeneration: 2 } as StageCommand, 'already_connected');
+  rejects(
+    state,
+    {
+      type: 'leave',
+      participantId: 'a',
+      transport: { participantId: 'a', socketId: 'socket-a', generation: 1 },
+    },
+    'stale_transport',
+  );
+  expect(step(state, { type: 'expire', now: 99999 }).participants).toEqual(state.participants);
+});
+
+it('expires at the exact deadline, removes the verifier, and prevents an overdue resume', () => {
+  let state = step(resumable(), { type: 'suspend', participantId: 'a', now: 2000 });
+  expect(step(state, { type: 'expire', now: 21999 }).participants).toHaveLength(2);
+  const expired = run(state, resumeGuest(22000));
+  expect(expired).toMatchObject({ ok: false, error: 'resume_expired', expiry: { changed: true } });
+  if (expired.ok || !expired.expiry) throw new Error('Expected expiry.');
+  state = expired.expiry.state;
+  expect(state.participants.map((p) => p.participantId)).toEqual(['host']);
+  expect(state.resumeDigests).toEqual({ host: 'host-digest' });
+  expect(state.deadlines).toEqual({});
+  rejects(state, resumeGuest(22001), 'participant_not_found');
+});
+
+it('clears synthetic members on host suspension and ends the room only at host expiry', () => {
+  let state = step(resumable(), { ...join('bot'), isSyntheticBot: true } as StageCommand);
+  state = step(state, { type: 'suspend', participantId: 'host', now: 2000 });
+  expect(state.status).toBe('LIVE');
+  expect(state.participants.map((p) => p.participantId)).toEqual(['a', 'host']);
+  const ended = step(state, { type: 'expire', now: 22000 });
+  expect(ended.status).toBe('ENDED');
+  expect(ended.resumeDigests).toEqual({});
+  expect(ended.deadlines).toEqual({});
+  expect(ended.participants).toEqual([]);
 });
 
 it('sorts membership and hands by participant id independently of socket ordering', () => {

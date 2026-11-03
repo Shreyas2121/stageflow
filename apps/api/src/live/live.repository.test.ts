@@ -16,7 +16,7 @@ function fixture() {
 }
 
 describe('Lua script cache', () => {
-  it('uses a SHA with seven actual keys and falls back only on a cache miss', async () => {
+  it('uses a SHA with nine actual keys and falls back only on a cache miss', async () => {
     const { redis, repository } = fixture();
     redis.evalsha.mockRejectedValueOnce(new Error('NOSCRIPT No matching script. Please use EVAL.'));
     await repository.apply('test:room:one', room, command);
@@ -24,7 +24,7 @@ describe('Lua script cache', () => {
     const cached = redis.evalsha.mock.calls[0] as unknown as [string, number, ...string[]];
     expect(cached).toEqual([
       createHash('sha1').update(loaded[0]).digest('hex'),
-      7,
+      9,
       ...liveKeys('test:room:one'),
       JSON.stringify({ ...command, room }),
     ]);

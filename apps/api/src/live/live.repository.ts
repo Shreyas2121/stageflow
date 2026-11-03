@@ -2,13 +2,19 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Redis } from 'ioredis';
-import type { LiveState, ParticipantState, StageCommand, StageError } from '@stageflow/shared';
+import type {
+  LiveState,
+  ParticipantState,
+  StageCommand,
+  StageError,
+  StageSuccess,
+} from '@stageflow/shared';
 import { liveKeys } from './live.keys';
 
 export type LiveRoom = Pick<LiveState, 'roomId' | 'hostId' | 'mode' | 'status'>;
 export type LiveResult =
   | { ok: true; state: LiveState; revision: number; changed: boolean; roomEnded: boolean }
-  | { ok: false; error: StageError; revision: number };
+  | { ok: false; error: StageError; revision: number; expiry?: StageSuccess };
 
 const commandTypes = [
   'join',
@@ -18,6 +24,9 @@ const commandTypes = [
   'promote',
   'demote',
   'setHostLock',
+  'suspend',
+  'resume',
+  'expire',
 ] as const;
 const scriptNames = [...commandTypes, 'tryBeginBroadcast', 'clearBroadcast', 'snapshot'] as const;
 type ScriptName = (typeof scriptNames)[number];
@@ -40,10 +49,12 @@ export class LiveRepository {
   }
 
   async apply(prefix: string, room: LiveRoom, command: StageCommand): Promise<LiveResult> {
-    if (command.type === 'suspend') throw new Error('Suspension is not available yet.');
     const result = await this.execute(command.type, prefix, JSON.stringify({ ...command, room }));
     if (typeof result !== 'string') throw new Error('Invalid Redis stage result.');
-    return JSON.parse(result) as LiveResult;
+    const parsed = JSON.parse(result) as LiveResult;
+    if (!parsed.ok && parsed.expiry)
+      delete (parsed.expiry as StageSuccess & { revision?: number }).revision;
+    return parsed;
   }
 
   async tryBeginBroadcast(prefix: string, broadcastId: string): Promise<boolean> {

@@ -6,6 +6,7 @@ import type { LiveService } from './live.service';
 import type { SessionsService } from '../sessions/sessions.service';
 import { env } from '../config/env';
 import { isUuid } from '@stageflow/shared';
+import { createHash } from 'node:crypto';
 
 it('issues a membership UUID and uses it for later commands instead of the socket id', async () => {
   const join = vi.fn<LiveService['join']>(async (session, _request, _transport, participantId) => {
@@ -34,6 +35,12 @@ it('issues a membership UUID and uses it for later commands instead of the socke
   expect(isUuid(ack.participantId)).toBe(true);
   expect(ack.participantId).not.toBe(client.id);
   expect(client.data.participantId).toBe(ack.participantId);
+  expect(ack.resumeCredential).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(Buffer.from(ack.resumeCredential!, 'base64url')).toHaveLength(32);
+  expect(join.mock.calls[0]![4]).toBe(
+    createHash('sha256').update(ack.resumeCredential!).digest('hex'),
+  );
+  expect(client.data).not.toHaveProperty('joinCredential');
   await gateway.media(client as never, { isAudioMuted: true });
   expect(update).toHaveBeenCalledWith(
     expect.anything(),
@@ -44,6 +51,44 @@ it('issues a membership UUID and uses it for later commands instead of the socke
     },
     expect.anything(),
   );
+});
+
+it('gives synthetic joins no resume credential and rejects an expired JWT before resume', async () => {
+  const join = vi.fn<LiveService['join']>(async (session, _request, _transport, id) => {
+    session.participantId = id;
+    return { ok: true };
+  });
+  const resume = vi.fn();
+  const verifyToken = vi.fn().mockRejectedValue(new Error('expired'));
+  const gateway = new SignalingGateway(
+    { verifyToken } as unknown as SessionsService,
+    { join, resume } as unknown as LiveService,
+    {} as LiveConnection,
+  );
+  const client = {
+    id: 'bot-socket',
+    connected: true,
+    handshake: { auth: { token: 'expired' } },
+    data: { user: { id: 'guest' } },
+  };
+  const roomId = '01234567-89ab-cdef-0123-456789abcdef';
+  const ack = await gateway.join(client as never, {
+    roomId,
+    isAudioMuted: true,
+    isVideoOff: true,
+    isSyntheticBot: true,
+  });
+  expect(ack).not.toHaveProperty('resumeCredential');
+  expect(join.mock.calls[0]![4]).toBeUndefined();
+  expect(
+    await gateway.resume(client as never, {
+      roomId,
+      participantId: roomId,
+      resumeCredential: 'x'.repeat(43),
+    }),
+  ).toMatchObject({ error: 'invalid_resume' });
+  expect(verifyToken).toHaveBeenCalledWith('expired');
+  expect(resume).not.toHaveBeenCalled();
 });
 
 class ClosingRedis {

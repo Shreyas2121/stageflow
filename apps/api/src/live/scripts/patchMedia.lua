@@ -1,5 +1,6 @@
 local participant = participants[command.participantId]
 if not participant then return reject('participant_not_found') end
+if participant.presence ~= 'connected' then return reject('not_connected') end
 if not stage[command.participantId] then
   if command.patch.isAudioMuted == false or command.patch.isVideoOff == false or command.patch.isScreenSharing == true then return reject('not_on_stage') end
   local changed = participant.isAudioMuted ~= true or participant.isVideoOff ~= true or participant.isScreenSharing ~= false

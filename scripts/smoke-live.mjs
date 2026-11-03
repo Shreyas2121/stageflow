@@ -41,6 +41,7 @@ const server = new Server(http, socketOptions);
 const clients = [];
 const roomIds = [];
 let gateway;
+let live;
 
 function once(socket, event) {
   return new Promise((resolve, reject) => {
@@ -78,7 +79,7 @@ try {
   users.set(guest.id, guest);
   const rooms = new Map();
   let failEnd = false;
-  const live = new LiveService(
+  live = new LiveService(
     {
       getById: async (id) => rooms.get(id) ?? null,
       end: async (id) => {
@@ -101,6 +102,7 @@ try {
     gateway.handleConnection(socket);
     for (const [event, method] of [
       ['room:join', 'join'],
+      ['room:resume', 'resume'],
       ['room:leave', 'leave'],
       ['media:state', 'media'],
       ['stage:raise-hand', 'hand'],
@@ -173,7 +175,9 @@ try {
   assert.equal((await command(hostSocket, 'room:join', {})).error, 'invalid_payload');
   assert.equal((await join(guestSocket, meeting)).error, 'host_not_present');
   assert.equal((await join(hostSocket, meeting)).ok, true);
-  assert.equal((await join(guestSocket, meeting)).ok, true);
+  const guestJoin = await join(guestSocket, meeting);
+  assert.equal(guestJoin.ok, true);
+  assert.match(guestJoin.resumeCredential, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(
     (
       await command(hostSocket, 'media:state', {
@@ -213,11 +217,44 @@ try {
   );
   assert.equal((await ice).candidate, null);
   const guestId = await memberId(meeting, guestSocket.id);
+  const guestPresence = async () =>
+    JSON.parse(await redis.hget(`${roomPrefix(meeting.id, namespace)}:participants`, guestId));
   guestSocket.disconnect();
-  await eventually(
-    async () =>
-      !(await redis.hexists(`${roomPrefix(meeting.id, namespace)}:participants`, guestId)),
+  await eventually(async () => (await guestPresence())?.presence === 'suspended');
+  assert.equal((await guestPresence()).socketId, null);
+  assert.equal((await guestPresence()).isAudioMuted, true);
+  const resumer = await connect(guest);
+  assert.equal((await join(resumer, meeting)).error, 'already_joined');
+  assert.equal(
+    (
+      await command(resumer, 'room:resume', {
+        roomId: meeting.id,
+        participantId: guestId,
+        resumeCredential: 'x'.repeat(43),
+      })
+    ).error,
+    'invalid_resume',
   );
+  const resumed = await command(resumer, 'room:resume', {
+    roomId: meeting.id,
+    participantId: guestId,
+    resumeCredential: guestJoin.resumeCredential,
+  });
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.participantId, guestId);
+  assert.equal(resumed.connectionGeneration, 2);
+  assert.equal(
+    resumed.snapshot.participants.find((p) => p.participantId === guestId).isVideoOff,
+    true,
+  );
+  resumer.disconnect();
+  await eventually(async () => (await guestPresence())?.presence === 'suspended');
+  assert.equal((await live.expire(meeting.id, Date.now() + 20001)).ok, true);
+  assert.equal(
+    await redis.hexists(`${roomPrefix(meeting.id, namespace)}:participants`, guestId),
+    0,
+  );
+  assert.equal(await redis.hexists(`${roomPrefix(meeting.id, namespace)}:resume`, guestId), 0);
   const replacement = await connect(guest);
   assert.equal((await join(replacement, meeting)).ok, true);
   failEnd = true;
@@ -284,8 +321,17 @@ try {
   );
   assert.equal((await command(replacement, 'room:leave')).ok, true);
   const webinarId = hostSocket.id;
+  const hostParticipantId = await memberId(webinar, hostSocket.id);
   hostSocket.disconnect();
-  await eventually(() => webinar.status === 'ENDED');
+  await eventually(
+    async () =>
+      JSON.parse(
+        await redis.hget(`${roomPrefix(webinar.id, namespace)}:participants`, hostParticipantId),
+      )?.presence === 'suspended',
+  );
+  assert.equal(webinar.status, 'LIVE');
+  assert.equal((await live.expire(webinar.id, Date.now() + 20001)).ok, true);
+  assert.equal(webinar.status, 'ENDED');
   assert.equal(await redis.exists(...liveKeys(roomPrefix(webinar.id, namespace))), 0);
   assert.equal(server.sockets.sockets.get(webinarId), undefined);
   const burst = await Promise.all(
@@ -298,10 +344,11 @@ try {
   oversized.emit('room:join', { padding: 'x'.repeat(socketOptions.maxHttpBufferSize + 1) });
   await oversizedClosed;
   console.log(
-    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, disconnect/rejoin, shutdown retry, event budgets, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();
+  live?.onModuleDestroy();
   for (const socket of clients) socket.disconnect();
   await new Promise((resolve) => server.close(resolve));
   if (http.listening) await new Promise((resolve) => http.close(resolve));

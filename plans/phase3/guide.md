@@ -1,6 +1,6 @@
 # Guide — V2 Phase 3, commit by commit
 
-**Status:** in progress. V2P3-C01 is verified and ready to commit. V2P3-C02 through V2P3-C04 have not started.\
+**Status:** in progress. V2P3-C01 is committed and V2P3-C02 is verified and ready to commit. V2P3-C03 and V2P3-C04 have not started.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -44,9 +44,9 @@ Keep the mesh cap, the negotiation reducer, demo spawn, host locks, device repla
 
 ## 2. V2P3-C01 — Participant identity
 
-**Status:** verified; ready to commit\
+**Status:** committed\
 **Proposed commit message:** `feat(live): key a membership by participant id`\
-**Actual commit:**
+**Actual commit:** `dcac0b369d1679ccaba2cef56135c7b1b16f4377`
 
 **Why:** Resume cannot have a stable member while the hash field, the stage set, and the peer map are the socket id. Covers the identity half of REC-02.
 
@@ -112,7 +112,7 @@ pnpm lint
 
 ## 3. V2P3-C02 — Server suspension
 
-**Status:** planned\
+**Status:** verified; ready to commit\
 **Proposed commit message:** `feat(api-live): suspend a membership when its socket drops`\
 **Actual commit:**
 
@@ -164,6 +164,8 @@ pnpm smoke:live
 `pnpm smoke:live` uses its own prefix. Missing Redis leaves that command unverified and named.
 
 **Done when:** The race, expiry, host-room, and broadcast-failure tests pass and the slice is committed.
+
+**Verification result (2026-11-03):** Shared tests passed (185), API tests passed against Redis (194), and web tests passed (269). `pnpm typecheck`, `pnpm lint`, `pnpm --filter @stageflow/api build`, `pnpm smoke:live`, and `node scripts/check-artifacts.mjs --api` passed. The Lua/oracle comparisons cover suspension, resume, exact-deadline expiry, credential ownership, preserved locks and hands, suspended demotion, synthetic cleanup, and stale generations. Redis race tests bind one resume and preserve a connected member against expiry. Controlled-clock service tests cover cleanup capacity, failed and ambiguous suspension replies, publication retries, failed expiry, and host shutdown retries without waiting for grace. The socket smoke verifies reserved join rejection, a real socket resume with media off, guest expiry and rejoin, and a host catalog room staying `LIVE` until forced expiry. Interrupted-broadcast tests abort the child, store `FAILED` with `Host connection lost.`, and reject later chunks. Nine room keys retain the sixth-key broadcast lock; all fourteen Lua files ship. Server portions of REC-01, REC-02, REC-04, and REC-05 are covered. The reconnect browser pass, client recovery, and an audible run with real FFmpeg remain unverified. P3-A03, P3-A05, P3-A06, and earlier browser gaps remain open.
 
 **Handoff:** The server can resume. The page still treats every disconnect as a reset and does not send `room:resume`.
 

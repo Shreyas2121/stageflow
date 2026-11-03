@@ -33,7 +33,18 @@ export type SignalingError =
   | 'peer_unavailable';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
 export type JoinAck =
-  { ok: true; participantId: string; iceServers: IceServer[] } | Extract<CommandAck, { ok: false }>;
+  | { ok: true; participantId: string; iceServers: IceServer[]; resumeCredential?: string }
+  | Extract<CommandAck, { ok: false }>;
+export type ResumeRoomRequest = { roomId: string; participantId: string; resumeCredential: string };
+export type ResumeAck =
+  | {
+      ok: true;
+      participantId: string;
+      connectionGeneration: number;
+      iceServers: IceServer[];
+      snapshot: RoomSnapshot;
+    }
+  | Extract<CommandAck, { ok: false }>;
 export type JoinRoomRequest = {
   roomId: string;
   isAudioMuted: boolean;
@@ -60,6 +71,7 @@ export interface ClientToServerEvents {
   'webrtc:description': (payload: DescriptionRequest, ack: (result: CommandAck) => void) => void;
   'webrtc:ice-candidate': (payload: IceCandidateRequest, ack: (result: CommandAck) => void) => void;
   'room:join': (payload: JoinRoomRequest, ack: (result: JoinAck) => void) => void;
+  'room:resume': (payload: ResumeRoomRequest, ack: (result: ResumeAck) => void) => void;
   'room:leave': (ack: (result: CommandAck) => void) => void;
   'media:state': (payload: MediaPatch, ack: (result: CommandAck) => void) => void;
   'stage:raise-hand': (payload: { raised: boolean }, ack: (result: CommandAck) => void) => void;

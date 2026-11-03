@@ -2,6 +2,7 @@ import type {
   DescriptionRequest,
   IceCandidateRequest,
   JoinRoomRequest,
+  ResumeRoomRequest,
   StageTargetRequest,
   StageLockRequest,
 } from './signaling';
@@ -23,6 +24,22 @@ function bounded(value: unknown, max: number): value is string {
 }
 function participantId(value: unknown): value is string {
   return bounded(value, PARTICIPANT_ID_MAX_LENGTH) && value.length > 0;
+}
+export function parseResumeRoomRequest(value: unknown): ResumeRoomRequest | null {
+  if (
+    !record(value) ||
+    !isUuid(value.roomId) ||
+    !isUuid(value.participantId) ||
+    typeof value.resumeCredential !== 'string' ||
+    !/^[A-Za-z0-9_-]{43}$/.test(value.resumeCredential) ||
+    Object.keys(value).some((key) => !['roomId', 'participantId', 'resumeCredential'].includes(key))
+  )
+    return null;
+  return {
+    roomId: value.roomId,
+    participantId: value.participantId,
+    resumeCredential: value.resumeCredential,
+  };
 }
 export function parseJoinRoomRequest(value: unknown): JoinRoomRequest | null {
   if (

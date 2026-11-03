@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { applyStageCommand, type LiveState, type RoomSnapshot } from '@stageflow/shared';
@@ -6,6 +7,7 @@ import {
   type BroadcastControl,
   type LiveSession,
   type LiveTransport,
+  type LiveClock,
 } from './live.service';
 import { SerializedOperations } from './serialized-operations';
 import type { LiveRepository } from './live.repository';
@@ -16,6 +18,7 @@ function fixture(
   namespace = 'sf',
   operations = new SerializedOperations(),
   broadcasts?: BroadcastControl,
+  clock?: LiveClock,
 ) {
   let state: LiveState = {
     roomId: 'room',
@@ -25,14 +28,16 @@ function fixture(
     participants: [],
     stageParticipantIds: [],
     hands: [],
+    resumeDigests: {},
+    deadlines: {},
   };
   let revision = 0;
   const events: string[] = [];
   const snapshots: RoomSnapshot[] = [];
   const sessions = new Map<string, LiveSession>();
   let catalogStatus: 'LIVE' | 'ENDED' = 'LIVE';
-  const client = (id: string): LiveSession => {
-    const session = { id, user: { id, displayName: id }, connected: true, room: undefined };
+  const client = (id: string, userId = id): LiveSession => {
+    const session = { id, user: { id: userId, displayName: id }, connected: true, room: undefined };
     sessions.set(id, session);
     return session;
   };
@@ -50,7 +55,13 @@ function fixture(
   };
   const live: Pick<
     LiveRepository,
-    'apply' | 'readStage' | 'readConnectedStage' | 'readSocket' | 'deleteRoom' | 'refreshSnapshot'
+    | 'apply'
+    | 'readStage'
+    | 'readConnectedStage'
+    | 'readSocket'
+    | 'readParticipant'
+    | 'deleteRoom'
+    | 'refreshSnapshot'
   > = {
     refreshSnapshot: vi.fn<LiveRepository['refreshSnapshot']>(async () => ({
       ok: true,
@@ -68,6 +79,9 @@ function fixture(
       }
       return { ...result, revision };
     }),
+    readParticipant: vi.fn(
+      async (_prefix, id) => state.participants.find((p) => p.participantId === id) ?? null,
+    ),
     readStage: vi.fn(async () => state.stageParticipantIds),
     readConnectedStage: vi.fn(async () =>
       state.stageParticipantIds.filter((id) =>
@@ -107,19 +121,216 @@ function fixture(
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
-  const service = new LiveService(rooms, live, operations, availability, namespace, broadcasts);
-  const join = (peer: LiveSession) =>
+  const service = new LiveService(
+    rooms,
+    live,
+    operations,
+    availability,
+    namespace,
+    broadcasts,
+    clock,
+  );
+  const join = (peer: LiveSession, isSyntheticBot = false) =>
     service.join(
       peer,
-      { roomId: 'room', isAudioMuted: false, isVideoOff: false, isSyntheticBot: false },
+      { roomId: 'room', isAudioMuted: false, isVideoOff: false, isSyntheticBot },
       transport,
       peer.id,
+      isSyntheticBot
+        ? undefined
+        : createHash('sha256').update(`credential-${peer.user.id}`).digest('hex'),
     );
   return { service, rooms, live, transport, client, join, events, snapshots };
 }
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+
+function controlledClock() {
+  let now = 1000;
+  const callbacks: (() => void)[] = [];
+  const clock: LiveClock = {
+    now: () => now,
+    schedule: vi.fn((callback) => {
+      callbacks.push(callback);
+      return vi.fn();
+    }),
+  };
+  return {
+    clock,
+    callbacks,
+    set: (value: number) => {
+      now = value;
+    },
+  };
+}
+const resumeRequest = (id: string) => ({
+  roomId: 'room',
+  participantId: id,
+  resumeCredential: `credential-${id}`,
+});
+
+it('suspends on the cleanup reserve, clears the old binding, and resumes once without exposing a verifier', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  const stale = { ...guest };
+  expect(await f.service.disconnect(guest, f.transport)).toEqual({ ok: true });
+  expect(guest.room).toBeUndefined();
+  expect(guest.participantId).toBeUndefined();
+  expect(guest.generation).toBeUndefined();
+  expect(f.snapshots.at(-1)!.participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'suspended',
+    socketId: null,
+    isAudioMuted: true,
+    isVideoOff: true,
+  });
+  expect(f.snapshots.at(-1)!.stageParticipantIds).toHaveLength(2);
+  expect(await f.join(f.client('another-guest', 'guest'))).toMatchObject({
+    error: 'already_joined',
+  });
+  const attempts = [f.client('new-one', 'guest'), f.client('new-two', 'guest')];
+  const results = await Promise.all(
+    attempts.map((client) => f.service.resume(client, resumeRequest('guest'), f.transport)),
+  );
+  expect(results.filter((result) => result.ok)).toHaveLength(1);
+  expect(results.find((result) => !result.ok)).toMatchObject({ error: 'resume_lost' });
+  const ack = results.find((result) => result.ok)!;
+  expect(ack).toMatchObject({ participantId: 'guest', connectionGeneration: 2 });
+  expect(JSON.stringify(f.snapshots)).not.toContain('resumeDigests');
+  expect(JSON.stringify(f.snapshots)).not.toContain('credential-guest');
+  expect(
+    await f.service.update(
+      stale,
+      { type: 'patchMedia', participantId: 'guest', patch: { isAudioMuted: false } },
+      f.transport,
+    ),
+  ).toMatchObject({ error: 'stale_transport' });
+  expect(await f.service.relay(stale, 'host', f.transport, vi.fn())).toMatchObject({
+    error: 'stale_transport',
+  });
+  expect(await f.service.leave(stale, f.transport)).toMatchObject({ error: 'stale_transport' });
+  time.set(99999);
+  await f.service.sweep();
+  expect(f.snapshots.at(-1)!.participants.find((p) => p.participantId === 'guest')?.presence).toBe(
+    'connected',
+  );
+  f.service.onModuleDestroy();
+});
+
+it('expires with an injected clock and rejects join and resume if expiry fails', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    await f.join(f.client('host'));
+    const guest = f.client('guest');
+    await f.join(guest);
+    await f.service.disconnect(guest, f.transport);
+    time.set(21000);
+    vi.mocked(f.live.apply).mockRejectedValueOnce(new Error('expiry unavailable'));
+    expect(await f.join(f.client('new', 'guest'))).toMatchObject({ error: 'server_error' });
+    expect(f.live.apply).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), {
+      type: 'expire',
+      now: 21000,
+    });
+    vi.mocked(f.live.apply).mockRejectedValueOnce(new Error('expiry unavailable'));
+    expect(
+      await f.service.resume(f.client('resume', 'guest'), resumeRequest('guest'), f.transport),
+    ).toMatchObject({ error: 'server_error' });
+    await f.service.sweep();
+    expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host']);
+    expect(await f.join(f.client('next', 'guest'))).toEqual({ ok: true });
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('retries a failed suspension on the sweep and never extends a committed deadline', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    await f.join(f.client('host'));
+    const guest = f.client('guest');
+    await f.join(guest);
+    vi.mocked(f.live.apply).mockRejectedValueOnce(new Error('redis unavailable'));
+    expect(await f.service.disconnect(guest, f.transport)).toMatchObject({ error: 'server_error' });
+    expect(guest.room).toBeDefined();
+    await f.service.sweep();
+    expect(guest.room).toBeUndefined();
+    const revision = f.snapshots.at(-1)!.revision;
+    time.set(20000);
+    await f.service.disconnect(guest, f.transport);
+    await f.service.sweep();
+    expect(f.snapshots.at(-1)!.revision).toBe(revision);
+    time.set(21000);
+    await f.service.sweep();
+    expect(f.snapshots.at(-1)!.participants).toHaveLength(1);
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('retains a committed suspension snapshot for retry after publication fails', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    await f.join(f.client('host'));
+    const guest = f.client('guest');
+    await f.join(guest);
+    vi.mocked(f.transport.publish).mockImplementationOnce(() => {
+      throw new Error('publish unavailable');
+    });
+    expect(await f.service.disconnect(guest, f.transport)).toMatchObject({ error: 'server_error' });
+    expect(guest.room).toBeUndefined();
+    await f.service.sweep();
+    expect(
+      f.snapshots.at(-1)!.participants.find((p) => p.participantId === 'guest')?.presence,
+    ).toBe('suspended');
+    expect(f.live.apply).toHaveBeenCalledTimes(4);
+    time.set(21000);
+    await f.service.sweep();
+    expect(f.snapshots.at(-1)!.participants).toHaveLength(1);
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('adopts a suspension after an ambiguous Redis reply without extending its deadline', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    await f.join(f.client('host'));
+    const guest = f.client('guest');
+    await f.join(guest);
+    const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+    vi.mocked(f.live.apply).mockImplementationOnce(async (...args) => {
+      await apply(...args);
+      throw new Error('reply lost');
+    });
+    expect(await f.service.disconnect(guest, f.transport)).toMatchObject({ error: 'server_error' });
+    time.set(2000);
+    await f.service.sweep();
+    expect(guest.room).toBeUndefined();
+    expect(
+      f.snapshots.at(-1)!.participants.find((p) => p.participantId === 'guest')?.presence,
+    ).toBe('suspended');
+    time.set(21000);
+    await f.service.sweep();
+    expect(f.snapshots.at(-1)!.participants).toHaveLength(1);
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
 
 it('routes stable participant ids to their current transports and leaves by membership id', async () => {
   const f = fixture();
@@ -155,11 +366,12 @@ it('routes stable participant ids to their current transports and leaves by memb
   expect(f.live.apply).toHaveBeenLastCalledWith('sf:room:room', expect.anything(), {
     type: 'leave',
     participantId: 'member-guest',
+    transport: { participantId: 'member-guest', socketId: 'guest', generation: 1 },
   });
   expect(guest.participantId).toBeUndefined();
 });
 
-function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
+function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR', clock?: LiveClock) {
   let active: string | null = null;
   let broadcast: RoomSnapshot['broadcast'] = null;
   let onChildExit: ((action: () => Promise<void>) => void) | undefined;
@@ -181,6 +393,12 @@ function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
       }),
     },
     service: {
+      failInterrupted: vi.fn(async () => {
+        f.events.push('broadcast:interrupted');
+        active = null;
+        if (broadcast)
+          broadcast = { ...broadcast, status: 'FAILED', errorMessage: 'Host connection lost.' };
+      }),
       snapshot: vi.fn(async () => broadcast),
       start: vi.fn<BroadcastControl['service']['start']>(async (_room, _host, hooks) => {
         onChildExit = hooks.onExit;
@@ -195,9 +413,77 @@ function broadcastFixture(mode: LiveState['mode'] = 'WEBINAR') {
       }),
     },
   };
-  const f = fixture(mode, undefined, undefined, undefined, control);
+  const f = fixture(mode, undefined, undefined, undefined, control, clock);
   return { ...f, control, onChildExit: () => onChildExit };
 }
+
+it('fails the host broadcast, removes demos, and keeps the catalog live until the scheduled host expiry', async () => {
+  const time = controlledClock();
+  const f = broadcastFixture('WEBINAR', time.clock);
+  const host = f.client('host');
+  await f.join(host);
+  await f.join(f.client('bot'), true);
+  await f.join(f.client('human'));
+  await f.service.startBroadcast(host, f.transport);
+  expect(await f.service.disconnect(host, f.transport)).toEqual({ ok: true });
+  expect(f.control.service.failInterrupted).toHaveBeenCalledExactlyOnceWith('room');
+  expect(f.control.service.stopRoom).not.toHaveBeenCalled();
+  expect(f.rooms.end).not.toHaveBeenCalled();
+  expect(f.snapshots.at(-1)).toMatchObject({
+    status: 'LIVE',
+    broadcast: { status: 'FAILED', errorMessage: 'Host connection lost.' },
+  });
+  expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host', 'human']);
+  time.set(21000);
+  time.callbacks[0]!();
+  await vi.waitFor(() => expect(f.rooms.end).toHaveBeenCalledExactlyOnceWith('room'));
+  expect(f.live.deleteRoom).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+  expect(f.transport.end).toHaveBeenCalledExactlyOnceWith('room');
+  f.service.onModuleDestroy();
+});
+
+it('keeps a non-host broadcast live, and a resumed host cannot be controlled by the old binding', async () => {
+  const time = controlledClock();
+  const f = broadcastFixture('WEBINAR', time.clock);
+  const host = f.client('host');
+  const guest = f.client('guest');
+  await f.join(host);
+  await f.join(guest);
+  await f.service.startBroadcast(host, f.transport);
+  await f.service.disconnect(guest, f.transport);
+  expect(f.control.service.failInterrupted).not.toHaveBeenCalled();
+  expect(f.snapshots.at(-1)?.broadcast?.status).toBe('LIVE');
+  const stale = { ...host };
+  await f.service.disconnect(host, f.transport);
+  const resumed = f.client('new-host', 'host');
+  expect(await f.service.resume(resumed, resumeRequest('host'), f.transport)).toMatchObject({
+    ok: true,
+    connectionGeneration: 2,
+  });
+  expect(f.control.service.start).toHaveBeenCalledTimes(1);
+  for (const method of ['startBroadcast', 'stopBroadcast', 'leave'] as const)
+    expect(await f.service[method](stale, f.transport)).toMatchObject({ error: 'stale_transport' });
+  expect(
+    await f.service.update(
+      stale,
+      { type: 'demote', actorParticipantId: 'host', targetParticipantId: 'guest' },
+      f.transport,
+    ),
+  ).toMatchObject({ error: 'stale_transport' });
+  f.service.onModuleDestroy();
+});
+
+it('leaves a synthetic disconnect immediately without a resume credential or reservation', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const bot = f.client('bot');
+  await f.join(bot, true);
+  await f.service.disconnect(bot, f.transport);
+  expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host']);
+  expect(time.clock.schedule).not.toHaveBeenCalled();
+  f.service.onModuleDestroy();
+});
 
 it('authorizes webinar broadcast commands from the stored socket role and rejects a second start before another row', async () => {
   const f = broadcastFixture();
@@ -324,7 +610,10 @@ it('promotes a webinar attendee through only the promote repository command', as
     targetParticipantId: 'guest',
   } as const;
   expect(await f.service.update(host, command, f.transport)).toEqual({ ok: true });
-  expect(f.live.apply).toHaveBeenCalledExactlyOnceWith('sf:room:room', host.room, command);
+  expect(f.live.apply).toHaveBeenCalledExactlyOnceWith('sf:room:room', host.room, {
+    ...command,
+    transport: { participantId: 'host', socketId: 'host', generation: 1 },
+  });
   expect(f.snapshots).toHaveLength(1);
   expect(f.snapshots[0]?.participants.find((p) => p.participantId === 'guest')?.role).toBe(
     'SPEAKER',
@@ -735,6 +1024,8 @@ it('retries notification after Redis deletion without another participant lookup
         participants: [],
         stageParticipantIds: [],
         hands: [],
+        resumeDigests: {},
+        deadlines: {},
       },
     });
     expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
@@ -871,4 +1162,57 @@ it('rejects a burst early while allowing disconnected-host cleanup through reser
   expect(await retry).toEqual({ ok: true });
   expect(f.transport.end).toHaveBeenCalledTimes(1);
   expect(guest.room).toBeUndefined();
+});
+
+it('suspends through reserved capacity when normal room work is full and starts grace at detection', async () => {
+  const time = controlledClock();
+  const queue = new SerializedOperations({ maxPending: 1, maxPerKey: 1, cleanupReserve: 1 });
+  const f = fixture('MEETING', undefined, undefined, queue, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const active = queue.run('room:room', () => gate);
+  Object.defineProperty(guest, 'connected', { value: false });
+  const dropping = f.service.disconnect(guest, f.transport);
+  time.set(1900);
+  release();
+  await active;
+  expect(await dropping).toEqual({ ok: true });
+  expect(f.live.apply).toHaveBeenLastCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({ type: 'suspend', now: 1000 }),
+  );
+  expect(f.rooms.end).not.toHaveBeenCalled();
+  time.set(21000);
+  await f.service.sweep();
+  expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host']);
+  f.service.onModuleDestroy();
+});
+
+it('retries failed host-expiry shutdown and rejects joins until catalog cleanup succeeds', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    const host = f.client('host');
+    await f.join(host);
+    await f.service.disconnect(host, f.transport);
+    time.set(21000);
+    vi.mocked(f.rooms.end).mockRejectedValueOnce(new Error('catalog unavailable'));
+    expect(await f.service.expire('room')).toMatchObject({ error: 'server_error' });
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(await f.join(f.client('late'))).toMatchObject({ error: 'room_ended' });
+    await f.service.sweep();
+    expect(f.rooms.end).toHaveBeenCalledTimes(2);
+    expect(f.transport.end).toHaveBeenCalledExactlyOnceWith('room');
+    expect(f.live.deleteRoom).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
 });

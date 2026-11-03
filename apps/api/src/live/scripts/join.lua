@@ -1,3 +1,5 @@
+if command.now then expiryChanged, expiryEnded = expireOverdue(command.now) end
+if expiryEnded then return reject('room_ended') end
 if room.status == 'ENDED' or redis.call('EXISTS', endingKey) == 1 then return reject('room_ended') end
 for id, participant in pairs(participants) do
   if participant.userId == command.userId or id == command.participantId or participant.socketId == command.socketId then return reject('already_joined') end
@@ -22,5 +24,9 @@ participants[command.participantId] = {
 }
 saveParticipant(command.participantId)
 redis.call('HSET', transportsKey, command.socketId, command.participantId)
+if not command.isSyntheticBot and command.resumeDigest then
+  resumeDigests[command.participantId] = command.resumeDigest
+  dirtyResume[command.participantId] = true
+end
 if onStage then setStage(command.participantId, true) end
 return finish(true)

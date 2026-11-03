@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import {
   parseJoinRoomRequest,
+  parseResumeRoomRequest,
   parseDescriptionRequest,
   parseIceCandidateRequest,
   parseMediaPatch,
@@ -22,6 +23,23 @@ const join = {
   isSyntheticBot: false,
 };
 const ice = { candidate: 'candidate', sdpMid: '0', sdpMLineIndex: 0 };
+it('accepts a bounded resume credential and membership UUID without client-controlled generations', () => {
+  const request = {
+    roomId: join.roomId,
+    participantId: join.roomId,
+    resumeCredential: 'x'.repeat(43),
+  };
+  expect(parseResumeRoomRequest(request)).toEqual(request);
+  for (const value of [
+    null,
+    {},
+    { ...request, participantId: 'socket-id' },
+    { ...request, resumeCredential: 'x'.repeat(44) },
+    { ...request, resumeCredential: '/'.repeat(43) },
+    { ...request, generation: 2 },
+  ])
+    expect(parseResumeRoomRequest(value)).toBeNull();
+});
 it('accepts bounded moderation targets and rejects missing targets and unknown keys', () => {
   expect(parseStageTargetRequest({ targetParticipantId: 'peer' })).toEqual({
     targetParticipantId: 'peer',

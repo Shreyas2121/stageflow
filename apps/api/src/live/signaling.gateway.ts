@@ -1,5 +1,5 @@
 import { OnModuleDestroy } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   ConnectedSocket,
   MessageBody,
@@ -19,6 +19,7 @@ import {
   parseHandRequest,
   parseStageTargetRequest,
   parseStageLockRequest,
+  parseResumeRoomRequest,
 } from '@stageflow/shared';
 
 import type {
@@ -26,6 +27,7 @@ import type {
   CommandAck,
   IceServer,
   JoinAck,
+  ResumeAck,
   ServerToClientEvents,
 } from '@stageflow/shared';
 import { env } from '../config/env';
@@ -39,7 +41,14 @@ import { socketOptions } from './socket-options';
 import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
 
-type SocketData = { user: User; room?: LiveRoom; participantId?: string };
+type SocketData = {
+  user: User;
+  room?: LiveRoom;
+  participantId?: string;
+  generation?: number;
+  isSyntheticBot?: boolean;
+  joinCredential?: string;
+};
 type GuestSocket = Socket<
   ClientToServerEvents,
   ServerToClientEvents,
@@ -91,6 +100,18 @@ export class SignalingGateway
         if (participantId) client.data.participantId = participantId;
         else delete client.data.participantId;
       },
+      get generation() {
+        return client.data.generation;
+      },
+      set generation(value: number | undefined) {
+        client.data.generation = value;
+      },
+      get isSyntheticBot() {
+        return client.data.isSyntheticBot;
+      },
+      set isSyntheticBot(value: boolean | undefined) {
+        client.data.isSyntheticBot = value;
+      },
       get connected() {
         return client.connected;
       },
@@ -127,6 +148,9 @@ export class SignalingGateway
         if (socket.data.room?.roomId === roomId) {
           delete socket.data.room;
           delete socket.data.participantId;
+          delete socket.data.generation;
+          delete socket.data.isSyntheticBot;
+          delete socket.data.joinCredential;
         }
       }
     },
@@ -177,15 +201,44 @@ export class SignalingGateway
   ): Promise<JoinAck> {
     const request = parseJoinRoomRequest(payload);
     if (!request) return failure('invalid_payload');
+    if (!request.isSyntheticBot && !client.data.joinCredential && !client.data.room)
+      client.data.joinCredential = randomBytes(32).toString('base64url');
+    const credential = client.data.joinCredential;
     const result = await this.live.join(
       this.session(client),
       request,
       this.transport,
       randomUUID(),
+      credential ? createHash('sha256').update(credential).digest('hex') : undefined,
     );
-    return result.ok
-      ? { ok: true, participantId: client.data.participantId!, iceServers: this.iceServers }
-      : result;
+    if (!result.ok) {
+      if (!client.data.room) delete client.data.joinCredential;
+      return result;
+    }
+    delete client.data.joinCredential;
+    return {
+      ok: true,
+      participantId: client.data.participantId!,
+      iceServers: this.iceServers,
+      ...(credential ? { resumeCredential: credential } : {}),
+    };
+  }
+
+  @SubscribeMessage('room:resume')
+  async resume(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<ResumeAck> {
+    const request = parseResumeRoomRequest(payload);
+    if (!request) return failure('invalid_payload');
+    try {
+      const user = await this.sessions.verifyToken(client.handshake.auth?.token);
+      if (user.id !== client.data.user.id) return failure('invalid_resume');
+    } catch {
+      return failure('invalid_resume');
+    }
+    const result = await this.live.resume(this.session(client), request, this.transport);
+    return result.ok ? { ...result, iceServers: this.iceServers } : result;
   }
   @SubscribeMessage('webrtc:description')
   description(
@@ -343,7 +396,8 @@ export class SignalingGateway
     return this.live.leave(this.session(client), this.transport);
   }
   handleDisconnect(client: GuestSocket): void {
-    if (!this.shuttingDown) void this.leave(client);
+    delete client.data?.joinCredential;
+    if (!this.shuttingDown) void this.live.disconnect(this.session(client), this.transport);
   }
 
   onModuleDestroy(): void {

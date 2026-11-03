@@ -18,6 +18,8 @@ function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
     participants: [],
     stageParticipantIds: [],
     hands: [],
+    resumeDigests: {},
+    deadlines: {},
   };
 }
 
@@ -69,8 +71,129 @@ const patch = (
   patch: values,
 });
 const webinarJoins = [join('host'), join('c'), join('b'), join('a'), join('d')];
+const recoverJoin = (id: string) => ({ ...join(id), resumeDigest: `digest-${id}` });
+const suspend = (participantId: string, now = 2000): StageCommand => ({
+  type: 'suspend',
+  participantId,
+  now,
+});
+const resume = (
+  participantId: string,
+  now = 2001,
+  expectedGeneration = 1,
+): Extract<StageCommand, { type: 'resume' }> => ({
+  type: 'resume',
+  participantId,
+  now,
+  expectedGeneration,
+  userId: participantId,
+  socketId: `resumed-${participantId}`,
+  resumeDigest: `digest-${participantId}`,
+});
 
 const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[] = [
+  {
+    name: 'suspend and resume preserve a locked membership, hand and join order',
+    initial: empty('WEBINAR'),
+    commands: [
+      recoverJoin('host'),
+      recoverJoin('a'),
+      hand('a'),
+      lock('audio', true),
+      suspend('a'),
+      suspend('a'),
+      resume('a'),
+      { ...resume('a'), expectedGeneration: 2 },
+      resume('a'),
+      suspend('a', 3000),
+      { ...resume('a', 3001, 2), socketId: 'third-a' },
+    ],
+  },
+  {
+    name: 'suspended reservations enforce the cap and demotion survives resume',
+    initial: empty('WEBINAR'),
+    commands: [
+      recoverJoin('host'),
+      recoverJoin('a'),
+      recoverJoin('b'),
+      recoverJoin('c'),
+      recoverJoin('d'),
+      promote('a'),
+      promote('b'),
+      promote('c'),
+      suspend('a'),
+      promote('d'),
+      demote('a'),
+      promote('a'),
+      promote('d'),
+      resume('a'),
+    ],
+  },
+  {
+    name: 'host suspension removes bots and host expiry ends all presence',
+    initial: empty(),
+    commands: [
+      recoverJoin('host'),
+      { ...join('bot'), isSyntheticBot: true },
+      recoverJoin('human'),
+      suspend('host'),
+      { type: 'expire', now: 21999 },
+      { type: 'expire', now: 22000 },
+    ],
+  },
+  {
+    name: 'synthetic disconnect leaves immediately',
+    initial: empty(),
+    commands: [recoverJoin('host'), { ...join('bot'), isSyntheticBot: true }, suspend('bot')],
+  },
+  {
+    name: 'join expires an overdue guest atomically before admitting the same user',
+    initial: empty(),
+    commands: [
+      recoverJoin('host'),
+      recoverJoin('a'),
+      suspend('a'),
+      { ...join('new-a', 'a'), now: 22000 },
+    ],
+  },
+  {
+    name: 'join after overdue host commits expiry and rejects insertion',
+    initial: empty(),
+    commands: [recoverJoin('host'), suspend('host'), { ...join('new-user'), now: 22000 }],
+  },
+  {
+    name: 'resume at the deadline expires the row instead of rebinding it',
+    initial: empty(),
+    commands: [recoverJoin('host'), recoverJoin('a'), suspend('a'), resume('a', 22000)],
+  },
+  {
+    name: 'resume validates owner, digest and live generation without replacing a connection',
+    initial: empty(),
+    commands: [
+      recoverJoin('host'),
+      recoverJoin('a'),
+      resume('a'),
+      suspend('a'),
+      { ...resume('a'), userId: 'wrong' },
+      { ...resume('a'), resumeDigest: 'wrong' },
+      resume('missing'),
+      resume('a'),
+      { type: 'expire', now: 99999 },
+      {
+        ...patch({ isAudioMuted: false }),
+        transport: { participantId: 'a', socketId: 'socket-a', generation: 1 },
+      },
+      {
+        ...demote('a'),
+        transport: { participantId: 'host', socketId: 'socket-host', generation: 99 },
+      },
+      {
+        type: 'leave',
+        participantId: 'a',
+        transport: { participantId: 'a', socketId: 'socket-a', generation: 1 },
+      },
+    ],
+  },
   {
     name: 'host-first meeting roles and fifth join rejection',
     initial: empty(),
@@ -252,6 +375,14 @@ describe('Redis Lua stage transitions', () => {
       stage: (await redis.smembers(stageKey)).sort(),
       hands: await redis.zrange(handsKey, 0, '-1', 'WITHSCORES'),
       transports: await redis.hgetall(`${value}:transports`),
+      resumeDigests: await redis.hgetall(`${value}:resume`),
+      deadlines: Object.fromEntries(
+        (await redis.zrange(`${value}:deadlines`, 0, '-1', 'WITHSCORES')).reduce(
+          (items, value, index, values) =>
+            index % 2 === 0 ? [...items, [value, Number(values[index + 1])]] : items,
+          [] as [string, number][],
+        ),
+      ),
     };
   }
 
@@ -301,18 +432,79 @@ describe('Redis Lua stage transitions', () => {
     expect(await repository.readParticipant(value, 'member')).toBeNull();
   });
 
+  it('binds only one of two simultaneous resumes and rejects every stale mutation', async () => {
+    const value = prefix();
+    const room = empty();
+    for (const command of [recoverJoin('host'), recoverJoin('a'), suspend('a')])
+      await repository.apply(value, room, command);
+    const results = await Promise.all(
+      ['one', 'two'].map((socketId) => repository.apply(value, room, { ...resume('a'), socketId })),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.find((r) => !r.ok)).toMatchObject({ error: 'resume_lost' });
+    const current = await repository.readParticipant(value, 'a');
+    expect(current).toMatchObject({ presence: 'connected', connectionGeneration: 2 });
+    expect(await redis.hget(`${value}:transports`, current!.socketId!)).toBe('a');
+    expect(await redis.zscore(`${value}:deadlines`, 'a')).toBeNull();
+    const before = await stored(value);
+    const transport = { participantId: 'a', socketId: 'socket-a', generation: 1 };
+    for (const command of [
+      patch({ isAudioMuted: false }),
+      { type: 'leave', participantId: 'a' } as const,
+      {
+        type: 'setHostLock',
+        actorParticipantId: 'a',
+        targetParticipantId: 'host',
+        kind: 'audio',
+        locked: true,
+      } as const,
+    ]) {
+      expect(await repository.apply(value, room, { ...command, transport })).toMatchObject({
+        error: 'stale_transport',
+      });
+      expect(await stored(value)).toEqual(before);
+    }
+  });
+
+  it.each([true, false])(
+    'keeps one membership when resume and expiry race (resume first %s)',
+    async (resumeFirst) => {
+      const value = prefix();
+      const room = empty();
+      for (const command of [recoverJoin('host'), recoverJoin('a'), suspend('a')])
+        await repository.apply(value, room, command);
+      const commands: StageCommand[] = [resume('a', 21999), { type: 'expire', now: 22000 }];
+      await Promise.all(
+        (resumeFirst ? commands : commands.reverse()).map((command) =>
+          repository.apply(value, room, command),
+        ),
+      );
+      const state = await stored(value);
+      expect(state.participants.length).toBeLessThanOrEqual(2);
+      expect(state.stage.length).toBeLessThanOrEqual(4);
+      const member = await repository.readParticipant(value, 'a');
+      if (member) {
+        expect(member).toMatchObject({ presence: 'connected', connectionGeneration: 2 });
+        expect(state.transports[member.socketId!]).toBe('a');
+      } else {
+        expect(state.stage).toEqual(['host']);
+        expect(state.resumeDigests.a).toBeUndefined();
+      }
+    },
+  );
+
   it('keeps suspended stage ids reserved and can demote a null-socket membership', async () => {
     const value = prefix();
     const room = empty('WEBINAR');
     for (const command of [...webinarJoins, promote('a'), promote('b'), promote('c')])
       await repository.apply(value, room, command);
     const current = await repository.refreshSnapshot(value, room);
-    // Suspension reaches Lua in the next slice. Seed the reducer's suspended row here.
-    const suspended = applyStageCommand(current.state, { type: 'suspend', participantId: 'a' });
+    const suspended = await repository.apply(value, room, {
+      type: 'suspend',
+      participantId: 'a',
+      now: 2000,
+    });
     if (!suspended.ok) throw new Error(suspended.error);
-    const participant = suspended.state.participants.find((p) => p.participantId === 'a')!;
-    await redis.hset(`${value}:participants`, 'a', JSON.stringify(participant));
-    await redis.hdel(`${value}:transports`, 'socket-a');
     expect((await repository.readParticipant(value, 'a'))?.socketId).toBeNull();
     expect(await repository.readConnectedStage(value)).toEqual(
       expect.arrayContaining(['host', 'b', 'c']),
@@ -324,7 +516,7 @@ describe('Redis Lua stage transitions', () => {
     const expected = applyStageCommand(suspended.state, demote('a'));
     expect(await repository.apply(value, room, demote('a'))).toEqual({
       ...expected,
-      revision: current.revision + 1,
+      revision: current.revision + 2,
     });
     expect(await repository.apply(value, room, promote('a'))).toMatchObject({
       error: 'not_connected',
@@ -344,14 +536,20 @@ describe('Redis Lua stage transitions', () => {
           const before = await stored(value);
           const actual = await repository.apply(value, state, command);
           if (!expected.ok) {
+            if (expected.expiry?.changed) {
+              revision++;
+              state = expected.expiry.state;
+            }
             expect(actual).toEqual({ ...expected, revision });
-            expect(await stored(value)).toEqual(before);
+            if (!expected.expiry) expect(await stored(value)).toEqual(before);
           } else {
             if (expected.changed) revision += 1;
             expect(actual).toEqual({ ...expected, revision });
             state = expected.state;
             const persisted = await stored(value);
             expect(persisted.revision).toBe(revision);
+            expect(persisted.resumeDigests).toEqual(state.resumeDigests);
+            expect(persisted.deadlines).toEqual(state.deadlines);
             expect(persisted.participants).toEqual(expect.arrayContaining(state.participants));
             expect(persisted.participants).toHaveLength(state.participants.length);
             expect(persisted.stage).toEqual(state.stageParticipantIds);
