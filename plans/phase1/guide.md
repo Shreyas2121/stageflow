@@ -1,6 +1,6 @@
 # Guide — V2 Phase 1, commit by commit
 
-**Status:** V2P1-C01, V2P1-C02, V2P1-C03, and V2P1-C04 are committed. V2P1-C05 is verified.\
+**Status:** V2P1-C01, V2P1-C02, V2P1-C03, V2P1-C04, and V2P1-C05 are committed.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.2`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -234,9 +234,9 @@ If no browser is available, leave those observations unverified and keep the aut
 
 ## 6. V2P1-C05 — README
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe the guest room workspace`\
-**Actual commit:**
+**Actual commit:** `93fe1fe2cb5bcf239270dfc362c8189392ee0e74`
 
 **Why:** The product README still says V2 has not started. After the workspace exists, a reader needs the session limit and the catalog bounds in the same place as the other limits. Covers the documentation half of the phase exit.
 
