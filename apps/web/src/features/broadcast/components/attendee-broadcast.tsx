@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import type { RoomSnapshot } from '@stageflow/shared';
 import { attendeePlayback } from '../services/playback';
-import { BroadcastPlayer } from './broadcast-player';
+import { BroadcastPlayerGate } from './broadcast-player-gate';
 
 const alertClass =
   'mt-3 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere';
@@ -33,11 +33,11 @@ export function AttendeeBroadcast({
         </>
       )}
       {view.kind === 'live' && (
-        <BroadcastPlayer playlistUrl={view.playlistUrl} token={token} mode="live" />
+        <BroadcastPlayerGate playlistUrl={view.playlistUrl} token={token} mode="live" />
       )}
       {view.kind === 'vod' && (
         <>
-          <BroadcastPlayer playlistUrl={view.playlistUrl} token={token} mode="vod" />
+          <BroadcastPlayerGate playlistUrl={view.playlistUrl} token={token} mode="vod" />
           <Link
             className="mt-3 inline-flex items-center gap-5 text-[13px] text-accent underline-offset-4 hover:underline"
             to={`/replay/${view.broadcastId}`}

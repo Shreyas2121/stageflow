@@ -2,7 +2,7 @@ import { isUuid } from '@stageflow/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 import { PageState } from '../components/ui/page-state';
-import { BroadcastPlayer } from '../features/broadcast/components/broadcast-player';
+import { BroadcastPlayerGate } from '../features/broadcast/components/broadcast-player-gate';
 import { broadcastQueryOptions } from '../features/broadcast/query-options';
 import { replayPlayback } from '../features/broadcast/services/playback';
 import { useSessionStore } from '../features/session/session-store';
@@ -93,7 +93,7 @@ export function ReplayPage() {
         </p>
       )}
       {view.kind === 'vod' && (
-        <BroadcastPlayer playlistUrl={view.playlistUrl} token={session.token} mode="vod" />
+        <BroadcastPlayerGate playlistUrl={view.playlistUrl} token={session.token} mode="vod" />
       )}
     </section>
   );

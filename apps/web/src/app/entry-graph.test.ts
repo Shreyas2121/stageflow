@@ -27,4 +27,32 @@ describe('home entry', () => {
     expect(boundary).toContain("import('../pages/ReplayPage')");
     expect(boundary).not.toMatch(/from ['"]hls\.js['"]/);
   });
+
+  it('loads hls.js only from the playback chunk', () => {
+    const gate = source('features/broadcast/components/broadcast-player-gate.tsx');
+    const player = source('features/broadcast/components/broadcast-player.tsx');
+    const config = readFileSync(join(src, '../vite.config.ts'), 'utf8');
+    expect(player).toMatch(/from ['"]hls\.js['"]/);
+    expect(config).not.toContain('chunkSizeWarningLimit');
+    for (const line of gate.split('\n')) {
+      if (!line.includes('broadcast-player') || line.includes('import type')) continue;
+      expect(line).toContain("import('./broadcast-player')");
+      expect(line).not.toContain('from ');
+    }
+    for (const file of [
+      'pages/RoomPage.tsx',
+      'pages/ReplayPage.tsx',
+      'features/live/components/live-room.tsx',
+      'features/broadcast/components/attendee-broadcast.tsx',
+    ]) {
+      expect(source(file), file).not.toMatch(/from ['"]hls\.js['"]/);
+      expect(source(file), file).not.toMatch(/from ['"][^'"]*broadcast-player['"]/);
+    }
+    expect(source('features/broadcast/components/attendee-broadcast.tsx')).toContain(
+      "from './broadcast-player-gate'",
+    );
+    expect(source('pages/ReplayPage.tsx')).toContain(
+      "from '../features/broadcast/components/broadcast-player-gate'",
+    );
+  });
 });

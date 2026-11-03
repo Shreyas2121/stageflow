@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { apiUrl } from '../../../config/env';
-import { broadcastMediaUrl, hlsPlayerConfig, noteMediaStatus } from '../services/playback';
+import { bindBroadcastPlayback, PLAYBACK_FAILURE } from '../services/player-session';
+import { broadcastMediaUrl, hlsPlayerConfig } from '../services/playback';
 
-export function BroadcastPlayer({
-  playlistUrl,
-  token,
-  mode,
-}: {
+export type BroadcastPlayerProps = {
   playlistUrl: string;
   token: string;
   mode: 'live' | 'vod';
-}) {
+};
+
+export function BroadcastPlayer({ playlistUrl, token, mode }: BroadcastPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const apiBase = apiUrl();
@@ -22,34 +21,22 @@ export function BroadcastPlayer({
     const video = videoRef.current;
     if (!video || !supported || !source) return;
     const hls = new Hls(hlsPlayerConfig(token, mode, apiBase));
-    let active = true;
-    let closed = false;
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      hls.destroy();
-    };
-    hls.on(Hls.Events.ERROR, (_event, data) => {
-      if (!active) return;
-      if (noteMediaStatus(data.response?.code, token)) {
-        close();
-        return;
-      }
-      if (!data.fatal) return;
-      setPlaybackError('The broadcast could not be played.');
-      close();
+    return bindBroadcastPlayback({
+      video,
+      source,
+      token,
+      subscribeError(listener) {
+        hls.on(Hls.Events.ERROR, (_event, data) => listener(data));
+      },
+      subscribeParsed(listener) {
+        hls.on(Hls.Events.MANIFEST_PARSED, () => listener());
+      },
+      loadSource: (url) => hls.loadSource(url),
+      attachMedia: () => hls.attachMedia(video),
+      destroy: () => hls.destroy(),
+      onError: setPlaybackError,
+      onReady: () => setPlaybackError(null),
     });
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      if (!active) return;
-      setPlaybackError(null);
-      void video.play().catch(() => undefined);
-    });
-    hls.loadSource(source);
-    hls.attachMedia(video);
-    return () => {
-      active = false;
-      close();
-    };
   }, [apiBase, mode, source, supported, token]);
 
   if (!supported || !source) {
@@ -58,9 +45,7 @@ export function BroadcastPlayer({
         className="mt-3 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
         role="alert"
       >
-        {supported
-          ? 'The broadcast could not be played.'
-          : 'This browser cannot play the broadcast.'}
+        {supported ? PLAYBACK_FAILURE : 'This browser cannot play the broadcast.'}
       </p>
     );
   }

@@ -3,6 +3,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -66,19 +67,39 @@ if (!args.length || args.includes('--web')) {
   assert(entryKey, 'Missing web entry.');
   const entry = manifest[entryKey];
   const roomKey = (entry.dynamicImports ?? []).find((key) => /RoomPage/.test(key));
+  const replayKey = (entry.dynamicImports ?? []).find((key) => /ReplayPage/.test(key));
   assert(roomKey && manifest[roomKey]?.isDynamicEntry, 'Room route must remain a dynamic entry.');
+  assert(
+    replayKey && manifest[replayKey]?.isDynamicEntry,
+    'Replay route must remain a dynamic entry.',
+  );
   const html = await readFile(join(dist, 'index.html'), 'utf8');
   assert(html.includes(entry.file), 'HTML must load the manifest entry.');
   assert(!html.includes(manifest[roomKey].file), 'HTML eagerly loads the room chunk.');
-  function graph(key, seen = new Set()) {
-    if (seen.has(key)) return seen;
+  assert(!html.includes(manifest[replayKey].file), 'HTML eagerly loads the replay chunk.');
+  // Static imports only. Dynamic imports stay available for the playback request.
+  function closure(key, seen = new Set(), dynamic = new Set()) {
+    if (seen.has(key)) return { seen, dynamic };
     assert(manifest[key], `Missing imported chunk ${key}.`);
     seen.add(key);
-    for (const imported of manifest[key].imports ?? []) graph(imported, seen);
+    for (const imported of manifest[key].dynamicImports ?? []) dynamic.add(imported);
+    for (const imported of manifest[key].imports ?? []) closure(imported, seen, dynamic);
+    return { seen, dynamic };
+  }
+  function exclusive(root, shared) {
+    const seen = new Set();
+    function visit(key) {
+      if (seen.has(key) || shared.has(key)) return;
+      assert(manifest[key], `Missing imported chunk ${key}.`);
+      seen.add(key);
+      for (const imported of manifest[key].imports ?? []) visit(imported);
+    }
+    visit(root);
     return seen;
   }
-  const home = graph(entryKey);
-  assert(!home.has(roomKey), 'Home statically imports the room.');
+  const home = closure(entryKey);
+  assert(!home.seen.has(roomKey), 'Home statically imports the room.');
+  assert(!home.seen.has(replayKey), 'Home statically imports the replay.');
   for (const chunk of Object.values(manifest)) {
     for (const file of [chunk.file, ...(chunk.css ?? []), ...(chunk.assets ?? [])]) {
       const path = resolve(dist, file);
@@ -86,19 +107,86 @@ if (!args.length || args.includes('--web')) {
       assert((await stat(path)).isFile(), `Missing asset ${file}.`);
     }
   }
-  const room = graph(roomKey, new Set(home));
-  for (const [name, keys] of [
-    ['home', home],
-    ['room including entry', room],
-  ]) {
-    const paths = new Set(
+  const room = closure(roomKey, new Set(home.seen));
+  const replay = closure(replayKey, new Set(home.seen));
+  const playbackKeys = [...room.dynamic, ...replay.dynamic].filter((key) =>
+    key.endsWith('broadcast-player.tsx'),
+  );
+  assert.equal(
+    new Set(playbackKeys).size,
+    1,
+    'Attendee playback and replay must share one deferred player chunk.',
+  );
+  const playerKey = playbackKeys[0];
+  assert(!home.dynamic.has(playerKey), 'Home dynamically imports the HLS player.');
+  assert(!room.seen.has(playerKey), 'A meeting or host room statically imports the HLS player.');
+  assert(!replay.seen.has(playerKey), 'Opening replay statically imports the HLS player.');
+  assert(!html.includes(manifest[playerKey].file), 'HTML preloads the HLS player.');
+  const playback = exclusive(playerKey, room.seen);
+  const hlsMarker = 'hlsMediaAttaching';
+  async function measure(keys) {
+    const files = [];
+    for (const path of new Set(
       [...keys].flatMap((key) => [manifest[key].file, ...(manifest[key].css ?? [])]),
+    )) {
+      const body = await readFile(join(dist, path));
+      files.push({
+        path,
+        raw: body.length,
+        gzip: gzipSync(body).length,
+        text: body.toString('utf8'),
+      });
+    }
+    return {
+      raw: files.reduce((sum, file) => sum + file.raw, 0),
+      gzip: files.reduce((sum, file) => sum + file.gzip, 0),
+      files,
+    };
+  }
+  const homeMeasured = await measure(home.seen);
+  const roomMeasured = await measure(room.seen);
+  const replayMeasured = await measure(replay.seen);
+  const playbackMeasured = await measure(playback);
+  for (const file of [...homeMeasured.files, ...roomMeasured.files, ...replayMeasured.files]) {
+    assert(
+      !file.text.includes(hlsMarker),
+      `Static graph includes the HLS runtime in ${file.path}.`,
     );
-    let bytes = 0;
-    for (const path of paths) bytes += (await stat(join(dist, path))).size;
-    console.log(`Web ${name}: ${bytes} raw bytes across ${paths.size} JS/CSS assets.`);
+  }
+  assert(
+    playbackMeasured.files.some((file) => file.text.includes(hlsMarker)),
+    'Deferred playback chunk does not contain the HLS runtime.',
+  );
+  // NODE_ENV=production on 2026-11-03, player deferred: home 328220 raw / 103199
+  // gzip-estimate; room including entry 457729 / 141946; replay including entry
+  // 341894 / 108456; deferred player 579836 / 178964. Development React output is
+  // larger. These ceilings still fail if that player returns to a static graph.
+  // They do not hide Vite's chunk-size warning. Gzip figures estimate compressed
+  // artifacts; they are not observed network transfer.
+  assert(homeMeasured.raw <= 650_000, `Home static graph is ${homeMeasured.raw} raw bytes.`);
+  assert(
+    roomMeasured.raw <= 800_000,
+    `Meeting/host room static graph is ${roomMeasured.raw} raw bytes.`,
+  );
+  assert(replayMeasured.raw <= 700_000, `Replay static graph is ${replayMeasured.raw} raw bytes.`);
+  assert(
+    playbackMeasured.raw >= 400_000,
+    `Deferred HLS player is ${playbackMeasured.raw} raw bytes.`,
+  );
+  for (const [name, measured] of [
+    ['home', homeMeasured],
+    ['room including entry', roomMeasured],
+    ['replay including entry', replayMeasured],
+    ['deferred playback', playbackMeasured],
+  ]) {
+    console.log(
+      `Web ${name}: ${measured.raw} raw bytes, ${measured.gzip} gzip-estimate bytes across ${measured.files.length} JS/CSS assets. Gzip figures are compressed artifact sizes, not observed network transfer.`,
+    );
+    for (const file of [...measured.files].sort((left, right) => right.raw - left.raw)) {
+      console.log(`  ${file.raw} raw, ${file.gzip} gzip-estimate ${file.path}`);
+    }
   }
   console.log(
-    `Web artifacts: ${entry.file}; lazy room ${manifest[roomKey].file}; all manifest assets exist.`,
+    `Web artifacts: ${entry.file}; lazy room ${manifest[roomKey].file}; lazy replay ${manifest[replayKey].file}; deferred player ${manifest[playerKey].file}; all manifest assets exist.`,
   );
 }
