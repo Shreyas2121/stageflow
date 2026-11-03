@@ -18,6 +18,10 @@ it('validates through one Zod schema and infers parsed defaults', () => {
   expect(parsed.HOST).toBe('127.0.0.1');
   expect(parsed.LIVE_PENDING_LIMIT).toBe(512);
   expect(parsed.HTTP_BODY_BYTES).toBe(16384);
+  expect(parsed.HLS_RATE_LIMIT).toBe(240);
+  expect(parsed.UPLOAD_NETWORK_RATE_LIMIT).toBe(240);
+  expect(parsed.UPLOAD_USER_RATE_LIMIT).toBe(240);
+  expect(parsed.UPLOAD_ATTEMPT_RATE_LIMIT).toBe(240);
   expect(parsed.LIVE_NAMESPACE).toBe('sf_development');
   expect(parseConfig({ ...valid, NODE_ENV: 'test' }).LIVE_NAMESPACE).toBe('sf_test');
 });
@@ -40,6 +44,8 @@ describe('invalid configuration', () => {
     ['HOST', 'localhost'],
     ['LIVE_NAMESPACE', 'other:*'],
     ['GUEST_RATE_LIMIT', '0'],
+    ['HLS_RATE_LIMIT', '0'],
+    ['UPLOAD_ATTEMPT_RATE_LIMIT', '100001'],
     ['LIVE_PENDING_LIMIT', 'Infinity'],
     ['STUN_URL', 'https://example.org'],
     ['TURN_URL', 'turn:example.org:99999'],

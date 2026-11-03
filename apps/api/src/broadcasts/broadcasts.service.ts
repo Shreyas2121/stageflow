@@ -4,13 +4,14 @@ import { acceptChunk, isUuid, type CommandAck, type RoomSnapshot } from '@stagef
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { In, Repository } from 'typeorm';
+import { UploadAllowance } from '../admission/upload-allowance';
+import { env } from '../config/env';
 import { ApiException } from '../http/api.exception';
+import { failure } from '../live/signaling.messages';
 import { RoomsService } from '../rooms/rooms.service';
 import { Broadcast } from './broadcast.entity';
-import { env } from '../config/env';
 import { FfmpegSupervisor, type FfmpegExit } from './ffmpeg-supervisor';
 import { checkedHlsPath, prepareBroadcastDirectory } from './hls-path';
-import { failure } from '../live/signaling.messages';
 
 export type BroadcastHooks = {
   reserve(id: string): Promise<boolean>;
@@ -65,6 +66,7 @@ export class BroadcastsService {
     private readonly rooms: RoomsService,
     private readonly createSupervisor = () => new FfmpegSupervisor(env.FFMPEG_PATH),
     private readonly dataRoot = resolve(__dirname, '../../../..', env.DATA_ROOT),
+    private readonly uploads = new UploadAllowance(env),
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
@@ -294,6 +296,14 @@ export class BroadcastsService {
       throw new ApiException(409, 'broadcast_not_active', 'The broadcast is not accepting chunks.');
     if (userId !== entry.hostId)
       throw new ApiException(403, 'not_host', 'Only the host can upload chunks.');
+    const retryAfterSeconds = this.uploads.limit(userId, id);
+    if (retryAfterSeconds !== null)
+      throw new ApiException(
+        429,
+        'rate_limited',
+        'Too many requests. Try again shortly.',
+        retryAfterSeconds,
+      );
     if (
       !Number.isSafeInteger(sequence) ||
       sequence < 0 ||

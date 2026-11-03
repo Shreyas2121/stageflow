@@ -28,4 +28,20 @@ export class WindowBudget {
     entry.count++;
     return true;
   }
+  /** Milliseconds until this key, or the soonest full-map slot, can be admitted. */
+  blockedForMs(key: string): number {
+    const now = this.now();
+    const entry = this.entries.get(key);
+    if (entry && entry.expires > now) return entry.expires - now;
+    let soonest = this.windowMs;
+    for (const value of this.entries.values()) {
+      const remaining = value.expires - now;
+      if (remaining > 0 && remaining < soonest) soonest = remaining;
+    }
+    return soonest;
+  }
+}
+
+export function retryAfterSeconds(waitMs: number): number {
+  return Math.max(1, Math.ceil(waitMs / 1000));
 }

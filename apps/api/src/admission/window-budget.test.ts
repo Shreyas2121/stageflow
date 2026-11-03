@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { WindowBudget } from './window-budget';
+import { retryAfterSeconds, WindowBudget } from './window-budget';
 it('bounds bursts and identities without evicting active counters; expiry permits reuse', () => {
   let now = 0;
   const budget = new WindowBudget(2, 1000, 2, () => now);
@@ -12,4 +12,19 @@ it('bounds bursts and identities without evicting active counters; expiry permit
   now = 1000;
   expect(budget.consume('c')).toBe(true);
   expect(budget.consume('a')).toBe(true);
+});
+it('reports the time left in the rejected window', () => {
+  let now = 0;
+  const budget = new WindowBudget(1, 1000, 1, () => now);
+  expect(budget.consume('a')).toBe(true);
+  expect(budget.consume('a')).toBe(false);
+  expect(budget.blockedForMs('a')).toBe(1000);
+  expect(budget.consume('b')).toBe(false);
+  expect(budget.blockedForMs('b')).toBe(1000);
+  now = 250;
+  expect(budget.blockedForMs('a')).toBe(750);
+  expect(budget.blockedForMs('b')).toBe(750);
+  expect(retryAfterSeconds(750)).toBe(1);
+  expect(retryAfterSeconds(60_000)).toBe(60);
+  expect(retryAfterSeconds(0)).toBe(1);
 });

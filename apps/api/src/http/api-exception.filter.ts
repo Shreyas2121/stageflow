@@ -6,10 +6,9 @@ import { ApiException } from './api.exception';
 @Catch(ApiException)
 export class ApiExceptionFilter implements ExceptionFilter<ApiException> {
   catch(exception: ApiException, host: ArgumentsHost): void {
-    host
-      .switchToHttp()
-      .getResponse<Response>()
-      .status(exception.getStatus())
-      .json(exception.getResponse());
+    const response = host.switchToHttp().getResponse<Response>();
+    if (exception.retryAfterSeconds !== undefined)
+      response.setHeader('Retry-After', String(exception.retryAfterSeconds));
+    response.status(exception.getStatus()).json(exception.getResponse());
   }
 }

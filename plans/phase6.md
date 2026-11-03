@@ -142,7 +142,7 @@ Stage members keep the mesh tiles. They do not play HLS of themselves.
 
 `POST /api/broadcasts/:id/chunks` with a raw body, header `x-chunk-sequence` as a non-negative integer, and `content-type: application/octet-stream`.
 
-Allow `x-chunk-sequence` in CORS. Parse this route with its own raw parser limited to 2,000,000 bytes. Do not raise `HTTP_BODY_BYTES`. A chunk still counts as one ordinary HTTP request under the existing admission budget.
+Allow `x-chunk-sequence` in CORS. Parse this route with its own raw parser limited to 2,000,000 bytes. Do not raise `HTTP_BODY_BYTES`. Early network admission bounds these posts separately from HLS reads and ordinary API requests, before that parser runs. After the caller is confirmed as the host, the upload also spends that user's allowance and that attempt's allowance.
 
 | Rule            | Behavior                                                                                     |
 | --------------- | -------------------------------------------------------------------------------------------- |

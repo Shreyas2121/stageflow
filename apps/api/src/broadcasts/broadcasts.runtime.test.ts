@@ -10,6 +10,7 @@ import { Logger } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { Broadcast } from './broadcast.entity';
+import { UploadAllowance } from '../admission/upload-allowance';
 import { BroadcastsService, type BroadcastHooks } from './broadcasts.service';
 import { FfmpegSupervisor, PRODUCER_IDLE_MS } from './ffmpeg-supervisor';
 
@@ -18,7 +19,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-async function fixture(stdin = new PassThrough()) {
+async function fixture(stdin = new PassThrough(), uploads?: UploadAllowance) {
   const root = await mkdtemp(join(tmpdir(), 'sf-cast-'));
   roots.push(root);
   const rows: Broadcast[] = [];
@@ -55,6 +56,7 @@ async function fixture(stdin = new PassThrough()) {
     {} as RoomsService,
     () => supervisor,
     root,
+    uploads,
   );
   const tasks: Promise<unknown>[] = [];
   const hooks: BroadcastHooks = {
@@ -178,6 +180,35 @@ it('writes accepted chunks once and refuses conflicts, future, oversize, and non
   f.child.emit('close', 1);
   await vi.waitFor(() => expect(f.tasks).toHaveLength(1));
   await Promise.all(f.tasks);
+});
+
+it('charges only the authenticated host and limits that attempt', async () => {
+  let now = 0;
+  const f = await fixture(
+    undefined,
+    new UploadAllowance(
+      {
+        UPLOAD_USER_RATE_LIMIT: 1,
+        UPLOAD_ATTEMPT_RATE_LIMIT: 1,
+        RATE_WINDOW_MS: 60_000,
+        RATE_KEYS_MAX: 10,
+      },
+      () => now,
+    ),
+  );
+  await f.start();
+  const id = f.rows[0]!.id;
+  const body = Buffer.from('webm');
+  await expect(f.service.upload(id, 'guest', 0, body)).rejects.toMatchObject({
+    response: { statusCode: 403, error: 'not_host' },
+  });
+  await f.service.upload(id, 'host', 0, body);
+  await expect(f.service.upload(id, 'host', 1, Buffer.from('next'))).rejects.toMatchObject({
+    retryAfterSeconds: 60,
+    response: { statusCode: 429, error: 'rate_limited' },
+  });
+  now = 60_000;
+  await f.service.upload(id, 'host', 1, Buffer.from('next'));
 });
 
 it('serializes admission while a write is pending and rejects late chunks after stop', async () => {
