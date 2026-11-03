@@ -3,7 +3,7 @@
 **Status:** All four slices committed. P5-A01 through P5-A06 passed with synthetic browser devices.\
 **Last updated:** 2026-11-02.\
 **Phase contract:** [../phase5.md](../phase5.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.7`.\
+**Product authority:** [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.7`.\
 **Deliverable:** Webinar promote, demote, and host lock, in four commits. This is the only Phase 5 guide.
 
 ## 1. Execution rules

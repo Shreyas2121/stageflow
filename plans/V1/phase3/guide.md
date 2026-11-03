@@ -3,7 +3,7 @@
 **Status:** implementation verified with test media. P3-C01 through P3-C05 are committed. Physical-device and native picker observations remain unverified; the phase exit is pending those observations.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase3.md](../phase3.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
+**Product authority:** [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.2`.\
 **Deliverable:** A four-person meeting mesh with screen share, in five commits. This is the only Phase 3 guide.
 
 ## 1. Execution rules

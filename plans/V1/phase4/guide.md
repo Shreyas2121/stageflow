@@ -3,7 +3,7 @@
 **Status:** complete. P4-C01 through P4-C04 are committed; P4-A01 through P4-A06 are verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase4.md](../phase4.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.2`.\
+**Product authority:** [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.2`.\
 **Deliverable:** Three solo demo peers and a stats drawer, in four commits. This is the only Phase 4 guide.
 
 ## 1. Execution rules

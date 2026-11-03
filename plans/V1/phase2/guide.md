@@ -3,7 +3,7 @@
 **Status:** complete. P2-C01 through P2-C04 committed; P2-A01 through P2-A08 verified.\
 **Last updated:** 2026-11-01.\
 **Phase contract:** [../phase2.md](../phase2.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.1`.\
+**Product authority:** [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.1`.\
 **Deliverable:** Redis presence, Socket.IO snapshots, and the green room, in four commits. This is the only Phase 2 guide.
 
 ## 1. Execution rules

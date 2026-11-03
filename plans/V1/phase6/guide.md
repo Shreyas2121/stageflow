@@ -3,7 +3,7 @@
 **Status:** All six feature slices are committed. P6-A01 through P6-A08 have passed within their recorded automated/native-browser scope. RC18 verified real Chrome recording and HLS playback with synthetic devices after the acceptance fixes in `326dea3`. Physical Phase 3 observations remain explicitly unverified; the complete V1 gate remains open.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase6.md](../phase6.md).\
-**Product authority:** [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
+**Product authority:** [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.9`.\
 **Deliverable:** One webinar HLS broadcast, its replay, and the standalone README, in six commits. This is the only Phase 6 guide.
 
 ## 1. Execution rules

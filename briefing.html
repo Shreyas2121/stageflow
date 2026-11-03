@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StageFlow — version 1 briefing</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1c1b19;
+        --muted: #5c5852;
+        --line: #e4e0d8;
+        --paper: #f6f4ef;
+        --card: #fffcf7;
+        --accent: #2f5d50;
+        --accent-soft: #e7f0ec;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', Palatino, serif;
+        font-size: 1.125rem;
+        line-height: 1.55;
+      }
+
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 5rem;
+      }
+
+      header p,
+      .lede {
+        font-size: 1.25rem;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        line-height: 1.2;
+        font-weight: 650;
+      }
+
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+      }
+
+      h2 {
+        margin: 2.75rem 0 0.75rem;
+        font-size: 1.35rem;
+      }
+
+      h3 {
+        margin: 1.75rem 0 0.4rem;
+        font-size: 1.05rem;
+      }
+
+      p,
+      li {
+        margin: 0.7rem 0;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      .kicker {
+        margin: 0 0 0.6rem;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 0.98rem;
+      }
+
+      nav ol {
+        margin: 0.4rem 0 0;
+        padding-left: 1.2rem;
+      }
+
+      nav a {
+        text-decoration: none;
+      }
+
+      nav a:hover {
+        text-decoration: underline;
+      }
+
+      .say {
+        margin: 1rem 0;
+        padding: 0.85rem 1rem;
+        background: var(--accent-soft);
+        border-left: 3px solid var(--accent);
+      }
+
+      .say strong {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 0.78rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 0.35rem;
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.2rem 1rem 0.4rem;
+        margin: 0.8rem 0 1rem;
+      }
+
+      .where {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+
+      code {
+        font-family: Consolas, 'Courier New', monospace;
+        font-size: 0.86em;
+        background: #efece4;
+        padding: 0.05em 0.3em;
+        border-radius: 4px;
+      }
+
+      .flow {
+        display: grid;
+        gap: 0.55rem;
+        margin: 1.1rem 0 1.4rem;
+      }
+
+      .box {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+      }
+
+      .box h3 {
+        margin: 0 0 0.25rem;
+        font-size: 0.95rem;
+      }
+
+      .box p {
+        margin: 0.2rem 0;
+        font-size: 0.98rem;
+      }
+
+      .arrow {
+        text-align: center;
+        color: var(--muted);
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 0.92rem;
+        line-height: 1.35;
+      }
+
+      .split {
+        display: grid;
+        gap: 0.55rem;
+      }
+
+      @media (min-width: 640px) {
+        .split {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+      }
+
+      .qa {
+        border-top: 1px solid var(--line);
+        padding-top: 0.2rem;
+        margin-top: 1.2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">Study page · version 1</p>
+      <header>
+        <h1>StageFlow</h1>
+        <p class="lede">
+          StageFlow is a small live stage in the browser. Up to four people on stage see and hear
+          each other directly. In a webinar, everyone else watches a delayed recording of that
+          stage.
+        </p>
+        <p class="note">
+          This page is for you. It is written the way you would explain the project to a recruiter.
+          The repo only defines version 1. It does not list version 2 or version 3. Anything missing
+          is “not in this version.”
+        </p>
+      </header>
+
+      <nav aria-label="On this page">
+        <h2>On this page</h2>
+        <ol>
+          <li><a href="#rooms">Two kinds of room</a></li>
+          <li><a href="#demo">The demo you can run alone</a></li>
+          <li><a href="#pieces">How the pieces sit</a></li>
+          <li><a href="#words">Video and audio words</a></li>
+          <li><a href="#known">What you already know</a></li>
+          <li><a href="#limits">Honest limits</a></li>
+          <li><a href="#ask">If they ask</a></li>
+        </ol>
+      </nav>
+
+      <section id="rooms">
+        <h2>Two kinds of room</h2>
+        <p>You pick the kind of room when you create it. It never changes later.</p>
+
+        <div class="card">
+          <h3>Meeting</h3>
+          <p>
+            Everyone who gets in is on stage. The fifth person is refused. There is no audience.
+            There is no broadcast.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Webinar</h3>
+          <p>
+            The host is on stage. Everyone else joins as an attendee, with no camera and no direct
+            video link. They can raise a hand. The host can put them on stage, or take them off. The
+            host can also lock someone’s microphone or camera. Attendees watch the broadcast. They
+            do not join the direct call.
+          </p>
+        </div>
+
+        <div class="say">
+          <strong>Say this</strong>
+          A meeting is a call of at most four people. A webinar is that same small stage, plus an
+          audience that only watches.
+        </div>
+      </section>
+
+      <section id="demo">
+        <h2>The demo you can run alone</h2>
+        <p>
+          You do not need three other people to show a four-person call. On the meeting page, click
+          “Spawn demo peer” up to three times.
+        </p>
+        <p>
+          Each fake person is a real connection. It gets its own guest login, its own socket, a
+          drawn video, and a short beep every four seconds. The drawn video is a canvas: the page
+          paints a picture and sends that picture as if it were a camera. The beep is there so the
+          “who is speaking” highlight moves.
+        </p>
+        <p>
+          A second browser window is still needed to show a real attendee. The fake people do not
+          replace that. In a webinar, a fake person joins as an attendee. Spawning it does not put
+          it on stage. The host has to promote it, the same as a real person.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          I can show a four-person call on one laptop because the extra people are real connections
+          with fake camera and fake sound. A webinar audience still needs a second window.
+        </div>
+      </section>
+
+      <section id="pieces">
+        <h2>How the pieces sit</h2>
+        <p>
+          The browser does the camera, the sound, and the direct video links. The API keeps the list
+          of rooms and decides who is allowed on stage. The picture of the call does not travel
+          through the API.
+        </p>
+
+        <div class="flow" aria-label="How the parts connect">
+          <div class="box">
+            <h3>Browser — React</h3>
+            <p>Camera, microphone, screen share, direct links, broadcast player.</p>
+          </div>
+          <div class="arrow">
+            Socket.IO — who is here, and the short handshake notes<br />
+            HTTP — create a room, upload broadcast pieces, play the file
+          </div>
+          <div class="box">
+            <h3>Nest API</h3>
+            <p>Checks the token. Applies the room rules. Does not carry the live video.</p>
+          </div>
+          <div class="split">
+            <div class="box">
+              <h3>Postgres</h3>
+              <p>The saved list: users, rooms, broadcast rows.</p>
+            </div>
+            <div class="box">
+              <h3>Redis</h3>
+              <p>Who is in the room right now.</p>
+            </div>
+            <div class="box">
+              <h3>FFmpeg</h3>
+              <p>Turns the host’s recording into a playable video file.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="words">
+        <h2>Video and audio words</h2>
+        <p>
+          These are the words that are new if you have not done video or audio in the browser. Each
+          block is the idea, then where it lives, then a sentence you can say.
+        </p>
+
+        <h3>The video does not go through Nest</h3>
+        <p>
+          Nest only introduces the browsers. The picture and the sound go from browser to browser.
+          That direct link is called a peer connection. The browser API for it is WebRTC.
+        </p>
+        <p class="where">Used by the peer manager in the web app.</p>
+        <div class="say">
+          <strong>Say this</strong>
+          The server introduces people. The video goes straight from one browser to the other.
+        </div>
+
+        <h3>Mesh</h3>
+        <p>
+          A mesh means every person on stage has a link to every other person on stage. Two people
+          need one link. Three people need three links. Four people need six links. Each extra
+          person adds a link to everyone already there. That is why the cap is four.
+        </p>
+        <p>
+          A bigger product would put a media server in the middle. That server is often called an
+          SFU. Each person sends one stream up, and the server sends copies out. Version 1 does not
+          have that.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Four people means six direct links. I capped the stage there on purpose. A media server in
+          the middle is a later design, not this version.
+        </div>
+
+        <h3>Signaling</h3>
+        <p>
+          Signaling is the Nest socket passing notes: “here is my offer,” “here is my answer,” “here
+          is my network address.” The notes are small text. The video is not inside those notes.
+          Socket.IO is only the messenger.
+        </p>
+        <p class="where">
+          Event names are shared types in <code>packages/shared</code>. The API gateway relays them.
+          The web client sends them.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Socket.IO carries the handshake. It does not carry the video.
+        </div>
+
+        <h3>Offer, answer, and glare</h3>
+        <p>
+          Before two browsers can send video, they agree how to talk. One side sends an offer. The
+          other side sends an answer. If both send an offer at the same time, that clash is called
+          glare.
+        </p>
+        <p>
+          The code picks one side to give in, called polite, and one side to keep its offer, called
+          impolite. The choice is the order of their socket ids. The lower id is polite.
+        </p>
+        <p class="where">
+          The rule is in <code>packages/shared/src/negotiation.ts</code>. The browser uses it from
+          <code>apps/web/src/features/live/services/peer-manager.ts</code>.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          If both browsers start the handshake at once, one side drops its offer and takes the other
+          side’s. The socket id decides which side.
+        </div>
+
+        <h3>ICE, STUN, and TURN</h3>
+        <p>
+          After the offer and answer, the browsers still have to find a network path. That search is
+          called ICE.
+        </p>
+        <p>
+          On one laptop the path is just “this computer.” The stats drawer shows that as
+          <code>host</code>. That is normal for the solo demo.
+        </p>
+        <p>
+          STUN is a small helper that tells a browser its public address, so two people on different
+          networks can try a direct path. TURN is a relay: if a direct path fails, the media can
+          bounce through a server you configure. Version 1 does not require TURN. The demo is meant
+          to work with STUN and the local machine.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          On one machine the video never leaves the computer. STUN is for two real networks. A relay
+          server is optional and not required for this version.
+        </div>
+
+        <h3>Green room</h3>
+        <p>
+          The green room is the screen before you join. You pick a camera, a microphone, and a
+          speaker. You see yourself. You see a live microphone level. If the browser blocks a
+          device, join stays off and the page says which permission failed.
+        </p>
+        <p>
+          Meeting members and the webinar host must allow the camera and the microphone. Webinar
+          attendees skip this. They have nothing to send. You cannot change devices in the middle of
+          the call in this version.
+        </p>
+        <p class="where">
+          <code>apps/web/src/features/live/components/green-room.tsx</code>
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Devices are chosen before join. Attendees never get that screen, because they are not
+          sending video.
+        </div>
+
+        <h3>Mute, camera off, screen share, and leave</h3>
+        <p>
+          Mute and camera-off do not hang up. They silence or hide the track that is already
+          sending. In code that is <code>track.enabled</code>. The handshake does not start again.
+        </p>
+        <p>
+          Screen share swaps the video track in place. The camera stays open in the background so it
+          can come back. In code that swap is
+          <code>replaceTrack</code>. It does not start a new offer.
+        </p>
+        <p>
+          Leaving the room is different. Leave stops the camera, the microphone, and the screen, and
+          it closes every direct link. That is what turns the camera light off. Turning the camera
+          “off” during the call may leave the light on, because the track is hidden, not stopped.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Mute hides the track. Leave stops it. Screen share swaps the picture without a new
+          handshake.
+        </div>
+
+        <h3>Broadcast and HLS</h3>
+        <p>
+          People on stage keep the direct links. Attendees do not get those links. They watch a
+          playlist of short video files. That playlist format is called HLS.
+        </p>
+        <p>The path is:</p>
+        <ol>
+          <li>The host’s browser draws the stage onto a hidden canvas, at 720p.</li>
+          <li>It mixes the stage sound into one audio stream.</li>
+          <li>It records that mix and sends about one second of data at a time to Nest.</li>
+          <li>Nest writes those pieces, in order, into one FFmpeg process.</li>
+          <li>FFmpeg writes a 720p playlist on the API machine’s disk.</li>
+          <li>The attendee’s page plays that playlist with <code>hls.js</code>.</li>
+        </ol>
+        <p>
+          The picture the attendee sees is about 8 to 20 seconds behind the live stage. The files
+          are a few seconds long, and the player stays a little behind the newest file. That delay
+          is expected.
+        </p>
+        <p>
+          When the host stops a healthy broadcast, that same playlist becomes the replay. There is
+          no second copy and no upload to cloud storage.
+        </p>
+        <p>
+          If FFmpeg cannot start, the broadcast is marked failed. The host sees that FFmpeg is
+          missing. The stage call stays up.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Attendees watch a delayed recording of the stage, not a direct call. The same file is the
+          live broadcast and the replay. If FFmpeg is missing, the call still works.
+        </div>
+
+        <h3>The stats drawer</h3>
+        <p>
+          While the drawer is open, the page reads each direct link once a second. It shows outbound
+          and inbound bitrate, packet loss, jitter, round-trip time, frame rate, and how the network
+          path was found. Closing the drawer stops the reading. Opening it does not create new
+          links.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          The drawer is a live view of each direct link. It is there so you can see the call is
+          real, not a fake tile.
+        </div>
+      </section>
+
+      <section id="known">
+        <h2>What you already know</h2>
+        <p>
+          The new part is the media. The app around it is Nest, React, and a small amount of Redis.
+        </p>
+
+        <h3>React</h3>
+        <p>
+          There are three pages: home, the live room, and the replay. The live room keeps its
+          current snapshot in a Zustand store. Room and broadcast fetches use TanStack Query. The
+          socket client and the peer connections live in services, outside the components.
+          Components render tiles. They do not open peer connections themselves.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          The React side is pages, a room store, and query hooks. The video engine sits next to
+          React, not inside the components.
+        </div>
+
+        <h3>Nest</h3>
+        <p>
+          A guest session is a display name plus a JWT. There is no password. The token lasts 12
+          hours. Rooms are rows in Postgres. A Socket.IO gateway handles join, leave, hands,
+          promote, demote, and the handshake notes. Broadcast pieces are a normal HTTP upload of raw
+          bytes. Controllers stay thin. The rules sit in services.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Nest is the same shape I already use: modules, a socket gateway, and services that own the
+          rules. The new work is what those rules allow.
+        </div>
+
+        <h3>Redis</h3>
+        <p>
+          Redis is who is in the room right now. Postgres is the fact that the room exists. If Redis
+          is lost, the live room is empty. The saved room row is still there.
+        </p>
+        <p>
+          Two people joining at the same instant cannot both take the fourth seat. One Lua script
+          checks the cap and writes the seat together. The API does not read a blob, edit it in
+          Node, and write it back. The same pattern covers promote, demote, mute locks, and “a
+          broadcast is already running.”
+        </p>
+        <p>
+          One API process owns the live keys for an environment. If that process crashes, another
+          process does not take over by itself. A restart clears who is live on purpose, and it
+          keeps the saved rooms. The open page tells you to join again.
+        </p>
+        <div class="say">
+          <strong>Say this</strong>
+          Redis is presence, not the database. Lua makes the four-person cap one atomic write, so
+          two joins cannot both win the last seat.
+        </div>
+      </section>
+
+      <section id="limits">
+        <h2>Honest limits</h2>
+        <p>
+          Say these before someone else finds them. They are the edges of version 1, not bugs you
+          forgot.
+        </p>
+        <ul>
+          <li>No accounts, email, or passwords. A guest name and a token.</li>
+          <li>No chat, reactions, polls, or scheduling.</li>
+          <li>No fifth person on stage.</li>
+          <li>No media server in the middle.</li>
+          <li>No cloud storage. Broadcast files stay on the API machine.</li>
+          <li>If the host leaves, the room ends. There is no new host.</li>
+          <li>A dropped socket does not resume. You join again.</li>
+          <li>The supported browsers are current Chrome or Edge on Windows.</li>
+          <li>The guest token lasts 12 hours. There is no refresh token.</li>
+          <li>One broadcast at a time, and only in a webinar. One quality: 720p.</li>
+        </ul>
+      </section>
+
+      <section id="ask">
+        <h2>If they ask</h2>
+
+        <div class="qa">
+          <h3>What is it?</h3>
+          <p>
+            A four-person live stage in the browser, plus a webinar mode where the audience watches
+            a delayed broadcast of that stage. I can demo the four-person call on one laptop.
+          </p>
+        </div>
+
+        <div class="qa">
+          <h3>Why only four people?</h3>
+          <p>
+            Everyone on stage connects directly to everyone else. Four people is six links. Past
+            that, the browser work grows fast. A larger room needs a media server. That server is
+            not in this version.
+          </p>
+        </div>
+
+        <div class="qa">
+          <h3>Why don’t attendees get a direct video link?</h3>
+          <p>
+            An attendee would add a new link to every person on stage. Version 1 keeps the direct
+            links inside the stage. The audience watches one recording of that stage instead.
+          </p>
+        </div>
+
+        <div class="qa">
+          <h3>What is Redis for?</h3>
+          <p>
+            Who is here, who is on stage, who has a hand up, and whether a broadcast is already
+            running. Postgres keeps the room after the call. Redis is the live copy, and the seat
+            cap is one Lua script so two joins cannot both take the last seat.
+          </p>
+        </div>
+
+        <div class="qa">
+          <h3>What if FFmpeg is missing?</h3>
+          <p>
+            The broadcast fails and the page says so. The stage call stays up. People on stage can
+            still see and hear each other.
+          </p>
+        </div>
+
+        <div class="qa">
+          <h3>What does version 1 leave for later?</h3>
+          <p>
+            This repo does not define version 2 or version 3. It does list what this version refuses
+            to be. Not in this version: user accounts, chat, a fifth stage seat, a media server,
+            cloud storage for the recording, more than one video quality, and picking a new host if
+            the host leaves.
+          </p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
