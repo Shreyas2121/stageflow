@@ -30,6 +30,14 @@ export function hlsPath(dataRoot: string, id: string, file: string): string {
   return path;
 }
 
+export function thumbnailPath(dataRoot: string, id: string, file: string): string {
+  if (file !== 'thumbnail.jpg') throw new Error('Invalid thumbnail filename.');
+  const directory = broadcastDirectory(dataRoot, id);
+  const path = resolve(directory, file);
+  inside(directory, path);
+  return path;
+}
+
 async function checkDirectory(dataRoot: string, id: string): Promise<string> {
   const root = await realpath(dataRoot);
   const directory = await realpath(broadcastDirectory(dataRoot, id));
@@ -56,6 +64,19 @@ export async function checkedHlsPath(dataRoot: string, id: string, file: string)
   const path = await realpath(resolve(directory, file));
   inside(directory, path);
   if (!(await stat(path)).isFile()) throw new Error('HLS path is not a file.');
+  return path;
+}
+
+export async function checkedThumbnailPath(
+  dataRoot: string,
+  id: string,
+  file: string,
+): Promise<string> {
+  thumbnailPath(dataRoot, id, file);
+  const directory = await checkDirectory(dataRoot, id);
+  const path = await realpath(resolve(directory, file));
+  inside(directory, path);
+  if (!(await stat(path)).isFile()) throw new Error('Thumbnail path is not a file.');
   return path;
 }
 

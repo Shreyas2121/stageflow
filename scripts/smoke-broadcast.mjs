@@ -336,8 +336,10 @@ try {
   );
   const { room, socket } = await hostRoom(guest.token);
   assert.equal((await ack(socket, 'broadcast:start')).ok, true);
-  const [live] = await json(`/rooms/${room.slug}/broadcasts`, guest.token);
+  const livePage = await json(`/rooms/${room.slug}/broadcasts`, guest.token);
+  const live = livePage.items[0];
   assert.equal(live.status, 'LIVE');
+  assert.equal(live.thumbnailUrl, null);
   let sequence = 0;
   for (let offset = 0; offset < bytes.length; offset += 64_000) {
     const body = bytes.subarray(offset, offset + 64_000);
@@ -429,8 +431,10 @@ try {
   await startApi(join(root, 'missing-ffmpeg'));
   const missing = await hostRoom(guest.token);
   assert.equal((await ack(missing.socket, 'broadcast:start')).ok, false);
-  const [failed] = await json(`/rooms/${missing.room.slug}/broadcasts`, guest.token);
+  const failedPage = await json(`/rooms/${missing.room.slug}/broadcasts`, guest.token);
+  const failed = failedPage.items[0];
   assert.equal(failed.status, 'FAILED');
+  assert.equal(failed.thumbnailUrl, null);
   assert.match(failed.errorMessage, /missing-ffmpeg/);
   assert.equal((await ack(missing.socket, 'media:state', { isAudioMuted: true })).ok, true);
   assert.equal(await redis.get(`${namespace}:room:${missing.room.id}:broadcast`), null);

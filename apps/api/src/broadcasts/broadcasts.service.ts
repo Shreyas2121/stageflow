@@ -3,14 +3,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   acceptChunk,
   broadcastPlaylistUrl,
+  broadcastThumbnailUrl,
+  encodeHistoryCursor,
   isUuid,
+  parseCatalogLimit,
+  parseHistoryCursor,
   type BroadcastResponse,
   type CommandAck,
   type RoomSnapshot,
 } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { In, Repository } from 'typeorm';
+import { In, Raw, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
 import { ApiException } from '../http/api.exception';
@@ -18,7 +22,7 @@ import { failure } from '../live/signaling.messages';
 import { RoomsService } from '../rooms/rooms.service';
 import { Broadcast } from './broadcast.entity';
 import { FfmpegSupervisor, type FfmpegExit } from './ffmpeg-supervisor';
-import { checkedHlsPath, prepareBroadcastDirectory } from './hls-path';
+import { checkedHlsPath, checkedThumbnailPath, prepareBroadcastDirectory } from './hls-path';
 
 export type BroadcastHooks = {
   reserve(id: string): Promise<boolean>;
@@ -41,17 +45,39 @@ type RunningBroadcast = {
   finishing?: Promise<void>;
 };
 
+export type BroadcastPage = {
+  items: BroadcastResponse[];
+  nextCursor: string | null;
+};
+
 function catalog(row: Broadcast): BroadcastResponse {
+  const thumbnailUrl =
+    row.thumbnailPath === `broadcasts/${row.id}/thumbnail.jpg`
+      ? broadcastThumbnailUrl(row.id)
+      : null;
   return {
     id: row.id,
     roomId: row.roomId,
     status: row.status,
     playlistUrl: row.playlistPath ? broadcastPlaylistUrl(row.id) : null,
+    thumbnailUrl,
     errorMessage: row.errorMessage,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/** Next page of `created_at DESC, id DESC`. The id is compared as a UUID. */
+function beforeHistoryCursor(createdAt: string, id: string) {
+  return Raw(
+    (alias) => {
+      const dot = alias.lastIndexOf('.');
+      const table = `"${alias.slice(0, dot).replaceAll('"', '')}"`;
+      return `(${table}."created_at", ${table}."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))`;
+    },
+    { cursorCreatedAt: createdAt, cursorId: id },
+  );
 }
 
 @Injectable()
@@ -343,6 +369,22 @@ export class BroadcastsService {
     }
   }
 
+  async thumbnailFile(id: string): Promise<string> {
+    const missing = new ApiException(
+      404,
+      'media_not_found',
+      'No thumbnail exists for that broadcast.',
+    );
+    if (!isUuid(id)) throw missing;
+    const row = await this.broadcasts.findOneBy({ id });
+    if (!row || row.thumbnailPath !== `broadcasts/${row.id}/thumbnail.jpg`) throw missing;
+    try {
+      return await checkedThumbnailPath(this.dataRoot, id, 'thumbnail.jpg');
+    } catch {
+      throw missing;
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     this.closing = true;
     await Promise.all(
@@ -365,13 +407,30 @@ export class BroadcastsService {
     );
   }
 
-  async listByRoomSlug(slug: string): Promise<BroadcastResponse[]> {
+  async listByRoomSlug(slug: string, query: Record<string, unknown>): Promise<BroadcastPage> {
+    const limit = parseCatalogLimit(query.limit);
+    if (!limit.ok) throw new ApiException(400, limit.error, limit.message);
+    const cursor = parseHistoryCursor(query.cursor);
+    if (!cursor.ok) throw new ApiException(400, cursor.error, cursor.message);
+
     const room = await this.rooms.getBySlug(slug);
     const rows = await this.broadcasts.find({
-      where: { roomId: room.id },
+      where: {
+        roomId: room.id,
+        ...(cursor.value
+          ? { id: beforeHistoryCursor(cursor.value.createdAt, cursor.value.id) }
+          : {}),
+      },
       order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit.value + 1,
     });
-    return rows.map(catalog);
+    const items = (rows.length > limit.value ? rows.slice(0, limit.value) : rows).map(catalog);
+    if (rows.length <= limit.value) return { items, nextCursor: null };
+    const last = items.at(-1);
+    const nextCursor = last ? encodeHistoryCursor(last.createdAt, last.id) : null;
+    if (!nextCursor)
+      throw new ApiException(500, 'server_busy', 'The broadcast page could not be read.');
+    return { items, nextCursor };
   }
 
   async getById(id: string): Promise<BroadcastResponse> {

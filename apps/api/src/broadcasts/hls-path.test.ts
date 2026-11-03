@@ -6,9 +6,11 @@ import { afterEach, expect, it } from 'vitest';
 import {
   broadcastDirectory,
   checkedHlsPath,
+  checkedThumbnailPath,
   hlsHeaders,
   hlsPath,
   prepareBroadcastDirectory,
+  thumbnailPath,
 } from './hls-path';
 
 const roots: string[] = [];
@@ -26,10 +28,26 @@ it('confines every output and rejects traversal, absolute paths, and non-media f
     'C:\\index.m3u8',
     '%2e%2e',
     'secret.txt',
+    'thumbnail.jpg',
     '.',
     '',
   ])
     expect(() => hlsPath('data', id, file)).toThrow();
+  expect(thumbnailPath('data', id, 'thumbnail.jpg')).toBe(
+    resolve('data', 'broadcasts', id, 'thumbnail.jpg'),
+  );
+  for (const file of [
+    '../thumbnail.jpg',
+    '..\\thumbnail.jpg',
+    '/thumbnail.jpg',
+    'thumbnail.JPG',
+    'index.m3u8',
+    'thumbnail.jpg/../secret.txt',
+    '.',
+    '',
+  ])
+    expect(() => thumbnailPath('data', id, file)).toThrow();
+  expect(() => thumbnailPath('data', '../escape', 'thumbnail.jpg')).toThrow();
   expect(() => broadcastDirectory('data', '../escape')).toThrow();
   expect(() => broadcastDirectory('data', '/tmp')).toThrow();
   expect(hlsPath('data', id, 'segment000001.ts')).toBe(
@@ -43,16 +61,24 @@ it('checks real paths and refuses a junction outside the broadcast directory', a
   const id = randomUUID();
   const directory = await prepareBroadcastDirectory(root, id);
   await writeFile(join(directory, 'index.m3u8'), '#EXTM3U');
+  await writeFile(join(directory, 'thumbnail.jpg'), 'jpeg');
   expect(await checkedHlsPath(root, id, 'index.m3u8')).toBe(join(directory, 'index.m3u8'));
+  expect(await checkedThumbnailPath(root, id, 'thumbnail.jpg')).toBe(
+    join(directory, 'thumbnail.jpg'),
+  );
   const other = randomUUID();
   const outside = join(root, 'outside');
   await mkdir(outside);
   await writeFile(join(outside, 'index.m3u8'), 'secret');
   await symlink(outside, broadcastDirectory(root, other), 'junction');
   await expect(checkedHlsPath(root, other, 'index.m3u8')).rejects.toThrow('Symlink');
+  await expect(checkedThumbnailPath(root, other, 'thumbnail.jpg')).rejects.toThrow('Symlink');
   await expect(prepareBroadcastDirectory(root, other)).rejects.toThrow('Symlink');
   await mkdir(join(directory, 'segment000001.ts'));
   await expect(checkedHlsPath(root, id, 'segment000001.ts')).rejects.toThrow('not a file');
+  await rm(join(directory, 'thumbnail.jpg'));
+  await mkdir(join(directory, 'thumbnail.jpg'));
+  await expect(checkedThumbnailPath(root, id, 'thumbnail.jpg')).rejects.toThrow('not a file');
   const linkedRoot = await mkdtemp(join(tmpdir(), 'sf-hls-parent-'));
   roots.push(linkedRoot);
   await symlink(outside, join(linkedRoot, 'broadcasts'), 'junction');

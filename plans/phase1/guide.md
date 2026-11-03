@@ -1,6 +1,6 @@
 # Guide — V2 Phase 1, commit by commit
 
-**Status:** V2P1-C01 is committed. V2P1-C02 is verified. V2P1-C03, V2P1-C04, and V2P1-C05 remain planned.\
+**Status:** V2P1-C01 and V2P1-C02 are committed. V2P1-C03 is verified. V2P1-C04 and V2P1-C05 remain planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.2`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -87,9 +87,9 @@ pnpm lint
 
 ## 3. V2P1-C02 — Current guest's rooms
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-rooms): list rooms for the current guest`\
-**Actual commit:**
+**Actual commit:** `538e01788b03f3b1993a26d6aef14fe44bb4e579`
 
 **Why:** The workspace needs a server-owned host list before the page can show one. Covers the API half of WS-01.
 
@@ -127,7 +127,7 @@ pnpm lint
 
 ## 4. V2P1-C03 — Paged broadcast history and thumbnail
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-broadcast): page broadcast history and expose a thumbnail`\
 **Actual commit:**
 

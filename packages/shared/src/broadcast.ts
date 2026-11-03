@@ -77,13 +77,15 @@ export function buildHlsArgs(outputDir: string): string[] {
 
 /**
  * Public GET catalog object. `playlistPath` and `thumbnailPath` stay on the stored row and are
- * not part of this response. Clients use `playlistUrl` or null. There is no second wire format.
+ * not part of this response. Clients use `playlistUrl` or null, and `thumbnailUrl` or null.
+ * There is no second wire format.
  *
- * A non-null playlist is only `/api/broadcasts/{uuid}/hls/index.m3u8`. Absolute, protocol-relative,
- * and cross-origin URLs are rejected. They are not a supported CDN mode, and the guest bearer
- * token must not be attached to them or to any other destination. Segment names are loaded from
- * that playlist; they are not catalog fields. Credentials may also be sent for a same-origin
- * `segment` plus at least six digits and `.ts` under that broadcast.
+ * A non-null playlist is only `/api/broadcasts/{uuid}/hls/index.m3u8`. A non-null thumbnail is
+ * only `/api/broadcasts/{id}/thumbnail.jpg` for that same id. Absolute, protocol-relative, and
+ * cross-origin URLs are rejected. They are not a supported CDN mode, and the guest bearer token
+ * must not be attached to them or to any other destination. Segment names are loaded from that
+ * playlist; they are not catalog fields. Credentials may also be sent for a same-origin `segment`
+ * plus at least six digits and `.ts` under that broadcast.
  */
 const BROADCAST_ERROR_MESSAGE_MAX = 2000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -97,6 +99,7 @@ export type BroadcastResponse = {
   roomId: string;
   status: BroadcastStatus;
   playlistUrl: string | null;
+  thumbnailUrl: string | null;
   errorMessage: string | null;
   startedAt: string;
   endedAt: string | null;
@@ -129,6 +132,12 @@ export function broadcastPlaylistUrl(id: string): string | null {
   return `/api/broadcasts/${id}/hls/index.m3u8`;
 }
 
+/** Catalog thumbnail path, or null when `id` is not a UUID. The stored filesystem path is never copied. */
+export function broadcastThumbnailUrl(id: string): string | null {
+  if (!isUuid(id)) return null;
+  return `/api/broadcasts/${id}/thumbnail.jpg`;
+}
+
 /** True only for the catalog playlist path. Absolute URLs are not catalog values. */
 export function isBroadcastPlaylistUrl(value: string): boolean {
   const match = PLAYLIST_PATH.exec(value);
@@ -142,6 +151,10 @@ function isBroadcastMediaPath(value: string): boolean {
 
 function isCatalogPlaylist(value: unknown): value is string | null {
   return value === null || (typeof value === 'string' && isBroadcastPlaylistUrl(value));
+}
+
+function isCatalogThumbnail(id: string, value: unknown): value is string | null {
+  return value === null || value === broadcastThumbnailUrl(id);
 }
 
 /**
@@ -173,6 +186,7 @@ export function parseBroadcast(value: unknown): BroadcastResponse | null {
     !isUuid(value.roomId) ||
     !isBroadcastStatus(value.status) ||
     !isCatalogPlaylist(value.playlistUrl) ||
+    !isCatalogThumbnail(value.id, value.thumbnailUrl) ||
     !isErrorMessage(value.errorMessage) ||
     !isIsoDate(value.startedAt) ||
     !(value.endedAt === null || isIsoDate(value.endedAt)) ||
@@ -184,6 +198,7 @@ export function parseBroadcast(value: unknown): BroadcastResponse | null {
     roomId: value.roomId,
     status: value.status,
     playlistUrl: value.playlistUrl,
+    thumbnailUrl: value.thumbnailUrl,
     errorMessage: value.errorMessage,
     startedAt: value.startedAt,
     endedAt: value.endedAt,

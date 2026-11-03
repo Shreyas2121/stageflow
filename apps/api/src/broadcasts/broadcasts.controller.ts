@@ -7,6 +7,7 @@ import {
   Next,
   Param,
   Post,
+  Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -17,7 +18,7 @@ import { CurrentUser } from '../sessions/current-user.decorator';
 import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
 import { hlsHeaders } from './hls-path';
-import { BroadcastsService } from './broadcasts.service';
+import { BroadcastsService, type BroadcastPage } from './broadcasts.service';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -25,8 +26,11 @@ export class BroadcastsController {
   constructor(private readonly broadcasts: BroadcastsService) {}
 
   @Get('rooms/:slug/broadcasts')
-  list(@Param('slug') slug: string): Promise<BroadcastResponse[]> {
-    return this.broadcasts.listByRoomSlug(slug);
+  list(
+    @Param('slug') slug: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<BroadcastPage> {
+    return this.broadcasts.listByRoomSlug(slug, query);
   }
 
   @Get('broadcasts/:id')
@@ -68,5 +72,24 @@ export class BroadcastsController {
     response.sendFile(path, { headers: hlsHeaders(file), cacheControl: false }, (error) => {
       if (error) next(error);
     });
+  }
+
+  @Get('broadcasts/:id/thumbnail.jpg')
+  async thumbnail(
+    @Param('id') id: string,
+    @Res() response: Response,
+    @Next() next: NextFunction,
+  ): Promise<void> {
+    const path = await this.broadcasts.thumbnailFile(id);
+    response.sendFile(
+      path,
+      {
+        headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private' },
+        cacheControl: false,
+      },
+      (error) => {
+        if (error) next(error);
+      },
+    );
   }
 }

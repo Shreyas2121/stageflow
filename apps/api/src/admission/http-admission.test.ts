@@ -126,6 +126,9 @@ it('classifies HLS reads, chunk posts, and ordinary requests separately', () => 
   expect(httpTrafficClass('POST', '/api/broadcasts/abc/chunks?unused=1')).toBe('upload');
   expect(httpTrafficClass('GET', '/api/broadcasts/abc')).toBe('control');
   expect(httpTrafficClass('GET', '/api/rooms/slug/broadcasts')).toBe('control');
+  expect(
+    httpTrafficClass('GET', '/api/broadcasts/11111111-1111-4111-8111-111111111111/thumbnail.jpg'),
+  ).toBe('control');
   expect(httpTrafficClass('GET', '/api/health/live/')).toBe('exempt');
   expect(httpTrafficClass('OPTIONS', '/api/broadcasts/abc/hls/a.ts')).toBe('exempt');
 });

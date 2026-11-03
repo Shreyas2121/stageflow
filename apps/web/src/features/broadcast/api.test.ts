@@ -12,6 +12,7 @@ function catalog(overrides: Record<string, unknown> = {}) {
     status: 'READY',
     playlistPath: `broadcasts/${id}/index.m3u8`,
     playlistUrl: `/api/broadcasts/${id}/hls/index.m3u8`,
+    thumbnailUrl: null,
     thumbnailPath: null,
     errorMessage: null,
     startedAt: '2026-11-02T00:00:00.000Z',
@@ -36,6 +37,7 @@ describe('broadcast catalog', () => {
       errorMessage: null,
     });
     expect(parseBroadcast(catalog())).not.toHaveProperty('playlistPath');
+    expect(parseBroadcast(catalog())).not.toHaveProperty('thumbnailPath');
   });
 
   it('accepts the public object without stored paths', () => {
@@ -59,6 +61,17 @@ describe('broadcast catalog', () => {
     expect(() => parseBroadcast(catalog({ startedAt: '2026-02-31T00:00:00.000Z' }))).toThrow(
       'Invalid broadcast',
     );
+    const thumbnailUrl = `/api/broadcasts/${id}/thumbnail.jpg`;
+    expect(parseBroadcast(catalog({ thumbnailUrl }))).toMatchObject({ thumbnailUrl });
+    expect(() =>
+      parseBroadcast(catalog({ thumbnailUrl: `/api/broadcasts/${roomId}/thumbnail.jpg` })),
+    ).toThrow('Invalid broadcast');
+    expect(() =>
+      parseBroadcast(catalog({ thumbnailUrl: 'https://cdn.example/thumb.jpg' })),
+    ).toThrow('Invalid broadcast');
+    expect(() =>
+      parseBroadcast(catalog({ thumbnailUrl: `/api/broadcasts/${id}/hls/index.m3u8` })),
+    ).toThrow('Invalid broadcast');
   });
 
   it('loads one broadcast with the guest token and clears the session on 401', async () => {

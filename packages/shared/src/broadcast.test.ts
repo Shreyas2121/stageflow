@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptChunk,
   broadcastPlaylistUrl,
+  broadcastThumbnailUrl,
   buildHlsArgs,
   parseBroadcast,
   resolveBroadcastMediaUrl,
@@ -104,6 +105,7 @@ describe('buildHlsArgs', () => {
 const id = '11111111-1111-4111-8111-111111111111';
 const roomId = '22222222-2222-4222-8222-222222222222';
 const playlistUrl = `/api/broadcasts/${id}/hls/index.m3u8`;
+const thumbnailUrl = `/api/broadcasts/${id}/thumbnail.jpg`;
 const apiBase = 'http://127.0.0.1:3000/api';
 
 function response(overrides: Partial<BroadcastResponse> = {}): BroadcastResponse {
@@ -112,6 +114,7 @@ function response(overrides: Partial<BroadcastResponse> = {}): BroadcastResponse
     roomId,
     status: 'READY',
     playlistUrl,
+    thumbnailUrl: null,
     errorMessage: null,
     startedAt: '2026-11-02T00:00:00.000Z',
     endedAt: '2026-11-02T00:01:00.000Z',
@@ -124,7 +127,9 @@ describe('public broadcast response', () => {
   it('round-trips the catalog object and ignores stored filesystem paths', () => {
     const body = response();
     expect(broadcastPlaylistUrl(id)).toBe(playlistUrl);
+    expect(broadcastThumbnailUrl(id)).toBe(thumbnailUrl);
     expect(parseBroadcast(body)).toEqual(body);
+    expect(parseBroadcast(response({ thumbnailUrl }))).toEqual(response({ thumbnailUrl }));
     expect(
       parseBroadcast({
         ...body,
@@ -158,16 +163,27 @@ describe('public broadcast response', () => {
       response({ playlistUrl: `broadcasts/${id}/index.m3u8` }),
       response({ playlistUrl: `/api/broadcasts/${id}/hls/../index.m3u8` }),
       response({ playlistUrl: `/api/broadcasts/${id}\\hls\\index.m3u8` }),
+      response({ thumbnailUrl: playlistUrl }),
+      response({ thumbnailUrl: `https://cdn.example/api/broadcasts/${id}/thumbnail.jpg` }),
+      response({ thumbnailUrl: `//cdn.example/api/broadcasts/${id}/thumbnail.jpg` }),
+      response({ thumbnailUrl: `${thumbnailUrl}?token=1` }),
+      response({ thumbnailUrl: `${thumbnailUrl}#fragment` }),
+      response({ thumbnailUrl: `/api/broadcasts/${roomId}/thumbnail.jpg` }),
+      response({ thumbnailUrl: `broadcasts/${id}/thumbnail.jpg` }),
+      response({ thumbnailUrl: `/api/broadcasts/${id}/thumbnail.jpg/extra` }),
+      response({ thumbnailUrl: `/api/broadcasts/${id}\\thumbnail.jpg` }),
       response({ startedAt: '2026-02-31T00:00:00.000Z' }),
       response({ startedAt: '2026-11-02T00:00:00Z' }),
       response({ endedAt: 'yesterday' }),
       response({ createdAt: '2026-11-02' }),
       response({ errorMessage: 'x'.repeat(2001) }),
       { ...response(), playlistUrl: undefined },
+      { ...response(), thumbnailUrl: undefined },
       { ...response(), endedAt: undefined },
     ];
     for (const value of rejected) expect(parseBroadcast(value)).toBeNull();
     expect(broadcastPlaylistUrl('not-a-uuid')).toBeNull();
+    expect(broadcastThumbnailUrl('not-a-uuid')).toBeNull();
   });
 
   it('allows the guest token only for the same-origin playlist and its segments', () => {
