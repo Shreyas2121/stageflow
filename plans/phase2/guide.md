@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01 through V2P2-C05 are committed. V2P2-C04's two-window browser pass and V2P2-C05's playback browser pass are unverified. V2P2-C06 is verified.\
+**Status:** V2P2-C01 through V2P2-C06 are committed. V2P2-C04's two-window browser pass and V2P2-C05's playback browser pass are unverified.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -267,9 +267,9 @@ If no browser is available, leave this pass unverified.
 
 ## 7. V2P2-C06 — README
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): state the in-call device limits`\
-**Actual commit:**
+**Actual commit:** `5e76061f88b73722d5495a414e21b40fe579eb1e`
 
 **Why:** The product README still says in-call device changes are not implemented. After they exist, the reader needs the lock, restore, loss, and speaker limits beside the other stage limits.
 

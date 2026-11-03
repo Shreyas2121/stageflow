@@ -1,6 +1,6 @@
 # V2 Phase 2 — In-call devices
 
-**Status:** V2P2-C01 through V2P2-C05 are committed. V2P2-C06 is verified. The two-window browser pass for MEDIA-01 through MEDIA-03 and the playback pass for MEDIA-04 are unverified.\
+**Status:** V2P2-C01 through V2P2-C06 are committed. The two-window browser pass for MEDIA-01 through MEDIA-03 and the playback pass for MEDIA-04 are unverified.\
 **Last updated:** 2026-11-03.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
@@ -179,7 +179,7 @@ The two-window check uses the local web app and API. Synthetic devices are enoug
 
 V2-P2 is done when MEDIA-01 through MEDIA-04 have a result, each slice is committed under V1 master Section 1.4, and the README describes on-stage device changes, lock behavior, screen-share restore, device loss, and the speaker fallback. Unverified browser, physical, and native-picker checks stay named. P3-A03, P3-A05, P3-A06, and the V2-P1 browser and smoke gaps stay open.
 
-On 2026-11-03 the README states those limits. V2P2-C01 through V2P2-C05 are committed. V2P2-C06 is verified in the documentation slice. The two-window and playback browser passes were not run.
+On 2026-11-03 the README states those limits. V2P2-C01 through V2P2-C06 are committed. The two-window and playback browser passes were not run.
 
 V2-P3 may rely on local capture stopping when the session generation advances, and on one audio sender and one video sender per peer. It may not rely on reconnect. The replacement cancel used by leave and demotion is the cancel V2-P3 must call when a member is suspended. Do not implement suspension in this phase.
 
