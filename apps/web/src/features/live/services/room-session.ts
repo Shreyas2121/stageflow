@@ -115,6 +115,7 @@ export class RoomSession {
   private locallyTornDown = false;
   private generation = 0;
   private deviceReplacement: Promise<void> = Promise.resolve();
+  private readonly inputPending = { camera: 0, microphone: 0 };
   private deviceGeneration = 0;
   private prepareToken = 0;
   private settled: StageMembership | null = null;
@@ -301,6 +302,12 @@ export class RoomSession {
   }
   get microphoneUnavailable(): boolean {
     return this.state.microphoneUnavailable;
+  }
+  get replacingCamera(): boolean {
+    return this.inputPending.camera > 0;
+  }
+  get replacingMicrophone(): boolean {
+    return this.inputPending.microphone > 0;
   }
   get streams(): RemoteStreams {
     return this.state.streams;
@@ -594,7 +601,14 @@ export class RoomSession {
   }
 
   replaceDevice(kind: InputKind, deviceId: string): Promise<void> {
-    const run = this.deviceReplacement.then(() => this.finishDeviceReplacement(kind, deviceId));
+    this.inputPending[kind] += 1;
+    this.emit();
+    const run = this.deviceReplacement
+      .then(() => this.finishDeviceReplacement(kind, deviceId))
+      .finally(() => {
+        this.inputPending[kind] -= 1;
+        this.emit();
+      });
     this.deviceReplacement = run.then(
       () => undefined,
       () => undefined,

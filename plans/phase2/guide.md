@@ -1,6 +1,6 @@
 # Guide — V2 Phase 2, commit by commit
 
-**Status:** V2P2-C01 and V2P2-C02 are committed. V2P2-C03 is verified. V2P2-C04 through V2P2-C06 remain planned.\
+**Status:** V2P2-C01, V2P2-C02, and V2P2-C03 are committed. V2P2-C04 is verified. Its two-window browser pass is unverified. V2P2-C05 and V2P2-C06 remain planned.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -124,9 +124,9 @@ pnpm lint
 
 ## 4. V2P2-C03 — Device loss
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-stage): keep the room when a device ends`\
-**Actual commit:**
+**Actual commit:** `9230cb748905ea09bde94d2592e759f5f9a42d9a`
 
 **Why:** An ended track currently stays in the sender until leave. The member needs a muted, joined state and an explicit retry. Covers the loss half of MEDIA-03.
 
@@ -162,7 +162,7 @@ pnpm lint
 
 ## 5. V2P2-C04 — On-stage device controls
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-room): change devices while on stage`\
 **Actual commit:**
 
@@ -177,6 +177,7 @@ pnpm lint
 - `apps/web/src/features/live/components/device-panel.tsx`
 - `apps/web/src/features/live/components/live-room.tsx`
 - `apps/web/src/features/live/services/room-session.ts`
+- `apps/web/src/features/live/services/room-session.test.ts`
 
 **Implementation:**
 
@@ -203,6 +204,8 @@ Browser, with the local API and two stage windows:
 5. Open an attendee window. Confirm it shows no camera or microphone select and requests no capture permission.
 
 If no browser is available, leave this pass unverified. A synthetic device does not close P3-A03 or P3-A06.
+
+**Browser result:** Unverified on 2026-11-03. No browser tool was available, so the two-window script was not run. P3-A03 and P3-A06 stay open.
 
 **Done when:** The browser script has a recorded result, or an explicit unverified gap, and the slice is committed.
 

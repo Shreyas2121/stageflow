@@ -1222,6 +1222,7 @@ describe('RoomSession', () => {
 
     const lobby = open();
     await lobby.session.replaceDevice('microphone', 'mic-2');
+    expect(lobby.session.replacingMicrophone).toBe(false);
     expect(lobby.media.replaceInput).not.toHaveBeenCalled();
     expect(lobby.media.prepareCalls).toBe(0);
 
@@ -1248,6 +1249,33 @@ describe('RoomSession', () => {
     expect(consent.media.replaceInput).not.toHaveBeenCalled();
     expect(consent.media.prepareCalls).toBe(0);
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('marks only the requested kind busy until that replacement settles', async () => {
+    const h = open();
+    await joinStage(h.session, h.media, h.connection);
+    let release = (): void => {
+      throw new Error('The replacement has not started.');
+    };
+    h.media.replaceInput.mockImplementation(
+      (kind) =>
+        new Promise((resolve) => {
+          const track = liveTrack(kind === 'camera' ? 'video' : 'audio');
+          h.media.held = { kind, track };
+          release = () => resolve(track);
+        }),
+    );
+    const pending = h.session.replaceDevice('microphone', 'mic-2');
+    expect(h.session.replacingMicrophone).toBe(true);
+    expect(h.session.replacingCamera).toBe(false);
+    expect(h.media.prepareCalls).toBe(0);
+    await vi.waitFor(() => expect(h.media.replaceInput).toHaveBeenCalledOnce());
+    release();
+    await pending;
+    expect(h.session.replacingMicrophone).toBe(false);
+    expect(h.session.replacingCamera).toBe(false);
+    expect(h.media.microphoneTrack()).toBeTruthy();
+    expect(h.media.prepareCalls).toBe(0);
   });
 
   it('keeps a host-locked microphone disabled and does not send an unmute', async () => {

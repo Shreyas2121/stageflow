@@ -2,10 +2,12 @@ import { useCallback } from 'react';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
 import { AttendeeBroadcast } from '../../broadcast/components/attendee-broadcast';
 import { useRoomStore } from '../stores/room-store';
+import { deviceSelects } from '../services/device-controls';
 import { useDemoPeers } from '../hooks/use-demo-peers';
 import { useLiveRoom } from '../hooks/use-live-room';
 import { useScreenShare } from '../hooks/use-screen-share';
 import { DemoControls } from './demo-controls';
+import { DevicePanel } from './device-panel';
 import { GreenRoom } from './green-room';
 import { ParticipantList } from './participant-list';
 import { RoomControls } from './room-controls';
@@ -39,6 +41,11 @@ export function LiveRoom({
     },
     [live],
   );
+  const selects = deviceSelects({
+    phase: live.phase,
+    audience: live.audience,
+    needsCaptureConsent: live.needsCaptureConsent,
+  });
 
   return (
     <div className="mt-8 min-w-0 rounded-panel border border-line bg-surface p-5 layout:p-7">
@@ -128,6 +135,30 @@ export function LiveRoom({
       </div>
       {live.phase === 'joined' && self?.role === 'ATTENDEE' && (
         <AttendeeBroadcast broadcast={snapshot?.broadcast ?? null} token={session.token} />
+      )}
+      {(selects.camera || selects.microphone || selects.speaker) && (
+        <DevicePanel
+          selects={selects}
+          devices={live.devices}
+          cameraId={live.choices.cameraId}
+          microphoneId={live.choices.microphoneId}
+          speakerId={live.speakerId}
+          cameraPending={live.replacingCamera}
+          microphonePending={live.replacingMicrophone}
+          cameraUnavailable={live.cameraUnavailable}
+          microphoneUnavailable={live.microphoneUnavailable}
+          sinkSupported={live.sinkSupported}
+          speakerError={live.speakerError}
+          onCamera={(deviceId) => {
+            void live.replaceDevice('camera', deviceId);
+          }}
+          onMicrophone={(deviceId) => {
+            void live.replaceDevice('microphone', deviceId);
+          }}
+          onSpeaker={(deviceId) => {
+            void live.setSpeaker(deviceId);
+          }}
+        />
       )}
       {live.error && (
         <p
