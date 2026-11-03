@@ -129,8 +129,9 @@ export class StageRecorder implements BroadcastRecorder {
       options.send ?? postChunk,
       () => this.overflow(),
     );
-    this.requestFrame = options.requestFrame ?? requestAnimationFrame;
-    this.cancelFrame = options.cancelFrame ?? cancelAnimationFrame;
+    // Native frame APIs require Window as their receiver when retained on a service.
+    this.requestFrame = options.requestFrame ?? requestAnimationFrame.bind(globalThis);
+    this.cancelFrame = options.cancelFrame ?? cancelAnimationFrame.bind(globalThis);
     this.createCanvas = options.createCanvas ?? (() => document.createElement('canvas'));
     this.createAudioContext = options.createAudioContext ?? (() => new AudioContext());
     this.createRecorder =

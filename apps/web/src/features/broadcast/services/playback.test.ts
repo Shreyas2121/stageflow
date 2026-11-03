@@ -157,6 +157,21 @@ describe('playlist requests', () => {
     if (external instanceof Request) expect(external.headers.get('Authorization')).toBeNull();
   });
 
+  it('retries an initial live playlist 404 within its budget without retrying other client errors', () => {
+    const live = hlsPlayerConfig('guest-token', 'live', 'http://localhost:4000/api');
+    const policy = live.manifestLoadPolicy!.default.errorRetry;
+    expect(policy.shouldRetry(policy, 0, false, { code: 404 }, false)).toBe(true);
+    expect(policy.shouldRetry(policy, 5, false, { code: 404 }, false)).toBe(true);
+    expect(policy.shouldRetry(policy, 6, false, { code: 404 }, false)).toBe(false);
+    for (const code of [401, 403, 409, 429])
+      expect(policy.shouldRetry(policy, 0, false, { code }, false)).toBe(false);
+    expect(policy.shouldRetry(policy, 0, false, { code: 500 }, true)).toBe(true);
+    expect(policy.shouldRetry(policy, 0, true, undefined, true)).toBe(true);
+    expect(
+      hlsPlayerConfig('guest-token', 'vod', 'http://localhost:4000/api').manifestLoadPolicy,
+    ).toBeUndefined();
+  });
+
   it('clears the guest session when a playlist or segment returns 401', () => {
     const previous = useSessionStore.getState().clearSession;
     const clearSession = vi.fn();

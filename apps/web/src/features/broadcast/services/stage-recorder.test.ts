@@ -212,6 +212,36 @@ describe('StageRecorder', () => {
     vi.useRealTimers();
   });
 
+  it('retains the browser receiver for default frame scheduling and cancellation', () => {
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      function (this: unknown, callback: FrameRequestCallback) {
+        if (this !== globalThis) throw new TypeError('Illegal invocation');
+        return requestFrame(callback);
+      },
+    );
+    vi.stubGlobal('cancelAnimationFrame', function (this: unknown, handle: number) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation');
+      cancelFrame(handle);
+    });
+    const active = recorder(() => Promise.resolve(204), vi.fn(), {
+      requestFrame: undefined,
+      cancelFrame: undefined,
+    });
+    try {
+      active.start();
+      tick(100);
+      expect(recorders[0]?.state).toBe('recording');
+      expect(frames.size).toBe(1);
+    } finally {
+      active.stop();
+    }
+    expect(frames.size).toBe(0);
+    expect(cancelFrame).toHaveBeenCalledOnce();
+    expect(captureTrack.readyState).toBe('ended');
+    expect(mixedTrack.readyState).toBe('ended');
+  });
+
   it.each(['error', 'stop', 'silence', 'empty'] as const)(
     'fails once on producer %s and releases only owned media',
     async (kind) => {

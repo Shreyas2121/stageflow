@@ -87,6 +87,17 @@ export function hlsPlayerConfig(token: string, mode: 'live' | 'vod', apiBase: st
                 retryDelayMs: 1_000,
                 maxRetryDelayMs: 4_000,
                 backoff: 'exponential' as const,
+                // FFmpeg creates the first playlist after encoding a segment; hls.js otherwise
+                // excludes 404 from its retries even when maxNumRetry is configured.
+                shouldRetry: (
+                  policy: { maxNumRetry: number } | null | undefined,
+                  retryCount: number,
+                  _isTimeout: boolean,
+                  response: { code?: number } | undefined,
+                  defaultRetry: boolean,
+                ) =>
+                  defaultRetry ||
+                  (response?.code === 404 && retryCount < (policy?.maxNumRetry ?? 0)),
               },
             },
           },
