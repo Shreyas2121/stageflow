@@ -80,6 +80,23 @@ async function prepare() {
   await media.prepare(preview(), { cameraId: '', microphoneId: '' });
 }
 
+it('previews the camera when resumed inputs are enabled microphone first without preparing', async () => {
+  media.applyFlags(true, true);
+  const mic = await media.replaceInput('microphone', '');
+  expect(mic).toBe(microphone);
+  media.commitInput('microphone', mic!);
+  expect(media.previewStream()).toBeNull();
+  const video = await media.replaceInput('camera', '');
+  expect(video).toBe(camera);
+  media.commitInput('camera', video!);
+  expect(media.previewStream()?.getVideoTracks()).toEqual([camera]);
+  expect(media.microphoneTrack()).toBe(microphone);
+  expect(media.ready).toBe(true);
+  expect(camera.enabled).toBe(false);
+  expect(microphone.enabled).toBe(false);
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+});
+
 describe('LocalMedia screen sharing', () => {
   it('captures video only, keeps the disabled camera live, and restores its preview after stopping', async () => {
     await prepare();

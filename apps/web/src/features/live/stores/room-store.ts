@@ -9,6 +9,7 @@ type RoomStore = {
   begin: (roomId: string) => void;
   receive: (snapshot: RoomSnapshot) => void;
   joined: (selfParticipantId: string, iceServers: IceServer[]) => void;
+  resumed: (selfParticipantId: string, iceServers: IceServer[], snapshot: RoomSnapshot) => void;
   clear: () => void;
 };
 
@@ -23,5 +24,7 @@ export const useRoomStore = create<RoomStore>((set) => ({
         : current,
     ),
   joined: (selfParticipantId, iceServers) => set({ selfParticipantId, iceServers }),
+  resumed: (selfParticipantId, iceServers, snapshot) =>
+    set({ roomId: snapshot.roomId, selfParticipantId, iceServers, snapshot }),
   clear: () => set(initial),
 }));

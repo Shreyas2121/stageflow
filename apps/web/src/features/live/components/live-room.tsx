@@ -31,7 +31,8 @@ export function LiveRoom({
   const self = snapshot?.participants.find(
     (participant) => participant.participantId === selfParticipantId,
   );
-  const inRoom = live.phase === 'joined' || live.phase === 'leaving';
+  const recovering = live.phase === 'recovering';
+  const inRoom = live.phase === 'joined' || live.phase === 'leaving' || recovering;
   const onStage = Boolean(
     selfParticipantId && snapshot?.stageParticipantIds.includes(selfParticipantId),
   );
@@ -80,11 +81,11 @@ export function LiveRoom({
       {self?.role === 'HOST' && onStage && snapshot && live.peerManager && (
         <StatsDrawer manager={live.peerManager} snapshot={snapshot} />
       )}
-      {self?.role === 'HOST' && (
+      {self?.role === 'HOST' && live.phase === 'joined' && (
         <DemoControls
           count={demos.count}
           starting={demos.starting}
-          spawnDisabled={demos.starting || demos.count >= 3 || live.phase === 'leaving'}
+          spawnDisabled={demos.starting || demos.count >= 3}
           onSpawn={demos.spawn}
           onRemove={demos.remove}
         />
@@ -163,6 +164,11 @@ export function LiveRoom({
           }}
         />
       )}
+      {recovering && (
+        <p className="mt-4 text-sm text-muted" role="status">
+          Reconnecting. This room is still open.
+        </p>
+      )}
       {live.error && (
         <p
           className="mt-4 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
@@ -175,6 +181,7 @@ export function LiveRoom({
         attendee={live.audience === 'attendee'}
         inRoom={inRoom}
         joining={live.phase === 'joining'}
+        recovering={recovering}
         busy={live.preparing}
         leaving={live.phase === 'leaving'}
         mediaPending={live.mediaPending}

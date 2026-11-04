@@ -180,7 +180,11 @@ export class LocalMedia {
   }
 
   previewStream(): MediaStream | null {
-    return this.screenTrack()?.readyState === 'live' ? this.screen : (this.streams[0] ?? null);
+    return this.screenTrack()?.readyState === 'live'
+      ? this.screen
+      : (this.streams.find((stream) =>
+          stream.getVideoTracks().some((track) => track.readyState === 'live'),
+        ) ?? null);
   }
 
   screenTrack(): MediaStreamTrack | null {

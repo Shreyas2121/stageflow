@@ -6,6 +6,8 @@ import type {
   CommandAck,
   JoinAck,
   JoinRoomRequest,
+  ResumeRoomRequest,
+  ResumeAck,
   MediaPatch,
   RoomSnapshot,
   ServerToClientEvents,
@@ -30,6 +32,7 @@ export type RoomConnection = {
   description: (payload: DescriptionRequest) => Promise<CommandAck>;
   candidate: (payload: IceCandidateRequest) => Promise<CommandAck>;
   join: (payload: JoinRoomRequest) => Promise<JoinAck>;
+  resume: (payload: ResumeRoomRequest) => Promise<ResumeAck>;
   media: (patch: MediaPatch) => Promise<CommandAck>;
   hand: (raised: boolean) => Promise<CommandAck>;
   promote: (targetParticipantId: string) => Promise<CommandAck>;
@@ -43,6 +46,7 @@ export type RoomConnection = {
 let current: RoomConnection | null = null;
 
 type SignalingCallbacks = {
+  onResumed?: (result: Extract<ResumeAck, { ok: true }>) => void;
   onForceMute?: (payload: StageForceMute) => void;
   onEnded: () => void;
   onDisconnect: () => void;
@@ -67,7 +71,11 @@ export function openIndependentSignaling(
     timeout: 8000,
   });
   let closed = false;
+  let transportConnected = false;
+  let membershipStarted = false;
   let joined = false;
+  let resuming = false;
+  let resumeBaseline = -1;
   let latestSnapshot: RoomSnapshot | null = null;
   let joinSettled = false;
   let pendingBytes = 0;
@@ -107,27 +115,49 @@ export function openIndependentSignaling(
       failPending('Live signaling expired before join.');
     }, PENDING_TIMEOUT_MS);
   };
+  const connect = () =>
+    new Promise<void>((resolve, reject) => {
+      if (closed) {
+        reject(new Error('The live room connection closed.'));
+        return;
+      }
+      const cleanup = () => {
+        socket.off('connect', connected);
+        socket.off('connect_error', failed);
+        cancelConnect = undefined;
+      };
+      const connected = () => {
+        transportConnected = true;
+        cleanup();
+        resolve();
+      };
+      const failed = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      cancelConnect = () => failed(new Error('The live room connection closed.'));
+      socket.once('connect', connected);
+      socket.once('connect_error', failed);
+      socket.connect();
+    });
+  const unavailable = (): Extract<CommandAck, { ok: false }> => ({
+    ok: false,
+    error: 'not_joined',
+    message: 'Join the room first.',
+  });
+  const command = (action: () => Promise<CommandAck>): Promise<CommandAck> =>
+    !closed && joined && transportConnected ? action() : Promise.resolve(unavailable());
   const connection: RoomConnection = {
     async join(payload) {
-      await new Promise<void>((resolve, reject) => {
-        const cleanup = () => {
-          socket.off('connect', connected);
-          socket.off('connect_error', failed);
-          cancelConnect = undefined;
+      if (membershipStarted)
+        return {
+          ok: false,
+          error: 'already_joined',
+          message: 'This connection already has a membership command.',
         };
-        const connected = () => {
-          cleanup();
-          resolve();
-        };
-        const failed = (error: Error) => {
-          cleanup();
-          reject(error);
-        };
-        cancelConnect = () => failed(new Error('The live room connection closed.'));
-        socket.once('connect', connected);
-        socket.once('connect_error', failed);
-        socket.connect();
-      });
+      membershipStarted = true;
+      await connect();
+      if (closed) throw new Error('The live room connection closed.');
       const result = await new Promise<JoinAck>((resolve, reject) => {
         rejectJoin = reject;
         socket
@@ -161,21 +191,86 @@ export function openIndependentSignaling(
         callbacks.onJoined(result);
         const queued = pending.splice(0);
         pendingBytes = 0;
-        for (const deliver of queued) deliver();
+        for (const deliver of queued) {
+          if (closed) break;
+          deliver();
+        }
       } else releasePending();
       return result;
     },
-    media: (patch) => socket.timeout(8000).emitWithAck('media:state', patch),
-    description: (payload) => socket.timeout(8000).emitWithAck('webrtc:description', payload),
-    candidate: (payload) => socket.timeout(8000).emitWithAck('webrtc:ice-candidate', payload),
-    hand: (raised) => socket.timeout(8000).emitWithAck('stage:raise-hand', { raised }),
+    async resume(payload) {
+      if (membershipStarted)
+        return {
+          ok: false,
+          error: 'already_joined',
+          message: 'This connection already has a membership command.',
+        };
+      membershipStarted = true;
+      resuming = true;
+      await connect();
+      if (closed) throw new Error('The live room connection closed.');
+      const result = await new Promise<ResumeAck>((resolve, reject) => {
+        rejectJoin = reject;
+        socket
+          .timeout(8000)
+          .emitWithAck('room:resume', payload)
+          .then(
+            (ack) => {
+              if (joinSettled) return;
+              joinSettled = true;
+              resolve(ack);
+            },
+            (error: unknown) => {
+              if (joinSettled) return;
+              joinSettled = true;
+              releasePending();
+              reject(error);
+            },
+          );
+      });
+      if (result.ok && !closed) {
+        const newer =
+          latestSnapshot && latestSnapshot.revision > result.snapshot.revision
+            ? latestSnapshot
+            : null;
+        resumeBaseline = result.snapshot.revision;
+        latestSnapshot = result.snapshot;
+        joined = true;
+        callbacks.onResumed?.(result);
+        if (closed) {
+          releasePending();
+          return result;
+        }
+        callbacks.onState(result.snapshot);
+        if (newer && !closed) {
+          latestSnapshot = newer;
+          callbacks.onState(newer);
+        }
+        const queued = pending.splice(0);
+        releasePending();
+        for (const deliver of queued) {
+          if (closed) break;
+          deliver();
+        }
+      } else releasePending();
+      return result;
+    },
+    media: (patch) => command(() => socket.timeout(8000).emitWithAck('media:state', patch)),
+    description: (payload) =>
+      command(() => socket.timeout(8000).emitWithAck('webrtc:description', payload)),
+    candidate: (payload) =>
+      command(() => socket.timeout(8000).emitWithAck('webrtc:ice-candidate', payload)),
+    hand: (raised) =>
+      command(() => socket.timeout(8000).emitWithAck('stage:raise-hand', { raised })),
     promote: (targetParticipantId) =>
-      socket.timeout(8000).emitWithAck('stage:promote', { targetParticipantId }),
+      command(() => socket.timeout(8000).emitWithAck('stage:promote', { targetParticipantId })),
     demote: (targetParticipantId) =>
-      socket.timeout(8000).emitWithAck('stage:demote', { targetParticipantId }),
-    setLock: (request) => socket.timeout(8000).emitWithAck('stage:set-lock', request),
-    startBroadcast: () => socket.timeout(8000).emitWithAck('broadcast:start'),
+      command(() => socket.timeout(8000).emitWithAck('stage:demote', { targetParticipantId })),
+    setLock: (request) =>
+      command(() => socket.timeout(8000).emitWithAck('stage:set-lock', request)),
+    startBroadcast: () => command(() => socket.timeout(8000).emitWithAck('broadcast:start')),
     async stopBroadcast() {
+      if (closed || !joined || !transportConnected) return unavailable();
       const id = latestSnapshot?.broadcast?.id;
       const terminal = (): CommandAck | undefined => {
         const broadcast = latestSnapshot?.broadcast;
@@ -201,12 +296,20 @@ export function openIndependentSignaling(
         );
       }
     },
-    leave: () => socket.timeout(8000).emitWithAck('room:leave'),
+    leave: () =>
+      closed || !transportConnected
+        ? Promise.resolve({ ok: true })
+        : socket.timeout(8000).emitWithAck('room:leave'),
     close() {
       if (closed) return;
       closed = true;
+      transportConnected = false;
       releasePending();
       cancelConnect?.();
+      if (resuming && !joinSettled) {
+        joinSettled = true;
+        rejectJoin?.(new Error('The live room connection closed.'));
+      }
       socket.removeAllListeners();
       socket.disconnect();
       callbacks.onClosed?.();
@@ -225,7 +328,17 @@ export function openIndependentSignaling(
       if (onStage) callbacks.onDescription(payload);
     } else
       queuePending(payload, () => {
-        if (onStage) callbacks.onDescription(payload);
+        if (
+          resuming
+            ? latestSnapshot &&
+              canRelay(
+                connectedStageIds(latestSnapshot),
+                payload.fromParticipantId,
+                payload.toParticipantId,
+              )
+            : onStage
+        )
+          callbacks.onDescription(payload);
       });
   });
   socket.on('webrtc:ice-candidate', (payload) => {
@@ -241,12 +354,28 @@ export function openIndependentSignaling(
       if (onStage) callbacks.onCandidate(payload);
     } else
       queuePending(payload, () => {
-        if (onStage) callbacks.onCandidate(payload);
+        if (
+          resuming
+            ? latestSnapshot &&
+              canRelay(
+                connectedStageIds(latestSnapshot),
+                payload.fromParticipantId,
+                payload.toParticipantId,
+              )
+            : onStage
+        )
+          callbacks.onCandidate(payload);
       });
   });
   socket.on('room:state', (snapshot) => {
     if (closed || snapshot.roomId !== roomId) return;
+    if (
+      resuming &&
+      (snapshot.revision < resumeBaseline || snapshot.revision <= (latestSnapshot?.revision ?? -1))
+    )
+      return;
     if (snapshot.revision > (latestSnapshot?.revision ?? -1)) latestSnapshot = snapshot;
+    if (resuming && !joined) return;
     callbacks.onState(snapshot);
   });
   socket.on('stage:force-mute', (payload) => {
@@ -277,6 +406,10 @@ export function openSignaling(
     ...callbacks,
     onState: (snapshot) => useRoomStore.getState().receive(snapshot),
     onJoined: (result) => useRoomStore.getState().joined(result.participantId, result.iceServers),
+    onResumed: (result) => {
+      useRoomStore.getState().resumed(result.participantId, result.iceServers, result.snapshot);
+      callbacks.onResumed?.(result);
+    },
     onClosed: () => {
       if (current === connection) {
         current = null;

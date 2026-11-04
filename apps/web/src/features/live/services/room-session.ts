@@ -1,4 +1,4 @@
-import { connectedStageIds } from '@stageflow/shared';
+import { connectedStageIds, RECONNECT_GRACE_MS } from '@stageflow/shared';
 import type {
   CommandAck,
   IceServer,
@@ -8,6 +8,7 @@ import type {
   StageForceMute,
   RelayedDescription,
   RelayedIceCandidate,
+  ResumeAck,
 } from '@stageflow/shared';
 import { BroadcastSession, recordingFinishError } from '../../broadcast/services/broadcast-session';
 import {
@@ -26,7 +27,7 @@ import { ScreenShareController } from './screen-share';
 import { openSignaling, type RoomConnection } from './signaling';
 import { useRoomStore } from '../stores/room-store';
 
-export type ConnectionPhase = 'lobby' | 'joining' | 'joined' | 'leaving';
+export type ConnectionPhase = 'lobby' | 'joining' | 'joined' | 'recovering' | 'leaving';
 type PendingStageEvent =
   | { type: 'description'; payload: RelayedDescription }
   | { type: 'candidate'; payload: RelayedIceCandidate };
@@ -121,6 +122,12 @@ export class RoomSession {
   private prepareToken = 0;
   private settled: StageMembership | null = null;
   private endedNotified = false;
+  private resumeIdentity: { participantId: string; resumeCredential: string } | null = null;
+  private recoveryEpoch = 0;
+  private recoveryDeadline = 0;
+  private recoveryTimers: ReturnType<typeof setTimeout>[] = [];
+  private resumedWithoutCapture = false;
+  private readonly leaveRequests = new WeakMap<RoomConnection, Promise<CommandAck>>();
 
   private readonly state: {
     phase: ConnectionPhase;
@@ -389,7 +396,7 @@ export class RoomSession {
   }
 
   async prepare(video: HTMLVideoElement, nextChoices = this.state.choices): Promise<void> {
-    if (this.pageHidden) return;
+    if (this.pageHidden || this.state.phase === 'recovering') return;
     if (this.catalogAttendee && !this.state.needsCaptureConsent) return;
     if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
     this.locallyTornDown = false;
@@ -491,6 +498,8 @@ export class RoomSession {
       return;
     }
     const generation = this.generation;
+    this.cancelRecovery();
+    this.resumedWithoutCapture = false;
     this.locallyTornDown = false;
     this.state.phase = 'joining';
     this.state.error = '';
@@ -498,17 +507,7 @@ export class RoomSession {
     const opened: { current: RoomConnection | null } = { current: null };
     let active: RoomConnection | null = null;
     try {
-      active = this.open(this.token, this.room.id, {
-        onForceMute: (payload) => this.forceMute(payload),
-        onDescription: (payload) => this.receiveStage({ type: 'description', payload }),
-        onCandidate: (payload) => this.receiveStage({ type: 'candidate', payload }),
-        onEnded: () => {
-          if (opened.current) this.finishEnded(opened.current);
-        },
-        onDisconnect: () => {
-          if (opened.current) this.finishDisconnect(opened.current);
-        },
-      });
+      active = this.open(this.token, this.room.id, this.callbacksFor(opened));
       opened.current = active;
       this.connection = active;
       const result = await active.join({
@@ -529,6 +528,9 @@ export class RoomSession {
         }
         return;
       }
+      this.resumeIdentity = result.resumeCredential
+        ? { participantId: result.participantId, resumeCredential: result.resumeCredential }
+        : null;
       this.state.phase = 'joined';
       this.media.releaseLobby();
       this.syncFromStore();
@@ -546,6 +548,7 @@ export class RoomSession {
   async leave(): Promise<void> {
     if (this.state.phase === 'leaving') return;
     const active = this.connection;
+    this.cancelRecovery();
     this.state.phase = 'leaving';
     this.state.error = '';
     this.teardownLocal();
@@ -553,7 +556,7 @@ export class RoomSession {
     this.emit();
     try {
       if (active) {
-        const result = await active.leave();
+        const result = await this.requestLeave(active);
         if (this.connection === active && !result.ok) this.state.error = result.message;
       }
     } catch {
@@ -570,9 +573,13 @@ export class RoomSession {
   }
 
   toggleAudio(): void {
-    if (this.audioLocked || this.activationPending) return;
+    if (this.state.phase === 'recovering' || this.audioLocked || this.activationPending) return;
     const self = this.selfParticipant();
     if (self && this.connection && this.state.phase === 'joined') {
+      if (this.resumedWithoutCapture && self.isAudioMuted && !this.media.microphoneTrack()) {
+        void this.enableResumedInput('microphone');
+        return;
+      }
       void this.send((active) => active.media({ isAudioMuted: !self.isAudioMuted }));
       return;
     }
@@ -582,9 +589,13 @@ export class RoomSession {
   }
 
   toggleVideo(): void {
-    if (this.videoLocked || this.activationPending) return;
+    if (this.state.phase === 'recovering' || this.videoLocked || this.activationPending) return;
     const self = this.selfParticipant();
     if (self && this.connection && this.state.phase === 'joined') {
+      if (this.resumedWithoutCapture && self.isVideoOff && !this.media.cameraTrack()) {
+        void this.enableResumedInput('camera');
+        return;
+      }
       void this.send((active) => active.media({ isVideoOff: !self.isVideoOff }));
       return;
     }
@@ -713,8 +724,10 @@ export class RoomSession {
   private finishEnded(active: RoomConnection): void {
     if (this.connection !== active) return;
     this.connection = null;
+    this.cancelRecovery();
     this.teardownLocal();
     this.state.phase = 'lobby';
+    this.state.error = 'This room has ended.';
     this.emit();
     this.notifyEnded();
   }
@@ -722,7 +735,27 @@ export class RoomSession {
   private finishDisconnect(active: RoomConnection): void {
     if (this.connection !== active) return;
     this.connection = null;
+    if (this.state.phase === 'recovering') {
+      this.emit();
+      return;
+    }
+    const canResume =
+      this.state.phase === 'joined' &&
+      this.attached &&
+      !this.pageHidden &&
+      this.resumeIdentity !== null;
+    const role = this.state.role;
     this.teardownLocal();
+    if (canResume) {
+      this.state.phase = 'recovering';
+      this.state.role = role;
+      this.state.isAudioMuted = this.state.isVideoOff = true;
+      this.state.error = '';
+      this.startRecovery();
+      this.emit();
+      return;
+    }
+    this.cancelRecovery();
     this.state.phase = 'lobby';
     this.state.error = 'The live room reset. Join again.';
     this.emit();
@@ -734,10 +767,210 @@ export class RoomSession {
     this.onEnded();
   }
 
+  private callbacksFor(opened: {
+    current: RoomConnection | null;
+  }): Parameters<typeof openSignaling>[2] {
+    const current = () =>
+      opened.current !== null && this.connection === opened.current && !this.pageHidden;
+    return {
+      onForceMute: (payload) => {
+        if (current()) this.forceMute(payload);
+      },
+      onDescription: (payload) => {
+        if (current()) this.receiveStage({ type: 'description', payload });
+      },
+      onCandidate: (payload) => {
+        if (current()) this.receiveStage({ type: 'candidate', payload });
+      },
+      onEnded: () => {
+        if (opened.current) this.finishEnded(opened.current);
+      },
+      onDisconnect: () => {
+        if (opened.current) this.finishDisconnect(opened.current);
+      },
+    };
+  }
+
+  private cancelRecovery(dropCredential = true): void {
+    this.recoveryEpoch += 1;
+    for (const timer of this.recoveryTimers) clearTimeout(timer);
+    this.recoveryTimers = [];
+    if (dropCredential) this.resumeIdentity = null;
+  }
+
+  private startRecovery(): void {
+    this.cancelRecovery(false);
+    const epoch = this.recoveryEpoch;
+    this.recoveryDeadline = Date.now() + RECONNECT_GRACE_MS;
+    for (const delay of [1000, 2000, 4000])
+      this.recoveryTimers.push(
+        setTimeout(() => {
+          void this.resumeAttempt(epoch);
+        }, delay),
+      );
+    this.recoveryTimers.push(
+      setTimeout(() => {
+        if (epoch === this.recoveryEpoch)
+          this.failRecovery('The connection was gone too long. Join again.');
+      }, RECONNECT_GRACE_MS),
+    );
+    void this.resumeAttempt(epoch);
+  }
+
+  private async resumeAttempt(epoch: number): Promise<void> {
+    if (
+      epoch !== this.recoveryEpoch ||
+      this.state.phase !== 'recovering' ||
+      !this.resumeIdentity ||
+      this.pageHidden ||
+      !this.attached
+    )
+      return;
+    if (Date.now() >= this.recoveryDeadline) {
+      this.failRecovery('The connection was gone too long. Join again.');
+      return;
+    }
+    const identity = this.resumeIdentity;
+    const previous = this.connection;
+    this.connection = null;
+    previous?.close();
+    const opened: { current: RoomConnection | null } = { current: null };
+    let active: RoomConnection | null = null;
+    try {
+      active = this.open(this.token, this.room.id, {
+        ...this.callbacksFor(opened),
+        onResumed: (result) => {
+          if (opened.current) this.completeResume(opened.current, result, epoch);
+        },
+      });
+      opened.current = active;
+      this.connection = active;
+      const result = await active.resume({ roomId: this.room.id, ...identity });
+      if (result.ok) {
+        this.completeResume(active, result, epoch);
+        return;
+      }
+      if (epoch !== this.recoveryEpoch || this.connection !== active) return;
+      const message =
+        result.error === 'participant_not_found'
+          ? 'The live room reset. Join again.'
+          : result.error === 'room_ended'
+            ? 'This room has ended.'
+            : 'The connection was gone too long. Join again.';
+      this.failRecovery(message);
+      if (result.error === 'room_ended') this.notifyEnded();
+    } catch {
+      active?.close();
+      if (this.connection === active) this.connection = null;
+      // The next attempt keeps its absolute schedule. The final attempt may wait until grace ends.
+    }
+  }
+
+  private completeResume(
+    active: RoomConnection,
+    result: Extract<ResumeAck, { ok: true }>,
+    epoch: number,
+  ): void {
+    if (this.connection === active && this.state.phase === 'joined') return;
+    if (
+      epoch === this.recoveryEpoch &&
+      this.connection === active &&
+      this.state.phase === 'recovering' &&
+      Date.now() >= this.recoveryDeadline
+    ) {
+      void this.requestLeave(active).catch(() => undefined);
+      this.failRecovery('The connection was gone too long. Join again.');
+      return;
+    }
+    if (
+      epoch !== this.recoveryEpoch ||
+      this.connection !== active ||
+      this.state.phase !== 'recovering' ||
+      this.pageHidden ||
+      !this.attached
+    ) {
+      void this.requestLeave(active).then(
+        () => active.close(),
+        () => active.close(),
+      );
+      return;
+    }
+    this.cancelRecovery(false);
+    this.locallyTornDown = false;
+    this.resumedWithoutCapture = true;
+    this.state.isAudioMuted = this.state.isVideoOff = true;
+    this.state.sharing = false;
+    this.state.needsCaptureConsent = false;
+    this.state.error = '';
+    // Atomic baseline replacement also supports test and alternate signaling adapters.
+    useRoomStore.getState().resumed(result.participantId, result.iceServers, result.snapshot);
+    this.state.phase = 'joined';
+    this.syncFromStore();
+  }
+
+  private failRecovery(message: string): void {
+    const active = this.connection;
+    this.connection = null;
+    this.cancelRecovery();
+    active?.close();
+    this.teardownLocal();
+    this.state.phase = 'lobby';
+    this.state.error = message;
+    this.emit();
+  }
+
+  private requestLeave(active: RoomConnection): Promise<CommandAck> {
+    const pending = this.leaveRequests.get(active);
+    if (pending) return pending;
+    const result = active.leave();
+    this.leaveRequests.set(active, result);
+    return result;
+  }
+
+  private async enableResumedInput(kind: InputKind): Promise<void> {
+    const generation = this.generation;
+    const active = this.connection;
+    this.activationPending = true;
+    this.emit();
+    try {
+      await this.replaceDevice(
+        kind,
+        kind === 'camera' ? this.state.choices.cameraId : this.state.choices.microphoneId,
+      );
+      if (
+        generation !== this.generation ||
+        this.connection !== active ||
+        this.state.phase !== 'joined'
+      )
+        return;
+      const track = kind === 'camera' ? this.media.cameraTrack() : this.media.microphoneTrack();
+      const locked = kind === 'camera' ? this.videoLocked : this.audioLocked;
+      if (track && !locked)
+        await this.send((connection) =>
+          connection.media(kind === 'camera' ? { isVideoOff: false } : { isAudioMuted: false }),
+        );
+    } catch (failure) {
+      if (generation === this.generation && this.connection === active)
+        this.state.error =
+          failure instanceof Error ? failure.message : this.deviceSwitchError(kind);
+    } finally {
+      if (generation === this.generation) {
+        this.activationPending = false;
+        this.applyLocalFlags();
+        this.emit();
+      }
+    }
+  }
+
   /** Stops local work and keeps the socket for the caller to close. */
   private teardownLocal(): void {
+    this.state.role = null;
+    this.state.onStage = false;
+    this.settled = null;
+    this.resumedWithoutCapture = false;
     if (this.locallyTornDown) return;
     this.locallyTornDown = true;
+    this.generation += 1;
     this.broadcastSession.abort();
     this.stageVideos.clear();
     this.consentSignalingFailed = false;
@@ -745,7 +978,6 @@ export class RoomSession {
     this.activationPending = false;
     this.forcedAudio = this.forcedVideo = false;
     this.forceRevision = -1;
-    this.generation += 1;
     this.prepareToken += 1;
     this.share.invalidate();
     this.demos.stopAll();
@@ -774,7 +1006,7 @@ export class RoomSession {
   }
 
   private syncFromStore(): void {
-    if (this.pageHidden || !this.connection) return;
+    if (this.pageHidden || !this.connection || this.state.phase === 'recovering') return;
     const { selfParticipantId, snapshot, iceServers } = useRoomStore.getState();
     if (snapshot && snapshot.revision > this.forceRevision) {
       this.forcedAudio = this.forcedVideo = false;
@@ -788,7 +1020,12 @@ export class RoomSession {
     const onStage = Boolean(
       selfParticipantId && snapshot?.stageParticipantIds.includes(selfParticipantId),
     );
-    if (!selfParticipantId || !onStage || !this.media.ready || this.state.needsCaptureConsent)
+    if (
+      !selfParticipantId ||
+      !onStage ||
+      (!this.media.ready && !this.resumedWithoutCapture) ||
+      this.state.needsCaptureConsent
+    )
       this.closePeers();
     else if (this.connection && snapshot)
       this.ensurePeers(selfParticipantId, connectedStageIds(snapshot), iceServers);
@@ -1179,6 +1416,7 @@ export class RoomSession {
   private closeSession(): void {
     const active = this.connection;
     this.connection = null;
+    this.cancelRecovery();
     this.teardownLocal();
     active?.close();
   }

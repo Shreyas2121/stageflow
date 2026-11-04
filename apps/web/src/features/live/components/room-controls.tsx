@@ -3,6 +3,7 @@ export function RoomControls({
   attendee,
   inRoom,
   joining,
+  recovering = false,
   busy,
   leaving,
   mediaPending,
@@ -31,6 +32,7 @@ export function RoomControls({
   attendee: boolean;
   inRoom: boolean;
   joining: boolean;
+  recovering?: boolean;
   busy: boolean;
   leaving: boolean;
   mediaPending: boolean;
@@ -57,11 +59,11 @@ export function RoomControls({
   onJoin: () => void;
 }) {
   const mediaLocked =
-    mediaPending || leaving || (!inRoom && !ready) || (needsCaptureConsent && !ready);
+    recovering || mediaPending || leaving || (!inRoom && !ready) || (needsCaptureConsent && !ready);
   return (
     <div
       className="mt-6 flex flex-wrap gap-2.5 border-t border-line pt-6 [&>button]:flex-[1_1_140px] layout:[&>button]:flex-none"
-      aria-busy={busy || joining || leaving || mediaPending || sharePending}
+      aria-busy={busy || joining || recovering || leaving || mediaPending || sharePending}
     >
       {!attendee && (
         <>
@@ -89,7 +91,7 @@ export function RoomControls({
         <Button
           type="button"
           id="toggle-screen-share"
-          disabled={sharePending || leaving}
+          disabled={recovering || sharePending || leaving}
           aria-pressed={sharing}
           onClick={onToggleShare}
         >
@@ -100,7 +102,7 @@ export function RoomControls({
         <Button
           type="button"
           id="toggle-hand"
-          disabled={mediaPending || leaving}
+          disabled={recovering || mediaPending || leaving}
           aria-pressed={handRaised}
           onClick={onToggleHand}
         >

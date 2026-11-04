@@ -1,7 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
-import type { ParticipantState, RoomSnapshot } from '@stageflow/shared';
+import type {
+  CommandAck,
+  JoinAck,
+  ResumeAck,
+  ParticipantState,
+  RoomSnapshot,
+} from '@stageflow/shared';
 import {
   BROADCAST_STOP_MS,
   openIndependentSignaling,
@@ -25,7 +31,9 @@ class FakeSocket extends EventEmitter {
     return this;
   });
   disconnect = vi.fn();
-  emitWithAck = vi.fn(async (event: string) => {
+  emitWithAck = vi.fn<
+    (event: string, payload?: unknown) => Promise<CommandAck | JoinAck | ResumeAck>
+  >(async (event: string) => {
     if (event === 'room:join') {
       this.beforeAck();
       return { ok: true, participantId: this.id, iceServers: [] };
@@ -45,6 +53,130 @@ const snapshot = (roomId: string): RoomSnapshot => ({
   stageParticipantIds: [],
   handParticipantIds: [],
   broadcast: null,
+});
+
+const resumeRequest = { roomId: 'room', participantId: 'self', resumeCredential: 'memory-only' };
+function resumeAck(revision = 10): Extract<ResumeAck, { ok: true }> {
+  return {
+    ok: true,
+    participantId: 'self',
+    connectionGeneration: 2,
+    iceServers: [],
+    snapshot: {
+      ...snapshot('room'),
+      revision,
+      participants: [person('self'), person('remote')],
+      stageParticipantIds: ['self', 'remote'],
+    },
+  };
+}
+
+it('uses a fresh socket to resume only, replaces the baseline, and discards the previous socket events', async () => {
+  const own = callbacks();
+  const old = openSignaling('token', 'room', own);
+  connections.push(old);
+  await old.join(joinRequest);
+  const oldSocket = sockets[0]!;
+  oldSocket.emit('disconnect');
+  const resumed = vi.fn(() => expect(useRoomStore.getState().snapshot?.revision).toBe(10));
+  const next = openSignaling('token', 'room', { ...own, onResumed: resumed });
+  connections.push(next);
+  sockets[1]!.emitWithAck.mockImplementationOnce(async () => {
+    sockets[1]!.emit('room:state', { ...resumeAck(9).snapshot });
+    sockets[1]!.emit('webrtc:description', {
+      toParticipantId: 'self',
+      fromParticipantId: 'remote',
+      description: { type: 'offer', sdp: 'fresh' },
+    });
+    return resumeAck();
+  });
+  await next.resume(resumeRequest);
+  expect(sockets[1]!.emitWithAck.mock.calls.map(([event]) => event)).toEqual(['room:resume']);
+  expect(sockets[1]!.emitWithAck).toHaveBeenCalledExactlyOnceWith('room:resume', resumeRequest);
+  expect(resumed).toHaveBeenCalledOnce();
+  expect(own.onDescription).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ description: { type: 'offer', sdp: 'fresh' } }),
+  );
+  expect(resumed.mock.invocationCallOrder[0]).toBeLessThan(
+    own.onDescription.mock.invocationCallOrder[0]!,
+  );
+  sockets[1]!.emit('room:state', resumeAck(8).snapshot);
+  expect(useRoomStore.getState().snapshot?.revision).toBe(10);
+  oldSocket.emit('webrtc:description', {
+    toParticipantId: 'self',
+    fromParticipantId: 'remote',
+    description: { type: 'offer', sdp: 'stale' },
+  });
+  expect(own.onDescription).toHaveBeenCalledTimes(1);
+  expect(
+    (
+      await old.description({
+        toParticipantId: 'remote',
+        description: { type: 'offer', sdp: 'stale' },
+      })
+    ).ok,
+  ).toBe(false);
+  expect(oldSocket.emitWithAck.mock.calls.map(([event]) => event)).toEqual(['room:join']);
+  expect(vi.mocked(io).mock.calls[1]![1]).toMatchObject({ reconnection: false, forceNew: true });
+});
+
+it('applies a newer snapshot queued before the resume baseline and ignores older later revisions', async () => {
+  const peer = openSignaling('token', 'room', callbacks());
+  connections.push(peer);
+  sockets[0]!.emitWithAck.mockImplementationOnce(async () => {
+    sockets[0]!.emit('room:state', resumeAck(12).snapshot);
+    return resumeAck(10);
+  });
+  await peer.resume(resumeRequest);
+  expect(useRoomStore.getState().snapshot?.revision).toBe(12);
+  sockets[0]!.emit('room:state', resumeAck(11).snapshot);
+  expect(useRoomStore.getState().snapshot?.revision).toBe(12);
+});
+
+it('cancels an outstanding resume on close and sends no media or moderation before its baseline', async () => {
+  const onResumed = vi.fn();
+  const peer = openIndependentSignaling('token', 'room', { ...callbacks(), onResumed });
+  connections.push(peer);
+  let finish!: (ack: ResumeAck) => void;
+  sockets[0]!.emitWithAck.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = peer.resume(resumeRequest);
+  const rejected = expect(pending).rejects.toThrow('The live room connection closed.');
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+  expect(await peer.media({ isAudioMuted: false })).toMatchObject({ error: 'not_joined' });
+  expect(await peer.promote('remote')).toMatchObject({ error: 'not_joined' });
+  expect(
+    await peer.description({
+      toParticipantId: 'remote',
+      description: { type: 'offer', sdp: 'pending' },
+    }),
+  ).toMatchObject({ error: 'not_joined' });
+  peer.close();
+  finish(resumeAck());
+  await rejected;
+  expect(onResumed).not.toHaveBeenCalled();
+  expect(sockets[0]!.emitWithAck.mock.calls.map(([event]) => event)).toEqual(['room:resume']);
+});
+
+it('does not publish the resume snapshot or queued offer if recovery is cancelled in its callback', async () => {
+  const own = callbacks();
+  const peer = openIndependentSignaling('token', 'room', { ...own, onResumed: () => peer.close() });
+  connections.push(peer);
+  sockets[0]!.emitWithAck.mockImplementationOnce(async () => {
+    sockets[0]!.emit('webrtc:description', {
+      toParticipantId: 'self',
+      fromParticipantId: 'remote',
+      description: { type: 'offer', sdp: 'cancelled' },
+    });
+    return resumeAck();
+  });
+  await peer.resume(resumeRequest);
+  expect(own.onState).not.toHaveBeenCalled();
+  expect(own.onDescription).not.toHaveBeenCalled();
 });
 function person(participantId: string): ParticipantState {
   return {
@@ -116,6 +248,7 @@ describe('signaling connection ownership', () => {
     try {
       const connection = openIndependentSignaling('token', 'room', callbacks());
       connections.push(connection);
+      await connection.join(joinRequest);
       sockets[0]!.emitWithAck.mockImplementationOnce(
         () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 10_000)),
       );
@@ -134,6 +267,7 @@ describe('signaling connection ownership', () => {
     async (status) => {
       const connection = openIndependentSignaling('token', 'room', callbacks());
       connections.push(connection);
+      await connection.join(joinRequest);
       const socket = sockets[0]!;
       socket.emit('room:state', {
         ...snapshot('room'),
@@ -161,6 +295,7 @@ describe('signaling connection ownership', () => {
   it('does not treat a newer attempt as confirmation of an older stop', async () => {
     const connection = openIndependentSignaling('token', 'room', callbacks());
     connections.push(connection);
+    await connection.join(joinRequest);
     const socket = sockets[0]!;
     socket.emit('room:state', {
       ...snapshot('room'),

@@ -6,13 +6,13 @@ import type {
   RelayedDescription,
   RoomResponse,
   RoomSnapshot,
-  StageForceMute,
+  ResumeAck,
 } from '@stageflow/shared';
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
 import type { BroadcastRecorder, RecorderFinish } from '../../broadcast/services/stage-recorder';
 import type { InputKind } from './local-media';
-import { RoomSession, type RoomMedia } from './room-session';
+import { RoomSession, type RoomMedia, type RoomSessionOptions } from './room-session';
 import { useRoomStore } from '../stores/room-store';
 import type { RoomConnection } from './signaling';
 
@@ -177,6 +177,13 @@ function fakePeers() {
 
 function fakeConnection() {
   return {
+    resume: vi.fn<RoomConnection['resume']>(async () => ({
+      ok: true,
+      participantId: 'self',
+      connectionGeneration: 2,
+      iceServers: [],
+      snapshot: recoveredSnapshot(),
+    })),
     description: vi.fn(() => Promise.resolve({ ok: true as const })),
     candidate: vi.fn(() => Promise.resolve({ ok: true as const })),
     join: vi.fn<() => Promise<JoinAck>>(() =>
@@ -214,28 +221,33 @@ function harness(options?: {
     onCap: () => void;
   }) => BroadcastRecorder;
   enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
+  freshConnections?: boolean;
+  resume?: RoomConnection['resume'];
 }) {
   const media = new FakeMedia();
   const peers = fakePeers();
   const connection = fakeConnection();
   const speaker = { sync: vi.fn(), close: vi.fn() };
-  let callbacks: {
-    onForceMute?: (payload: StageForceMute) => void;
-    onDescription: (payload: RelayedDescription) => void;
-    onEnded: () => void;
-    onDisconnect: () => void;
-  } | null = null;
+  type SessionCallbacks = Parameters<NonNullable<RoomSessionOptions['openSignaling']>>[2];
+  let callbacks: SessionCallbacks | null = null;
+  const opened: { connection: ReturnType<typeof fakeConnection>; callbacks: SessionCallbacks }[] =
+    [];
+  const opens = vi.fn<NonNullable<RoomSessionOptions['openSignaling']>>((_token, roomId, next) => {
+    callbacks = next;
+    const nextConnection =
+      options?.freshConnections && opened.length ? fakeConnection() : connection;
+    if (options?.resume) nextConnection.resume.mockImplementation(options.resume);
+    opened.push({ connection: nextConnection, callbacks: next });
+    useRoomStore.getState().begin(roomId);
+    return nextConnection;
+  });
   const session = new RoomSession({
     room: options?.room ?? room,
     userId: options?.userId ?? 'user-1',
     token: 'token',
     onEnded: options?.onEnded ?? (() => undefined),
     media,
-    openSignaling: (_token, roomId, next) => {
-      callbacks = next;
-      useRoomStore.getState().begin(roomId);
-      return connection;
-    },
+    openSignaling: opens,
     createPeers: () => peers as unknown as PeerManager,
     createSpeaker: () => speaker,
     createDemo: options?.createDemo,
@@ -254,7 +266,24 @@ function harness(options?: {
     peers,
     connection,
     speaker,
+    opens,
+    opened,
     callbacks: () => callbacks,
+  };
+}
+
+function recoveredSnapshot(role: ParticipantRole = 'HOST', revision = 10): RoomSnapshot {
+  return {
+    ...snapshot('self', role, role !== 'ATTENDEE', revision),
+    participants: [
+      {
+        ...person('self', role),
+        connectionGeneration: 2,
+        socketId: 'resumed-self',
+        isAudioMuted: true,
+        isVideoOff: true,
+      },
+    ],
   };
 }
 
@@ -292,6 +321,7 @@ describe('RoomSession', () => {
     sessions.length = 0;
     useRoomStore.getState().clear();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   function open(options?: Parameters<typeof harness>[0]) {
@@ -1119,6 +1149,335 @@ describe('RoomSession', () => {
     });
     await session.join();
   }
+
+  async function joinRecoverable(h: ReturnType<typeof harness>, role: ParticipantRole = 'HOST') {
+    h.media.ready = role !== 'ATTENDEE';
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore.getState().receive(snapshot('self', role, role !== 'ATTENDEE', 1));
+      return {
+        ok: true,
+        participantId: 'self',
+        iceServers: [],
+        resumeCredential: 'page-credential',
+      };
+    });
+    await h.session.join();
+  }
+
+  it('recovers with media off, fresh peers and no capture until the existing device control is used', async () => {
+    vi.useFakeTimers();
+    const devices = stubDeviceList();
+    const h = open({ freshConnections: true });
+    await joinRecoverable(h);
+    const original = h.opened[0]!;
+    original.callbacks.onDisconnect();
+    expect(h.session.phase).toBe('recovering');
+    expect(h.media.stopped).toBe(1);
+    expect(h.peers.close).toHaveBeenCalledOnce();
+    expect(h.speaker.close).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('joined');
+    const resumed = h.opened[1]!.connection;
+    expect(resumed.resume).toHaveBeenCalledExactlyOnceWith({
+      roomId: room.id,
+      participantId: 'self',
+      resumeCredential: 'page-credential',
+    });
+    expect(resumed.join).not.toHaveBeenCalled();
+    expect(resumed.startBroadcast).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.session.needsCaptureConsent).toBe(false);
+    expect(h.peers.sync).toHaveBeenLastCalledWith('self', ['self'], []);
+    expect(h.media.applyFlags).toHaveBeenLastCalledWith(true, true);
+    original.callbacks.onForceMute?.({ kind: 'audio', locked: true });
+    original.callbacks.onEnded();
+    original.callbacks.onDescription({
+      toParticipantId: 'self',
+      fromParticipantId: 'old',
+      description: { type: 'offer', sdp: 'old' },
+    });
+    expect(h.session.audioLocked).toBe(false);
+    expect(h.session.phase).toBe('joined');
+    h.session.toggleAudio();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.media.replaceInput).toHaveBeenCalledExactlyOnceWith('microphone', '');
+    expect(resumed.media).toHaveBeenCalledExactlyOnceWith({ isAudioMuted: false });
+    expect(h.media.prepareCalls).toBe(0);
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('retries on the absolute 0, 1, 2 and 4 second schedule and stops at twenty seconds', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const starts: number[] = [];
+    const h = open({
+      freshConnections: true,
+      resume: () => {
+        starts.push(Date.now());
+        return new Promise(() => {});
+      },
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    expect(starts).toEqual([0]);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(starts).toEqual([0, 1000, 2000, 4000]);
+    for (const attempt of h.opened.slice(1, -1))
+      expect(attempt.connection.close).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(h.session.phase).toBe('lobby');
+    expect(h.session.error).toBe('The connection was gone too long. Join again.');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(starts).toHaveLength(4);
+    for (const attempt of h.opened.slice(1)) expect(attempt.connection.join).not.toHaveBeenCalled();
+  });
+
+  it('does not start a delayed retry once the twenty-second budget has elapsed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const h = open({ freshConnections: true, resume: () => new Promise(() => {}) });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    vi.setSystemTime(21000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.opens).toHaveBeenCalledTimes(2);
+    expect(h.session.phase).toBe('lobby');
+  });
+
+  it('leaves a late successful binding when the grace timer itself has been delayed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    let resolve!: (result: ResumeAck) => void;
+    const h = open({
+      freshConnections: true,
+      resume: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    vi.setSystemTime(21000);
+    resolve({
+      ok: true,
+      participantId: 'self',
+      connectionGeneration: 2,
+      iceServers: [],
+      snapshot: recoveredSnapshot(),
+    });
+    for (let index = 0; index < 10; index++) await Promise.resolve();
+    expect(h.session.phase).toBe('lobby');
+    expect(h.session.error).toBe('The connection was gone too long. Join again.');
+    expect(h.opened[1]!.connection.leave).toHaveBeenCalledOnce();
+    expect(h.media.prepareCalls).toBe(0);
+  });
+
+  it.each([
+    ['participant_not_found', 'The live room reset. Join again.'],
+    ['invalid_resume', 'The connection was gone too long. Join again.'],
+    ['resume_expired', 'The connection was gone too long. Join again.'],
+    ['room_ended', 'This room has ended.'],
+  ] as const)('stops the budget on %s and drops the resume credential', async (error, message) => {
+    vi.useFakeTimers();
+    const h = open({
+      freshConnections: true,
+      resume: async () => ({ ok: false, error, message: 'server sentence' }),
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('lobby');
+    expect(h.session.error).toBe(message);
+    expect(h.session.role).toBeNull();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(h.opens).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a resume binding that succeeds after leave and cancels all further attempts', async () => {
+    vi.useFakeTimers();
+    let resolve!: (result: ResumeAck) => void;
+    const h = open({
+      freshConnections: true,
+      resume: () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    const recovering = h.opened[1]!.connection;
+    await h.session.leave();
+    resolve({
+      ok: true,
+      participantId: 'self',
+      connectionGeneration: 2,
+      iceServers: [],
+      snapshot: recoveredSnapshot(),
+    });
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(h.session.phase).toBe('lobby');
+    expect(recovering.leave).toHaveBeenCalledOnce();
+    expect(h.opens).toHaveBeenCalledTimes(2);
+    expect(h.media.prepareCalls).toBe(0);
+  });
+
+  it.each(['pagehide', 'dispose'] as const)(
+    'does not resume after %s during recovery',
+    async (action) => {
+      vi.useFakeTimers();
+      const page = pageLifecycle();
+      const h = open({ freshConnections: true, resume: () => new Promise(() => {}) });
+      await joinRecoverable(h);
+      h.callbacks()!.onDisconnect();
+      if (action === 'pagehide') {
+        page('pagehide');
+        page('pageshow');
+      } else h.session.dispose();
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(h.opens).toHaveBeenCalledTimes(2);
+      expect(h.session.phase).toBe('lobby');
+      expect(h.session.role).toBeNull();
+      expect(h.media.prepareCalls).toBe(0);
+    },
+  );
+
+  it('resumes an attendee with no peers or capture', async () => {
+    vi.useFakeTimers();
+    const devices = stubDeviceList();
+    const h = open({
+      room: webinar,
+      userId: 'attendee',
+      freshConnections: true,
+      resume: async () => ({
+        ok: true,
+        participantId: 'self',
+        connectionGeneration: 2,
+        iceServers: [],
+        snapshot: recoveredSnapshot('ATTENDEE'),
+      }),
+    });
+    await joinRecoverable(h, 'ATTENDEE');
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.role).toBe('ATTENDEE');
+    expect(h.peers.sync).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('drops a suspended non-host source while preserving the active recorder', async () => {
+    const recorder = recorderFake();
+    const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
+    await joinWebinarHost(h);
+    await startLiveBroadcast(h);
+    const baseline = useRoomStore.getState().snapshot!;
+    const remote = person('remote', 'SPEAKER');
+    useRoomStore.getState().receive({
+      ...baseline,
+      revision: 3,
+      participants: [person('self', 'HOST'), remote],
+      stageParticipantIds: ['self', 'remote'],
+    });
+    expect(
+      recorder.update.mock.calls.at(-1)?.[0].map((source: { id: string }) => source.id),
+    ).toEqual(['self', 'remote']);
+    useRoomStore.getState().receive({
+      ...baseline,
+      revision: 4,
+      participants: [
+        person('self', 'HOST'),
+        {
+          ...remote,
+          socketId: null,
+          presence: 'suspended',
+          isAudioMuted: true,
+          isVideoOff: true,
+        },
+      ],
+      stageParticipantIds: ['self', 'remote'],
+    });
+    expect(
+      recorder.update.mock.calls.at(-1)?.[0].map((source: { id: string }) => source.id),
+    ).toEqual(['self']);
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    expect(h.peers.sync).toHaveBeenLastCalledWith('self', ['self'], []);
+  });
+
+  it('stops sharing, demos and the upload producer on a host drop, and keeps them stopped after resume', async () => {
+    vi.useFakeTimers();
+    const recorder = recorderFake();
+    const demo = { start: vi.fn(async () => {}), stop: vi.fn() };
+    const h = open({
+      room: webinar,
+      userId: 'host-user',
+      freshConnections: true,
+      createRecorder: () => recorder,
+      createDemo: () => demo,
+    });
+    await joinRecoverable(h);
+    await startLiveBroadcast(h);
+    const screen = { stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
+    h.media.screen = screen;
+    vi.spyOn(h.media, 'startScreenShare').mockResolvedValue(screen);
+    await h.session.startSharing();
+    await h.session.spawnDemo();
+    h.callbacks()!.onDisconnect();
+    expect(screen.stop).toHaveBeenCalledOnce();
+    expect(demo.stop).toHaveBeenCalledOnce();
+    expect(recorder.stop).toHaveBeenCalledOnce();
+    expect(recorder.finish).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.sharing).toBe(false);
+    expect(h.session.demoCount).toBe(0);
+    expect(recorder.start).toHaveBeenCalledOnce();
+    expect(h.opened[1]!.connection.startBroadcast).not.toHaveBeenCalled();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('keeps host locks effective after resume and discards a replacement that finishes after the drop', async () => {
+    vi.useFakeTimers();
+    const locked = recoveredSnapshot();
+    locked.participants[0]!.hostAudioLocked = true;
+    locked.participants[0]!.hostVideoLocked = true;
+    const h = open({
+      freshConnections: true,
+      resume: async () => ({
+        ok: true,
+        participantId: 'self',
+        connectionGeneration: 2,
+        iceServers: [],
+        snapshot: locked,
+      }),
+    });
+    await joinRecoverable(h);
+    let resolve!: (track: MediaStreamTrack) => void;
+    h.media.replaceInput.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const replacing = h.session.replaceDevice('camera', 'late');
+    await vi.advanceTimersByTimeAsync(0);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    const late = liveTrack('video');
+    resolve(late);
+    await replacing;
+    expect(late.stop).toHaveBeenCalledOnce();
+    expect(h.peers.replaceVideoTrack).not.toHaveBeenCalled();
+    h.session.toggleAudio();
+    h.session.toggleVideo();
+    expect(h.opened[1]!.connection.media).not.toHaveBeenCalled();
+    expect(h.media.replaceInput).toHaveBeenCalledOnce();
+  });
 
   it('stops local work once when leaving', async () => {
     const { session, media, peers, speaker, connection } = open();

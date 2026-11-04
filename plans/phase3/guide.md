@@ -1,7 +1,7 @@
 # Guide — V2 Phase 3, commit by commit
 
-**Status:** in progress. V2P3-C01 is committed and V2P3-C02 is verified and ready to commit. V2P3-C03 and V2P3-C04 have not started.\
-**Last updated:** 2026-11-03.\
+**Status:** in progress. V2P3-C01 and V2P3-C02 are committed. V2P3-C03 is verified and ready to commit. V2P3-C04 has not started.\
+**Last updated:** 2026-11-04.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
 **Deliverable:** A short unexpected socket drop keeps the same membership, and resume comes back with media off, in four commits. This is the only V2 Phase 3 guide. Its commit ids are not the V1 Phase 3 commits in [../V1/phase3/guide.md](../V1/phase3/guide.md).
@@ -112,9 +112,9 @@ pnpm lint
 
 ## 3. V2P3-C02 — Server suspension
 
-**Status:** verified; ready to commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-live): suspend a membership when its socket drops`\
-**Actual commit:**
+**Actual commit:** `59244b2843ccad1c1a4797b51d8b039282ca0c39`
 
 **Why:** A stable id does not reserve the slot or reject a stale socket until disconnect suspends and expiry is atomic. Covers the server half of REC-01, REC-02, REC-04, and REC-05.
 
@@ -171,7 +171,7 @@ pnpm smoke:live
 
 ## 4. V2P3-C03 — Page recovery
 
-**Status:** planned\
+**Status:** verified; ready to commit\
 **Proposed commit message:** `feat(web-live): resume one membership with media off`\
 **Actual commit:**
 
@@ -220,6 +220,10 @@ Browser, with the local API and two stage windows:
 If no browser is available, leave this pass unverified. A synthetic device does not close P3-A03 or P3-A06. A missing FFmpeg leaves the audible REC-05 run unverified.
 
 **Done when:** The session tests pass, the browser script has a recorded result or an explicit unverified gap, and the slice is committed.
+
+**Verification result (2026-11-04):** Web tests passed (289), including resume-only sockets, baseline revision ordering, discarded old offers, the absolute retry schedule, the twenty-second budget, late acknowledgements, leave and page lifecycle cancellation, stopped capture and producer resources, explicit device activation, preserved host locks, attendee recovery without peers, and removal of suspended recorder inputs. The local preview selects the camera stream even when the microphone is enabled first after resume. `pnpm typecheck`, `pnpm lint`, `pnpm --filter @stageflow/web build`, and `node scripts/check-artifacts.mjs --web` passed. The `HomePage.tsx` search printed no `hls` matches.
+
+Headless Chromium with synthetic devices verified one Ava membership during suspension, stopped local tracks, the reconnecting status, a new connected peer on Sam's page, the same participant id after resume, and media staying off. Unmute requested only a microphone; the later camera control requested a camera and restored a paintable local preview. Browser storage contained no resume credential. A new page with the same guest and no credential received the already-joined sentence during grace; the recovering page stopped at grace and the slot cleared. A webinar attendee resumed with the same id and raised hand, zero capture requests, and zero peer connections. This browser harness used the real gateway and live service with an isolated shared-reducer presence adapter and in-memory catalog. Docker was stopped, so the browser pass against Redis remains unverified. The webinar playback/host-interruption browser step and the audible FFmpeg run also remain unverified. Existing P3-A03, P3-A05, P3-A06, and earlier browser gaps remain open. The connected-stage filtering and recorder stop behavior introduced earlier were verified and retained.
 
 **Handoff:** The README still describes host disconnect as ending the room and says socket resume is absent.
 
