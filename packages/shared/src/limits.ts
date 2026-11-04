@@ -10,3 +10,19 @@ export const ICE_UFRAG_MAX_LENGTH = 256;
 export const PARTICIPANT_ID_MAX_LENGTH = 128;
 export const SDP_MID_MAX_LENGTH = 256;
 export const SDP_MLINE_INDEX_MAX = 65_535;
+
+// Chat text is trimmed before applying the UTF-16 code-unit and UTF-8 byte bounds.
+export const CHAT_TEXT_MIN_LENGTH = 1;
+export const CHAT_TEXT_MAX_LENGTH = 1_000;
+export const CHAT_TEXT_MAX_BYTES = 4_000;
+export const CHAT_MESSAGE_RETENTION = 500;
+export const CHAT_IDLE_TTL_SECONDS = 86_400;
+export const CHAT_HISTORY_DEFAULT_LIMIT = 50;
+export const CHAT_HISTORY_MAX_LIMIT = 100;
+export const CHAT_PARTICIPANT_RATE_LIMIT = 10;
+export const CHAT_ROOM_RATE_LIMIT = 100;
+export const CHAT_RATE_WINDOW_MS = 10_000;
+export const CHAT_DEDUP_MAX_ENTRIES = 500;
+export const CHAT_MAX_PENDING_SENDS = 5;
+export const CHAT_USER_RATE_MAX_FIELDS = 1_000;
+export const CHAT_MAX_QUEUED_OPERATIONS = 32;
