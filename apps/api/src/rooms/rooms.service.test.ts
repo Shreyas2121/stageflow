@@ -33,8 +33,18 @@ function room(index: number, host: User): Room {
   } as Room;
 }
 
+function orderingInstant(date: Date): string {
+  return date.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z');
+}
+
 function fixture(rows: Room[]) {
-  const repository = { find: vi.fn(async () => rows) };
+  const repository = {
+    find: vi.fn(async () => rows),
+    query: vi.fn(async (_sql: string, parameters: unknown[]) => {
+      const found = rows.find((row) => row.id === parameters[0]);
+      return found ? [{ ordering: orderingInstant(found.createdAt) }] : [];
+    }),
+  };
   const service = new RoomsService(repository as unknown as Repository<Room>);
   return { service, repository };
 }
@@ -80,6 +90,7 @@ it('does not query when the limit or the cursor is invalid', async () => {
     response: { statusCode: 400, error: 'invalid_cursor' },
   });
   expect(repository.find).not.toHaveBeenCalled();
+  expect(repository.query).not.toHaveBeenCalled();
 });
 
 it('requests one extra row when the limit is missing', async () => {
@@ -111,17 +122,19 @@ it('returns 20 rooms and a cursor for the 20th row when another row exists', asy
   });
   expect(parseHistoryCursor(result.nextCursor)).toEqual({
     ok: true,
-    value: { createdAt: kept.createdAt.toISOString(), id: kept.id },
+    value: { createdAt: orderingInstant(kept.createdAt), id: kept.id },
   });
+  expect(result.items[19]?.createdAt).toBe(kept.createdAt.toISOString());
 });
 
 it('returns a null cursor when the page has two rooms', async () => {
   const host = guest();
   const rows = [room(0, host), room(1, host)];
-  const { service } = fixture(rows);
+  const { service, repository } = fixture(rows);
   const result = await service.listForHost(host, {});
   expect(result.nextCursor).toBeNull();
   expect(result.items.map((item) => item.id)).toEqual(rows.map((item) => item.id));
+  expect(repository.query).not.toHaveBeenCalled();
 });
 
 it('passes the cursor instant and id into the keyset predicate', async () => {
@@ -142,6 +155,30 @@ it('passes the cursor instant and id into the keyset predicate', async () => {
   expect(where?.id?.getSql?.('Room.id')).toBe(
     '("Room"."created_at", "Room"."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))',
   );
+
+  const ordering = '2026-11-03T15:04:05.123900Z';
+  const precise = encodeHistoryCursor(ordering, id);
+  await service.listForHost(guest(), { cursor: precise });
+  const preciseWhere = (
+    repository.find.mock.calls as unknown as Array<[{ where: { id?: FindOperator<string> } }]>
+  )[1]?.[0].where;
+  expect(preciseWhere?.id?.objectLiteralParameters).toEqual({
+    cursorCreatedAt: ordering,
+    cursorId: id,
+  });
+});
+
+it('refuses the page when the ordering instant cannot be read', async () => {
+  const host = guest();
+  const rows = Array.from({ length: 21 }, (_, index) => room(index, host));
+  const repository = {
+    find: vi.fn(async () => rows),
+    query: vi.fn(async () => []),
+  };
+  const service = new RoomsService(repository as unknown as Repository<Room>);
+  await expect(service.listForHost(host, {})).rejects.toMatchObject({
+    response: { statusCode: 500, error: 'server_busy' },
+  });
 });
 
 it('rejects a full page whose next cursor would not parse', async () => {

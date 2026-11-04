@@ -10,7 +10,8 @@ export const CATALOG_PAGE_MAX = 50;
 
 const PAGE_MESSAGE = 'Choose a page size from 1 to 50.';
 const CURSOR_MESSAGE = 'That page cursor is not valid.';
-const CATALOG_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MILLISECOND_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MICROSECOND_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 const BASE64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 export type HistoryCursor = {
@@ -26,10 +27,16 @@ function invalidCursor(): ParseResult<HistoryCursor | null> {
   return { ok: false, error: 'invalid_cursor', message: CURSOR_MESSAGE };
 }
 
-function isCanonicalInstant(value: string): boolean {
-  if (!CATALOG_INSTANT.test(value)) return false;
+function isMillisecondInstant(value: string): boolean {
+  if (!MILLISECOND_INSTANT.test(value)) return false;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
+
+// Six digits are PostgreSQL microseconds. The calendar check uses the millisecond prefix.
+function isMicrosecondInstant(value: string): boolean {
+  if (!MICROSECOND_INSTANT.test(value)) return false;
+  return isMillisecondInstant(`${value.slice(0, 23)}Z`);
 }
 
 function encodeBase64Url(bytes: Uint8Array): string {
@@ -89,11 +96,20 @@ export function parseCatalogLimit(input: unknown): ParseResult<number> {
   return { ok: true, value };
 }
 
-/** Unpadded base64url of `v1`, the catalog instant, and the lowercase id. Null when either part is unusable. */
+/**
+ * Unpadded base64url of a version, an ordering instant, and the lowercase id.
+ * `v1` is a millisecond UTC instant and stays valid for cursors already issued.
+ * `v2` keeps six fractional digits. Null when either part is unusable.
+ */
 export function encodeHistoryCursor(createdAt: string, id: string): string | null {
-  if (typeof createdAt !== 'string' || typeof id !== 'string') return null;
-  if (!isCanonicalInstant(createdAt) || !isUuid(id)) return null;
-  const payload = `v1\n${createdAt}\n${id.toLowerCase()}`;
+  if (typeof createdAt !== 'string' || typeof id !== 'string' || !isUuid(id)) return null;
+  const version = isMillisecondInstant(createdAt)
+    ? 'v1'
+    : isMicrosecondInstant(createdAt)
+      ? 'v2'
+      : null;
+  if (!version) return null;
+  const payload = `${version}\n${createdAt}\n${id.toLowerCase()}`;
   return encodeBase64Url(new TextEncoder().encode(payload));
 }
 
@@ -113,8 +129,13 @@ export function parseHistoryCursor(input: unknown): ParseResult<HistoryCursor | 
   const version = parts[0];
   const createdAt = parts[1];
   const id = parts[2];
-  if (version !== 'v1' || !createdAt || !id) return invalidCursor();
-  if (!isCanonicalInstant(createdAt) || !isUuid(id) || id !== id.toLowerCase())
-    return invalidCursor();
+  if (!createdAt || !id || !isUuid(id) || id !== id.toLowerCase()) return invalidCursor();
+  const instant =
+    version === 'v1'
+      ? isMillisecondInstant(createdAt)
+      : version === 'v2'
+        ? isMicrosecondInstant(createdAt)
+        : false;
+  if (!instant) return invalidCursor();
   return { ok: true, value: { createdAt, id } };
 }

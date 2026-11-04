@@ -11,8 +11,9 @@ import {
   parseRoomTitle,
 } from '@stageflow/shared';
 import type { RoomResponse } from '@stageflow/shared';
-import { User } from '../users/user.entity';
+import { readOrderingInstant } from '../database/ordering-instant';
 import { ApiException } from '../http/api.exception';
+import { User } from '../users/user.entity';
 import { Room } from './room.entity';
 
 export type RoomPage = {
@@ -124,7 +125,14 @@ export class RoomsService {
     );
     if (rows.length <= limit.value) return { items, nextCursor: null };
     const last = items.at(-1);
-    const nextCursor = last ? encodeHistoryCursor(last.createdAt, last.id) : null;
+    const ordering = last
+      ? await readOrderingInstant(
+          (sql, parameters) => this.rooms.query(sql, parameters),
+          'rooms',
+          last.id,
+        )
+      : null;
+    const nextCursor = last && ordering ? encodeHistoryCursor(ordering, last.id) : null;
     if (!nextCursor) throw new ApiException(500, 'server_busy', 'The room page could not be read.');
     return { items, nextCursor };
   }

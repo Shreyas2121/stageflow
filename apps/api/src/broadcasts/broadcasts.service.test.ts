@@ -28,6 +28,10 @@ function row(status: BroadcastStatus, roomId = randomUUID()): Broadcast {
   } as Broadcast;
 }
 
+function orderingInstant(date: Date): string {
+  return date.toISOString().replace(/\.(\d{3})Z$/, '.$1000Z');
+}
+
 function fixture(rows: Broadcast[] = []) {
   const repository = {
     update: vi.fn(
@@ -42,6 +46,10 @@ function fixture(rows: Broadcast[] = []) {
     ),
     find: vi.fn(async () => rows),
     findOneBy: vi.fn(async ({ id }: { id: string }) => rows.find((row) => row.id === id) ?? null),
+    query: vi.fn(async (_sql: string, parameters: unknown[]) => {
+      const found = rows.find((row) => row.id === parameters[0]);
+      return found ? [{ ordering: orderingInstant(found.createdAt) }] : [];
+    }),
   };
   const rooms = { getBySlug: vi.fn(async () => ({ id: rows[0]?.roomId ?? randomUUID() })) };
   const service = new BroadcastsService(
@@ -185,6 +193,7 @@ it('does not query broadcasts when the page is invalid', async () => {
     response: { statusCode: 400, error: 'invalid_cursor' },
   });
   expect(repository.find).not.toHaveBeenCalled();
+  expect(repository.query).not.toHaveBeenCalled();
   expect(rooms.getBySlug).not.toHaveBeenCalled();
 });
 
@@ -198,8 +207,9 @@ it('returns 20 broadcasts and a cursor when another row exists', async () => {
   expect(result.items.map((item) => item.id)).toEqual(rows.slice(0, 20).map((item) => item.id));
   expect(parseHistoryCursor(result.nextCursor)).toEqual({
     ok: true,
-    value: { createdAt: kept.createdAt.toISOString(), id: kept.id },
+    value: { createdAt: orderingInstant(kept.createdAt), id: kept.id },
   });
+  expect(result.items[19]?.createdAt).toBe(kept.createdAt.toISOString());
 });
 
 it('passes the cursor instant and id into the broadcast keyset predicate', async () => {
@@ -208,7 +218,7 @@ it('passes the cursor instant and id into the broadcast keyset predicate', async
   const roomId = randomUUID();
   const cursor = encodeHistoryCursor(createdAt, id);
   const { service, repository, rooms } = fixture([]);
-  rooms.getBySlug.mockResolvedValueOnce({ id: roomId });
+  rooms.getBySlug.mockResolvedValue({ id: roomId });
   const result = await service.listByRoomSlug('abc123abc123', { cursor, hostId: randomUUID() });
   expect(result).toEqual({ items: [], nextCursor: null });
   const calls = repository.find.mock.calls as unknown as Array<
@@ -224,6 +234,30 @@ it('passes the cursor instant and id into the broadcast keyset predicate', async
   expect(where?.id?.getSql?.('Broadcast.id')).toBe(
     '("Broadcast"."created_at", "Broadcast"."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))',
   );
+
+  const ordering = '2026-11-03T15:04:05.123900Z';
+  const precise = encodeHistoryCursor(ordering, id);
+  await service.listByRoomSlug('abc123abc123', { cursor: precise });
+  const preciseWhere = (
+    repository.find.mock.calls as unknown as Array<
+      [{ where: { roomId: string; id?: FindOperator<string> } }]
+    >
+  )[1]?.[0].where;
+  expect(preciseWhere?.roomId).toBe(roomId);
+  expect(preciseWhere?.id?.objectLiteralParameters).toEqual({
+    cursorCreatedAt: ordering,
+    cursorId: id,
+  });
+});
+
+it('refuses a broadcast page when the ordering instant cannot be read', async () => {
+  const roomId = randomUUID();
+  const rows = Array.from({ length: 21 }, () => row('READY', roomId));
+  const { service, repository } = fixture(rows);
+  repository.query.mockResolvedValueOnce([]);
+  await expect(service.listByRoomSlug('abc123abc123', {})).rejects.toMatchObject({
+    response: { statusCode: 500, error: 'server_busy' },
+  });
 });
 
 it('rejects a full broadcast page whose next cursor would not parse', async () => {

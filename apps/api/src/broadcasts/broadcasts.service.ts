@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import { In, Raw, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
+import { readOrderingInstant } from '../database/ordering-instant';
 import { ApiException } from '../http/api.exception';
 import { failure } from '../live/signaling.messages';
 import { RoomsService } from '../rooms/rooms.service';
@@ -482,7 +483,14 @@ export class BroadcastsService {
     const items = (rows.length > limit.value ? rows.slice(0, limit.value) : rows).map(catalog);
     if (rows.length <= limit.value) return { items, nextCursor: null };
     const last = items.at(-1);
-    const nextCursor = last ? encodeHistoryCursor(last.createdAt, last.id) : null;
+    const ordering = last
+      ? await readOrderingInstant(
+          (sql, parameters) => this.broadcasts.query(sql, parameters),
+          'broadcasts',
+          last.id,
+        )
+      : null;
+    const nextCursor = last && ordering ? encodeHistoryCursor(ordering, last.id) : null;
     if (!nextCursor)
       throw new ApiException(500, 'server_busy', 'The broadcast page could not be read.');
     return { items, nextCursor };
