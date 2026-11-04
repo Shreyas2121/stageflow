@@ -1,6 +1,6 @@
 # Guide — V2 Phase 4, commit by commit
 
-**Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C04 are committed. V2P4-C05 is verified. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
+**Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C05 are committed. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -231,9 +231,9 @@ If no browser is available, leave this pass unverified. A synthetic device does 
 
 ## 6. V2P4-C05 — README
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): state the room chat limits`\
-**Actual commit:**
+**Actual commit:** `11115868793b9c205485b20de0f91553ca64ac89`
 
 **Why:** The product README does not yet tell a host what chat remembers, what pause does, or that the log is not the delayed video.
 

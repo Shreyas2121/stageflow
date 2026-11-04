@@ -1,6 +1,6 @@
 # V2 Phase 4 — Room chat
 
-**Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C04 are committed, and V2P4-C05's README review is verified. CHAT-01 through CHAT-03 are verified within the recorded scope. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
+**Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C05 are committed. CHAT-01 through CHAT-03 are verified within the recorded scope. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
 **Last updated:** 2026-11-04.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.5`, Sections 1, 5, 8, 9, 10, 11, and 12 (CHAT-01 through CHAT-04). Unchanged mesh, lock, device, reconnect, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P2 and V2-P3 contracts.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns V2P4-C01 through V2P4-C05. Those ids are not the V1 commits in [V1/phase4/guide.md](V1/phase4/guide.md). This file owns the rules those commits must satisfy.\
