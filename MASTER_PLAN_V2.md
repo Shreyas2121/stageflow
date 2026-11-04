@@ -1,10 +1,12 @@
 # StageFlow — V2 Master Plan
 
 **Direction:** A practical local meeting and webinar product.\
-**Status:** Proposed delivery contract; no V2 implementation started.\
-**Plan version:** `2.0.0-draft.2`\
-**Date:** 2026-11-03\
-**Revision note (2.0.0-draft.2):** V1 phase contracts and guides now live in `plans/V1/`. The active V2 phase file is `plans/phase<N>.md` with its guide at `plans/phase<N>/guide.md`. V2-P1 is written and is not implemented.\
+**Status:** V2-P1 through V2-P3 are implemented. V2-P1 browser checks and the WS-03 smoke, V2-P2 browser passes, and the V2-P3 browser pass against Redis and broadcast/FFmpeg recovery checks remain unverified. V1 physical/native-picker gaps remain open. Chat is planned for V2-P4.\
+**Plan version:** `2.0.0-draft.4`\
+**Date:** 2026-11-04\
+**Revision note (2.0.0-draft.4):** V2-P3, bounded reconnect, is implemented under `plans/phase3.md`; slice hashes, passing tests, partial synthetic-browser evidence, and remaining verification gaps are recorded in `plans/phase3/guide.md`. The contract version is unchanged.\
+**Revision note (2.0.0-draft.3):** V2-P2, in-call devices, is written at `plans/phase2.md`. V2-P1 slices are committed; WS-01 through WS-03 browser checks and the WS-03 smoke remain unverified.\
+**Revision note (2.0.0-draft.2):** V1 phase contracts and guides now live in `plans/V1/`. The active V2 phase file is `plans/phase<N>.md` with its guide at `plans/phase<N>/guide.md`.\
 **Inputs:** [Original idea](idea.md), [V1 master plan](MASTER_PLAN.md), the current repository, and the user's planning answers.\
 **Deployment:** Excluded. All delivery and acceptance run locally.
 
@@ -39,11 +41,13 @@ V1 feature implementation is complete. It provides:
 - Host-side stage composition, ordered WebM uploads, local FFmpeg, live single-rendition HLS, and replay.
 - Server-owned room state, atomic Redis mutations, bounded work, migrations, and targeted regression/integration checks.
 
-Current code deliberately disables socket reconnection. Participant identity and moderation targets are tied to socket IDs. Host disconnection ends the room. Devices are selected before joining. The home page creates or joins rooms; it is not a room-management workspace. Replay listing already exists per room, so V2 must extend that path rather than build a second recording pipeline.
+At the V1 baseline, participant identity and moderation targets were tied to socket IDs, host disconnection ended the room, devices were selected before joining, and home created or joined rooms without a room-management workspace. V2-P1 adds the current-guest workspace, V2-P2 adds in-call device replacement, and V2-P3 separates participant identity from transport and adds bounded suspension/resume with media off. Automatic Socket.IO reconnection remains disabled; recovery uses fresh sockets and explicit resume commands. The existing per-room replay catalog and recording pipeline remain.
 
 V1's documentation still records physical microphone/audible-output, native screen-picker/stop-control, and camera-indicator observations as unverified. These are follow-up evidence gaps, not missing feature phases. Preserve that distinction: they do not block writing V2 plans, and no V2 document may silently mark them passed. Recheck changed media behavior in V2 and carry forward any remaining limitations explicitly.
 
 ## 3. V2 product promise
+
+This is the target for the full V2 release. The workspace, device controls, and bounded reconnect are implemented; room chat remains planned.
 
 **A host can run a small local session, change devices without leaving, recover from a brief connection interruption, talk with the audience through chat, and find the session's replay afterward.**
 
@@ -159,7 +163,7 @@ Initial green-room permission requirements remain V1 behavior. Audio-only entry 
 
 ## 8. Bounded reconnect contract
 
-This is the highest-risk V2 change. It must be implemented as a server-owned membership transition, not just `reconnection: true` in the Socket.IO client.
+The V2-P3 implementation uses server-owned membership transitions and fresh sockets with `reconnection: false`. Its [phase contract](plans/phase3.md) and [execution guide](plans/phase3/guide.md) record the shipped rules, slice hashes, and verification results. Automated checks passed; the isolated synthetic browser run covers part of recovery. The browser pass against Redis, webinar playback/host-interruption/new-attempt browser check, and reconnect-specific audible FFmpeg run remain unverified.
 
 ### 8.1 Identity, authority, and stage reservations
 
@@ -321,6 +325,6 @@ There is no deployment gate. No V3 account, scheduling, waiting-room, or V4 medi
 
 ## 15. Next execution request
 
-When implementation is wanted, start with:
+For V2-P3 verification and handoff, start with:
 
-> Read `MASTER_PLAN_V2.md`, `plans/phase1.md`, and `plans/phase1/guide.md`. Implement the next planned V2-P1 slice only. Reuse existing recording and guest-session behavior. Do not implement device switching, reconnect, chat, accounts, scheduling, or deployment in this phase.
+> Read `MASTER_PLAN_V2.md`, `plans/phase3.md`, and `plans/phase3/guide.md` for the shipped reconnect behavior and remaining verification gaps. V2-P3 implementation is complete. Keep the current mesh, device replacement, and broadcast pipeline. Do not start another phase or add chat, accounts, scheduling, deployment, or ICE restart without a new request.

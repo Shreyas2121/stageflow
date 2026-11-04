@@ -1,6 +1,6 @@
 # Guide — V2 Phase 3, commit by commit
 
-**Status:** in progress. V2P3-C01 and V2P3-C02 are committed. V2P3-C03 is verified and ready to commit. V2P3-C04 has not started.\
+**Status:** implementation complete; acceptance partially verified. V2P3-C01 through V2P3-C03 are committed. V2P3-C04 is verified and ready to commit. Browser and physical/native-picker gaps remain open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -171,9 +171,9 @@ pnpm smoke:live
 
 ## 4. V2P3-C03 — Page recovery
 
-**Status:** verified; ready to commit\
+**Status:** committed\
 **Proposed commit message:** `feat(web-live): resume one membership with media off`\
-**Actual commit:**
+**Actual commit:** `4a39252c5faaeaa3f84d86a30fa68fb5c4ea9bfd`
 
 **Why:** A server reservation the page does not reclaim still looks like a reset, and a naive socket reconnect would replay old signaling. Covers REC-03 and the client half of REC-01 and REC-05.
 
@@ -229,7 +229,7 @@ Headless Chromium with synthetic devices verified one Ava membership during susp
 
 ## 5. V2P3-C04 — README
 
-**Status:** planned\
+**Status:** verified; ready to commit\
 **Proposed commit message:** `docs(readme): state the reconnect limits`\
 **Actual commit:**
 
@@ -260,4 +260,6 @@ Read the edited README against phase Section 5. `pnpm exec prettier --check READ
 
 **Done when:** The README matches the shipped reconnect behavior and this guide names every slice hash.
 
-**Handoff:** V2-P4 has not been written. Do not add chat in this commit.
+**Verification result (2026-11-04):** Reviewed README behavior against phase Section 5 and the shipped key list, recovery lifecycle, and broadcast interruption paths. The README covers twenty-second grace, explicit leave/page exit, expiry, same-page credential limits, media-off resume, host locks, stopped demos/share, host broadcast failure, continuing non-host broadcasts, restart reset, and all nine keys with `KEYS[6]` unchanged. `pnpm exec prettier --check README.md plans/phase3.md plans/phase3/guide.md plans/README.md MASTER_PLAN_V2.md` passed. Phase statuses distinguish passing automated checks and isolated synthetic-browser observations from the unverified browser pass against Redis, broadcast/playback/FFmpeg recovery check, and earlier physical/browser gaps. C04 changes documentation only; the passing C01 through C03 runtime checks are preserved as dated evidence. The final slice hash is recorded after this slice commit in `docs(v2-phase3): record the final slice hash`.
+
+**Handoff:** V2-P3 implementation is complete with the recorded verification gaps. V2-P4 has not been written or authorized. Do not add chat in this commit.
