@@ -1,9 +1,9 @@
 # Guide — V2 Phase 5, commit by commit
 
-**Status:** in progress. V2P5-C01 and V2P5-C02 are committed. V2P5-C03 is verified and awaiting commit. V2P5-C04 remains planned.\
+**Status:** delivered; acceptance partial. V2P5-C01, V2P5-C02, and V2P5-C03 are committed. V2P5-C04 is verified. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is this record. P3-A03, P3-A05, and P3-A06 stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.6`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
+**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.7`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
 **Deliverable:** The practical local session has a visible chat server time, a recorded keyboard pass, and an honest acceptance record, in four commits. This is the only V2 Phase 5 guide. Its commit ids are not the V1 Phase 5 commits in [../V1/phase5/guide.md](../V1/phase5/guide.md).
 
 ## 1. Execution rules
@@ -134,9 +134,9 @@ That command passed. Product code is unchanged, so the web suite, typecheck, lin
 
 ## 4. V2P5-C03 — Local session evidence
 
-**Status:** verified; awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `test(release): account for the local session script`\
-**Actual commit:**
+**Actual commit:** `6bacf57ae248404e2f8c655f59ca45a4f4dbf881`
 
 **Why:** The release smoke still expects two migrations, and the combined script has no single record. Covers QA-01, QA-02, and the earlier ids in Section 4.1.
 
@@ -180,7 +180,7 @@ Section 4.1 records the mapped observations. Chrome fake tracks did not dispatch
 
 ## 5. V2P5-C04 — Acceptance record
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `docs(readme): record the V2 acceptance result`\
 **Actual commit:**
 
@@ -209,5 +209,7 @@ Section 4.1 records the mapped observations. Chrome fake tracks did not dispatch
 Read the edited README against phase Sections 4.1 and 5. `pnpm exec prettier --check README.md plans/phase5.md plans/phase5/guide.md plans/README.md MASTER_PLAN_V2.md` passes.
 
 **Done when:** The README matches the recorded acceptance result and this guide names every slice hash.
+
+**Verification result (2026-11-04):** Reviewed the edited README against phase Sections 4.1 and 5. It states UX-01 verified, QA-01 verified, QA-02 partial, and QA-03 verified as this documentation record. Each chat line shows the Section 5.1 server time. The shipped guest, device, reconnect, chat, and broadcast limits stay. The README names every Section 4.1 id that is still partial or unverified, including open P3-A03, P3-A05, and P3-A06, and it names the skipped `pnpm check:release` and `pnpm smoke:broadcast` commands. Redis and disposable Postgres were available. Accounts, scheduling, deployment, and `restartIce` stay future work. `pnpm exec prettier --check README.md plans/phase5.md plans/phase5/guide.md plans/README.md MASTER_PLAN_V2.md` passed. This slice adds no runtime behavior or browser observation. This guide records C01 `03cf746d87cdf567b26acb7450a31f3fa786f31d`, C02 `c07636cfd3d69023073d9c1585abdd39f0f3d836`, and C03 `6bacf57ae248404e2f8c655f59ca45a4f4dbf881`. C04's hash stays blank in this commit.
 
 **Handoff:** V2 has no further phase file. Do not add accounts in this commit.
