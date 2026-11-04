@@ -1290,6 +1290,7 @@ describe('RoomSession', () => {
     ['invalid_resume', 'The connection was gone too long. Join again.'],
     ['resume_expired', 'The connection was gone too long. Join again.'],
     ['room_ended', 'This room has ended.'],
+    ['stale_transport', 'The connection was gone too long. Join again.'],
   ] as const)('stops the budget on %s and drops the resume credential', async (error, message) => {
     vi.useFakeTimers();
     const h = open({
@@ -1304,6 +1305,249 @@ describe('RoomSession', () => {
     expect(h.session.role).toBeNull();
     await vi.advanceTimersByTimeAsync(30000);
     expect(h.opens).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['server_busy', 'The live server is busy. Try again shortly.'],
+    ['server_error', 'Unable to update the live room. Join again.'],
+    ['rate_limited', 'Too many room commands. Try again shortly.'],
+    ['already_connected', 'This participant is already connected.'],
+  ] as const)(
+    'retries %s on the selected schedule and resumes the same membership',
+    async (error, message) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const devices = stubDeviceList();
+      let calls = 0;
+      const h = open({
+        freshConnections: true,
+        resume: async () => {
+          calls += 1;
+          if (calls === 1) return { ok: false, error, message: 'server sentence' };
+          return {
+            ok: true,
+            participantId: 'self',
+            connectionGeneration: 2,
+            iceServers: [],
+            snapshot: recoveredSnapshot(),
+          };
+        },
+      });
+      await joinRecoverable(h);
+      const original = h.opened[0]!.connection;
+      h.callbacks()!.onDisconnect();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.session.phase).toBe('recovering');
+      expect(h.session.error).toBe(message);
+      const failed = h.opened[1]!.connection;
+      expect(failed.close).toHaveBeenCalled();
+      expect(failed.leave).not.toHaveBeenCalled();
+      expect(failed.join).not.toHaveBeenCalled();
+      expect(failed.media).not.toHaveBeenCalled();
+      expect(original.leave).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(h.session.phase).toBe('joined');
+      expect(h.session.error).toBe('');
+      expect(calls).toBe(2);
+      expect(h.opened[2]!.connection.resume).toHaveBeenCalledExactlyOnceWith({
+        roomId: room.id,
+        participantId: 'self',
+        resumeCredential: 'page-credential',
+      });
+      expect(h.opened[2]!.connection.join).not.toHaveBeenCalled();
+      expect(h.media.prepareCalls).toBe(0);
+      expect(devices.getUserMedia).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(calls).toBe(2);
+    },
+  );
+
+  it('does not adopt a lost generation and lets the next selected attempt bind', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const devices = stubDeviceList();
+    let calls = 0;
+    const h = open({
+      freshConnections: true,
+      resume: async () => {
+        calls += 1;
+        if (calls === 1)
+          return {
+            ok: false,
+            error: 'resume_lost',
+            message: 'Another connection resumed this membership.',
+          };
+        return {
+          ok: true,
+          participantId: 'self',
+          connectionGeneration: 3,
+          iceServers: [],
+          snapshot: {
+            ...recoveredSnapshot(),
+            participants: [{ ...recoveredSnapshot().participants[0]!, connectionGeneration: 3 }],
+          },
+        };
+      },
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('recovering');
+    expect(h.session.error).toBe('Another connection resumed this membership.');
+    expect(useRoomStore.getState().snapshot).toBeNull();
+    expect(useRoomStore.getState().selfParticipantId).toBeNull();
+    expect(h.opened[1]!.connection.leave).not.toHaveBeenCalled();
+    expect(h.opened[1]!.connection.join).not.toHaveBeenCalled();
+    expect(h.opened[1]!.connection.media).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.session.phase).toBe('joined');
+    expect(useRoomStore.getState().snapshot?.participants[0]?.connectionGeneration).toBe(3);
+    expect(h.opened[1]!.connection.leave).not.toHaveBeenCalled();
+    expect(h.opened[2]!.connection.leave).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(calls).toBe(2);
+  });
+
+  it('keeps recovering when an older attempt loses the generation after a newer socket replaced it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    let finishLost!: (result: ResumeAck) => void;
+    let calls = 0;
+    const h = open({
+      freshConnections: true,
+      resume: () => {
+        calls += 1;
+        if (calls === 1)
+          return new Promise((resolve) => {
+            finishLost = resolve;
+          });
+        if (calls === 2)
+          return Promise.resolve({
+            ok: false,
+            error: 'already_connected',
+            message: 'This participant is already connected.',
+          });
+        return Promise.resolve({
+          ok: true,
+          participantId: 'self',
+          connectionGeneration: 3,
+          iceServers: [],
+          snapshot: recoveredSnapshot(),
+        });
+      },
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.session.phase).toBe('recovering');
+    expect(h.session.error).toBe('This participant is already connected.');
+    finishLost({
+      ok: false,
+      error: 'resume_lost',
+      message: 'Another connection resumed this membership.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('recovering');
+    expect(h.session.error).toBe('This participant is already connected.');
+    expect(h.opened[1]!.connection.leave).not.toHaveBeenCalled();
+    expect(h.opened[2]!.connection.leave).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.session.phase).toBe('joined');
+    expect(calls).toBe(3);
+    expect(h.opened[1]!.connection.join).not.toHaveBeenCalled();
+    expect(h.opened[2]!.connection.join).not.toHaveBeenCalled();
+    expect(h.opened[3]!.connection.join).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(calls).toBe(3);
+  });
+
+  it('stops at twenty seconds when every selected attempt is transiently busy', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const h = open({
+      freshConnections: true,
+      resume: async () => ({
+        ok: false,
+        error: 'server_busy',
+        message: 'The live server is busy. Try again shortly.',
+      }),
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('recovering');
+    expect(h.session.error).toBe('The live server is busy. Try again shortly.');
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(h.opens).toHaveBeenCalledTimes(5);
+    expect(h.session.phase).toBe('recovering');
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(h.session.phase).toBe('lobby');
+    expect(h.session.error).toBe('The connection was gone too long. Join again.');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(h.opens).toHaveBeenCalledTimes(5);
+    for (const attempt of h.opened.slice(1)) {
+      expect(attempt.connection.join).not.toHaveBeenCalled();
+      expect(attempt.connection.leave).not.toHaveBeenCalled();
+      expect(attempt.connection.close).toHaveBeenCalled();
+    }
+  });
+
+  it('cancels later attempts after a transient failure when the page hides', async () => {
+    vi.useFakeTimers();
+    const page = pageLifecycle();
+    let calls = 0;
+    const h = open({
+      freshConnections: true,
+      resume: async () => {
+        calls += 1;
+        return {
+          ok: false,
+          error: 'server_busy',
+          message: 'The live server is busy. Try again shortly.',
+        };
+      },
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('recovering');
+    page('pagehide');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(calls).toBe(1);
+    expect(h.session.phase).toBe('lobby');
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.opened[1]!.connection.join).not.toHaveBeenCalled();
+  });
+
+  it('cancels later attempts after a transient failure when the member leaves', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const h = open({
+      freshConnections: true,
+      resume: async () => {
+        calls += 1;
+        return {
+          ok: false,
+          error: 'already_connected',
+          message: 'This participant is already connected.',
+        };
+      },
+    });
+    await joinRecoverable(h);
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('recovering');
+    await h.session.leave();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(calls).toBe(1);
+    expect(h.session.phase).toBe('lobby');
+    expect(h.opens).toHaveBeenCalledTimes(2);
+    expect(h.opened[1]!.connection.join).not.toHaveBeenCalled();
+    expect(h.opened[1]!.connection.leave).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
   });
 
   it('leaves a resume binding that succeeds after leave and cancels all further attempts', async () => {

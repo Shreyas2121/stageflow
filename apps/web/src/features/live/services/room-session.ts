@@ -33,6 +33,30 @@ type PendingStageEvent =
   | { type: 'description'; payload: RelayedDescription }
   | { type: 'candidate'; payload: RelayedIceCandidate };
 
+/** Answers that can succeed on a later selected attempt. `resume_lost` stays here so the loser does not adopt the winning transport. */
+function retryableResumeMessage(error: string): string | null {
+  switch (error) {
+    case 'server_busy':
+      return 'The live server is busy. Try again shortly.';
+    case 'server_error':
+      return 'Unable to update the live room. Join again.';
+    case 'rate_limited':
+      return 'Too many room commands. Try again shortly.';
+    case 'already_connected':
+      return 'This participant is already connected.';
+    case 'resume_lost':
+      return 'Another connection resumed this membership.';
+    default:
+      return null;
+  }
+}
+
+function terminalResumeMessage(error: string): string {
+  if (error === 'participant_not_found') return 'The live room reset. Join again.';
+  if (error === 'room_ended') return 'This room has ended.';
+  return 'The connection was gone too long. Join again.';
+}
+
 export type RoomMedia = TrackSource & {
   readonly ready: boolean;
   prepare(video: HTMLVideoElement, choices: DeviceChoices): Promise<boolean>;
@@ -865,13 +889,13 @@ export class RoomSession {
         return;
       }
       if (epoch !== this.recoveryEpoch || this.connection !== active) return;
-      const message =
-        result.error === 'participant_not_found'
-          ? 'The live room reset. Join again.'
-          : result.error === 'room_ended'
-            ? 'This room has ended.'
-            : 'The connection was gone too long. Join again.';
-      this.failRecovery(message);
+      const retryable = retryableResumeMessage(result.error);
+      if (retryable) {
+        // This socket did not bind. Close it without leave so the connected transport, or the generation winner, stays the membership.
+        this.keepRecovering(active, retryable);
+        return;
+      }
+      this.failRecovery(terminalResumeMessage(result.error));
       if (result.error === 'room_ended') this.notifyEnded();
     } catch {
       active?.close();
@@ -921,6 +945,15 @@ export class RoomSession {
     this.state.phase = 'joined';
     this.chat.connect(active);
     this.syncFromStore();
+  }
+
+  /** Drops one failed attempt and leaves the 0/1/2/4-second schedule and resume credential in place. */
+  private keepRecovering(active: RoomConnection, message: string): void {
+    if (this.connection === active) this.connection = null;
+    active.close();
+    if (this.state.phase !== 'recovering') return;
+    this.state.error = message;
+    this.emit();
   }
 
   private failRecovery(message: string): void {

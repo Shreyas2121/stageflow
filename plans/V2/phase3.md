@@ -117,6 +117,8 @@ Demotion of a suspended speaker removes that person from the stage set, clears t
 
 The client retry budget is the same 20 seconds, measured from its own detection. It opens a new socket at 0, 1, 2, and 4 seconds and does not start an attempt at or after 20 seconds. Each attempt uses `reconnection: false` and a new manager. The old socket's pending SDP, ICE, media, and moderation are discarded. The only membership command on that socket before a fresh snapshot is `room:resume`.
 
+`server_busy`, `server_error`, `rate_limited`, and `already_connected` stay inside that schedule. The page shows the condition, closes the failed socket, and does not send join, media, moderation, or a buffered command on it. `invalid_resume`, `resume_expired`, `participant_not_found`, and `room_ended` still stop the budget immediately. Any other negative acknowledgement stops it too. `resume_lost` means this socket lost the generation race. The page does not treat that socket as the current transport and does not leave the winner. Only an acknowledgement with `ok: true` installs that attempt's `connectionGeneration`.
+
 Leave during recovery stops further attempts. If a resume has already bound, the page sends `room:leave` on that binding. If the server has already expired the row, the page stays in the lobby.
 
 ### 5.4 Media and peers
@@ -141,7 +143,7 @@ API restart keeps `failInFlight` with `api restarted` and the presence reset. A 
 
 ### 5.6 What the page shows
 
-A recoverable drop shows `Reconnecting. This room is still open.` An expired or rejected resume shows `The connection was gone too long. Join again.` Room end still shows `This room has ended.` The reset sentence is reserved for a missing membership after restart or a dropped presence. Use a status announcement. Leave remains available during recovery.
+A recoverable drop shows `Reconnecting. This room is still open.` A transient resume failure also shows its condition: `The live server is busy. Try again shortly.`, `Unable to update the live room. Join again.`, `Too many room commands. Try again shortly.`, `This participant is already connected.`, or `Another connection resumed this membership.` Those conditions stay inside the retry budget. An expired credential, a failed verifier, or the end of the budget shows `The connection was gone too long. Join again.` Room end still shows `This room has ended.` The reset sentence is reserved for a missing membership after restart or a dropped presence. Use a status announcement. Leave remains available during recovery.
 
 A refresh that lost the credential and finds the row still reserved shows the existing already-joined sentence. The page does not submit join in a loop.
 
