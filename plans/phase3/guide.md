@@ -1,6 +1,6 @@
 # Guide — V2 Phase 3, commit by commit
 
-**Status:** implementation complete; acceptance partially verified. V2P3-C01 through V2P3-C03 are committed. V2P3-C04 is verified and ready to commit. Browser and physical/native-picker gaps remain open.\
+**Status:** implementation complete; acceptance partially verified. V2P3-C01 through V2P3-C04 are committed. Browser and physical/native-picker gaps remain open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -229,9 +229,9 @@ Headless Chromium with synthetic devices verified one Ava membership during susp
 
 ## 5. V2P3-C04 — README
 
-**Status:** verified; ready to commit\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): state the reconnect limits`\
-**Actual commit:**
+**Actual commit:** `501c490dae070b6ae39459eeb9969737c8d182cf`
 
 **Why:** The product README still says every host disconnect ends the room and that socket resume is absent. After this phase, the reader needs the grace, leave, expiry, and media limits.
 
