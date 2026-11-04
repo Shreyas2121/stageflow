@@ -1,77 +1,77 @@
-# Guide — V2 Phase 1, commit by commit
+# Guide — V3 Phase 1, commit by commit
 
-**Status:** V2P1-C01, V2P1-C02, V2P1-C03, V2P1-C04, and V2P1-C05 are committed.\
-**Last updated:** 2026-11-03.\
+**Status:** planned. No slice is implemented.\
+**Last updated:** 2026-11-04.\
 **Phase contract:** [../phase1.md](../phase1.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.2`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
-**Deliverable:** The current guest can find created rooms, copy an invitation, and open existing replay history, in five commits. This is the only V2 Phase 1 guide. Its commit ids are not the V1 Phase 1 commits in [../V1/phase1/guide.md](../V1/phase1/guide.md).
+**Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** A guest can become a host, and that host can log in again and see the same rooms, in six commits. This is the only V3 Phase 1 guide. Its commit ids are not the V1 Phase 1 commits in [../V1/phase1/guide.md](../V1/phase1/guide.md) or the V2 Phase 1 commits in [../V2/phase1/guide.md](../V2/phase1/guide.md).
 
 ## 1. Execution rules
 
-Read the phase contract before editing code. Planning-time `HEAD` was `0267919feb41da48eda803498666e3f2b88d3f37`. The worktree was dirty when this guide was written. Recheck it.
+Read the phase contract before editing code. Planning-time `HEAD` was `03ac691f661a`. The worktree was dirty when this guide was written. Recheck it.
 
 When implementation is authorized:
 
 1. Reinspect the workspace. If a slice is already present, verify it and continue. Do not duplicate it.
-2. Run V2P1-C01 through V2P1-C05 in order. Stop after the requested slice.
+2. Run V3P1-C01 through V3P1-C06 in order. Stop after the requested slice.
 3. Each slice leaves `pnpm typecheck`, `pnpm lint`, and the tests introduced so far passing.
-4. After verification, commit that slice under V1 master Section 1.4 before starting the next one. Do not push or change git config. Leave `Actual commit` blank inside the slice commit, then record the real hash. The last slice's hash is `docs(v2-phase1): record the final slice hash`.
-5. If a browser cannot be used, leave the browser half of the related acceptance id unverified and name the gap.
-6. If disposable Postgres, Redis, or FFmpeg is missing, leave the `pnpm smoke:broadcast` half of WS-03 unverified. Do not point the smoke at the developer database, and do not delete developer recordings to make it pass.
+4. After verification, commit that slice under V1 master Section 1.4 before starting the next one. Do not push or change git config. Leave `Actual commit` blank inside the slice commit, then record the real hash. The last slice's hash is `docs(v3-phase1): record the final slice hash`.
+5. If a browser cannot be used, leave the browser half of ID-01, ID-02, ID-03, and ID-04 unverified and name the gap.
+6. If disposable Postgres is missing, leave the migration-run half unverified. Do not point a migration at the developer database, and do not delete developer rows to make it pass.
 
-Keep guest JWT lifetime, slug fetch, replay fetch, the mesh, moderation, and the broadcast pipeline. Do not add an account, a device change, reconnect, or chat.
+Keep the guest create route, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Do not add Google, scheduling, replay privacy, deletion, or Q&A.
 
 ### 1.1 Commit index
 
-| Order | ID       | Proposed message                                                     | Acceptance          |
-| ----- | -------- | -------------------------------------------------------------------- | ------------------- |
-| 1     | V2P1-C01 | `feat(shared): parse a room link and a history cursor`               | WS-02 parser        |
-| 2     | V2P1-C02 | `feat(api-rooms): list rooms for the current guest`                  | WS-01               |
-| 3     | V2P1-C03 | `feat(api-broadcast): page broadcast history and expose a thumbnail` | WS-03 catalog       |
-| 4     | V2P1-C04 | `feat(web-home): show this guest's rooms and recordings`             | WS-01, WS-02, WS-03 |
-| 5     | V2P1-C05 | `docs(readme): describe the guest room workspace`                    | README limits       |
+| Order | ID       | Proposed message                                                      | Acceptance          |
+| ----- | -------- | --------------------------------------------------------------------- | ------------------- |
+| 1     | V3P1-C01 | `feat(shared): parse a host email and password`                       | ID-01 parsers       |
+| 2     | V3P1-C02 | `feat(api-auth): store a host password and version tokens`            | ID-02, ID-04        |
+| 3     | V3P1-C03 | `feat(api-auth): register and log in a host`                          | ID-01               |
+| 4     | V3P1-C04 | `feat(api-auth): promote the current guest and change the password`   | ID-02, ID-03        |
+| 5     | V3P1-C05 | `feat(web-home): sign in, promote a guest, and show the host library` | ID-01 through ID-04 |
+| 6     | V3P1-C06 | `docs(readme): describe host accounts and guest promotion`            | README limits       |
 
 ### 1.2 Files to inspect before editing
 
-- `packages/shared/src/contracts.ts`, `contracts.test.ts`, `broadcast.ts`, `limits.ts`, and `index.ts`
-- `apps/api/src/rooms/rooms.controller.ts`, `rooms.service.ts`, and `room.entity.ts`
-- `apps/api/src/broadcasts/broadcasts.controller.ts`, `broadcasts.service.ts`, `broadcasts.service.test.ts`, and `hls-path.ts`
+- `packages/shared/src/contracts.ts`, `contracts.test.ts`, `limits.ts`, and `index.ts`
+- `apps/api/src/users/user.entity.ts`
+- `apps/api/src/sessions/sessions.service.ts`, `sessions.service.test.ts`, `sessions.controller.ts`, and `sessions.module.ts`
 - `apps/api/src/database/data-source.ts`
-- `apps/api/src/migrations/1730332800000-CreateUsersAndRooms.ts` and `1793577600000-CreateBroadcasts.ts`
-- `apps/api/src/admission/http-admission.test.ts`
-- `apps/web/src/pages/HomePage.tsx`, `RoomPage.tsx`, `ReplayPage.tsx`, and `App.tsx`
+- `apps/api/src/migrations/1793664000000-IndexRoomsByHost.ts`
+- `apps/api/src/admission/http-admission.ts` and `http-admission.test.ts`
+- `apps/api/src/live/live.connection.ts`, `live.module.ts`, and `signaling.gateway.ts`
+- `apps/api/package.json`
+- `apps/web/src/pages/HomePage.tsx`
+- `apps/web/src/features/session/api.ts`, `session-store.ts`, and `session-store.test.ts`
+- `apps/web/src/features/rooms/room-list.tsx`
 - `apps/web/src/app/entry-graph.test.ts`
-- `apps/web/src/features/rooms/api.ts` and `query-options.ts`
-- `apps/web/src/features/session/session-store.ts` and `guest-entry.ts`
-- `apps/web/src/features/broadcast/api.ts` and `services/playback.ts`
 - `scripts/smoke-broadcast.mjs`
 - `README.md`
 
-## 2. V2P1-C01 — Room link and history cursor
+## 2. V3P1-C01 — Email and password parsers
 
-**Status:** committed\
-**Proposed commit message:** `feat(shared): parse a room link and a history cursor`\
-**Actual commit:** `49eac3904afac2ed6db45c8b8186fc490935c63e`
+**Status:** planned\
+**Proposed commit message:** `feat(shared): parse a host email and password`\
+**Actual commit:**
 
-**Why:** Join and both list routes need one page-size rule, one cursor, and one invitation parser before either app grows a route. Covers the parser half of WS-02.
+**Why:** Register, login, promote, and password change need one email rule and one password rule before either app grows a route. Covers the parser half of ID-01.
 
 **Depends on:** The shared Vitest setup.
 
 **Files:**
 
+- `packages/shared/src/account.ts`
+- `packages/shared/src/account.test.ts`
 - `packages/shared/src/contracts.ts`
-- `packages/shared/src/contracts.test.ts`
-- `packages/shared/src/catalog-page.ts`
-- `packages/shared/src/catalog-page.test.ts`
 - `packages/shared/src/index.ts`
 
 **Implementation:**
 
-1. Add `invalid_page`, `invalid_cursor`, and `invalid_room_link` to `ApiErrorBody['error']`. The API does not emit `invalid_room_link` in this slice.
-2. Add `parseRoomJoinTarget(input, origin)` in `contracts.ts` using the phase Section 5.4 cases. Trim first. Accept a slug, an exact `/r/{slug}` path, and an absolute `http` or `https` URL on the supplied origin. Reject replay URLs, other origins, protocol-relative URLs, queries, hashes, userinfo, extra segments, backslashes, and values the URL parser rewrites. Use a fixed dummy origin for path-only values, in the same way `replayReturnPath` refuses rewritten paths.
-3. Add `packages/shared/src/catalog-page.ts` and export it from `index.ts`. `CATALOG_PAGE_DEFAULT` is 20 and `CATALOG_PAGE_MAX` is 50. `parseCatalogLimit` accepts a missing value as 20 and an unpadded integer string from 1 to 50. `0`, `51`, `020`, blanks, arrays, and non-strings are `invalid_page` with `Choose a page size from 1 to 50.`
-4. `encodeHistoryCursor(createdAt, id)` returns unpadded base64url of `v1\n${instant}\n${lowercaseUuid}`, or null when the instant does not round-trip through `toISOString` or the id is not a UUID. `parseHistoryCursor` maps a missing or empty value to `{ ok: true, value: null }`. Every other malformed value is `invalid_cursor` with `That page cursor is not valid.` A valid cursor parses back to the same instant and lowercase id.
-5. Tests use plain values. Include a slug `Ab12Cd34Ef56`, origin `https://stageflow.test`, the matching absolute URL, the path form, a whitespace-padded slug, a replay URL, `https://evil.example/r/Ab12Cd34Ef56`, a query, a hash, a short slug, and `//stageflow.test/r/Ab12Cd34Ef56`. Include limit values 20, missing, `1`, `50`, `0`, `51`, and `020`. Include a cursor round-trip, an empty cursor, a padded base64 value, and a cursor whose instant is not canonical.
+1. Add `invalid_email`, `invalid_password`, `email_taken`, `not_guest`, `not_registered`, `membership_active`, and `wrong_password` to `ApiErrorBody['error']`. Nothing emits them yet.
+2. Add `parseEmail` and `parsePassword` with the phase Section 5.2 cases. Export them from `index.ts`.
+3. Tests use plain values. Accept `Ava@Example.com` as `ava@example.com`. Accept `a@b.co`. Reject `ava`, `ava@`, `@example.com`, `ava@example`, `ava example@example.com`, a newline, a 255-character address, and a non-string.
+4. Accept a password of 8 `a` characters and a 72-byte ASCII password. Reject 7 characters, 73 ASCII characters, a string whose UTF-8 form exceeds 72 bytes, a leading newline, and a non-string. Do not trim a password that starts or ends with a space when the rest is long enough.
 
 **Verification:**
 
@@ -81,131 +81,158 @@ pnpm typecheck
 pnpm lint
 ```
 
-**Done when:** The parser cases above pass and the slice is committed.
+**Done when:** The parsers accept and reject the cases above, and no API route exists for them yet.
 
-**Handoff:** No route reads the new parsers yet. `BroadcastResponse` is unchanged.
+## 3. V3P1-C02 — Password hash and token claims
 
-## 3. V2P1-C02 — Current guest's rooms
+**Status:** planned\
+**Proposed commit message:** `feat(api-auth): store a host password and version tokens`\
+**Actual commit:**
 
-**Status:** committed\
-**Proposed commit message:** `feat(api-rooms): list rooms for the current guest`\
-**Actual commit:** `538e01788b03f3b1993a26d6aef14fe44bb4e579`
+**Why:** Guest tokens issued after this slice carry `sv` and `guest`, and old guest tokens still verify. Later slices can register against that row. Covers the token half of ID-02 and the guest-token half of ID-04.
 
-**Why:** The workspace needs a server-owned host list before the page can show one. Covers the API half of WS-01.
-
-**Depends on:** V2P1-C01. `RoomsService.create` and `getBySlug` stay.
+**Depends on:** V3P1-C01.
 
 **Files:**
 
-- `apps/api/src/migrations/<timestamp>-IndexRoomsByHost.ts`
+- `apps/api/package.json` and the lockfile
+- `apps/api/src/sessions/password.ts`
+- `apps/api/src/sessions/password.test.ts`
+- `apps/api/src/users/user.entity.ts`
+- `apps/api/src/migrations/1793923200000-AddHostCredentials.ts`
 - `apps/api/src/database/data-source.ts`
-- `apps/api/src/rooms/room.entity.ts`
-- `apps/api/src/rooms/rooms.service.ts`
-- `apps/api/src/rooms/rooms.service.test.ts`
-- `apps/api/src/rooms/rooms.controller.ts`
-
-**Implementation:**
-
-1. Add a migration whose timestamp is greater than `1793577600000`. `up` runs `CREATE INDEX rooms_host_created_idx ON rooms (host_id, created_at DESC, id DESC)`. `down` drops only that index. Register the class in `data-source.ts` after the broadcasts migration. Leave `synchronize` and `migrationsRun` off. Do not edit `1730332800000-CreateUsersAndRooms.ts`.
-2. Declare `@Index('rooms_host_created_idx', ['hostId', 'createdAt', 'id'])` on `Room`. The migration remains the authority for descending order.
-3. Add `listForHost(host, query)` on `RoomsService`. Parse `limit` and `cursor` with the shared helpers. On a failed parse, throw `ApiException` with that status, error, and message, and do not touch the repository. Read no host id from `query`.
-4. Query `host_id = host.id` only. Order `createdAt DESC, id DESC`. Take `limit + 1`. With a cursor, add a keyset predicate for `(created_at, id)` strictly before the cursor in that order, comparing `id` as a UUID. Map the returned entities with the same `RoomResponse` fields `getBySlug` already returns, including the host display name. If the extra row exists, drop it and set `nextCursor` from the last kept row through `encodeHistoryCursor`. If encoding fails, throw a 500 rather than returning a cursor `parseHistoryCursor` would reject. Otherwise `nextCursor` is null.
-5. Add `@Get()` on `RoomsController` before `@Get(':slug')`. It passes `@CurrentUser()` and the `limit` and `cursor` query values. If either query value is an array, treat it as invalid through the shared parser. `@Get(':slug')` stays public to every authenticated guest.
-6. Service tests use a repository fake, not the developer database. Cover: the where parameter is the caller's id when `query.hostId` is someone else; an invalid limit and an invalid cursor never call the repository; a missing limit requests 21 rows; 21 fake rows become 20 items and a cursor that parses to the 20th row; 2 rows produce `nextCursor: null`; a cursor query passes both the instant and the id into the keyset predicate. Follow the mock style in `broadcasts.service.test.ts`.
-
-**Verification:**
-
-```powershell
-pnpm --filter @stageflow/api test
-pnpm typecheck
-pnpm lint
-```
-
-**Done when:** WS-01's API cases pass and the slice is committed.
-
-**Handoff:** The home page does not call `GET /api/rooms` yet. Broadcast history is still a JSON array.
-
-## 4. V2P1-C03 — Paged broadcast history and thumbnail
-
-**Status:** committed\
-**Proposed commit message:** `feat(api-broadcast): page broadcast history and expose a thumbnail`\
-**Actual commit:** `595fe276a6af6e67e3c8526189340dd79e91c153`
-
-**Why:** The existing list is unbounded and smoke still depends on it. The catalog can name a thumbnail without generating one. Covers the catalog half of WS-03.
-
-**Depends on:** V2P1-C01. V2P1-C02 is independent and already committed.
-
-**Files:**
-
-- `packages/shared/src/broadcast.ts`
-- `packages/shared/src/broadcast.test.ts`
-- `apps/api/src/broadcasts/broadcasts.service.ts`
-- `apps/api/src/broadcasts/broadcasts.service.test.ts`
-- `apps/api/src/broadcasts/broadcasts.controller.ts`
-- `apps/api/src/broadcasts/hls-path.ts`
-- `apps/api/src/broadcasts/hls-path.test.ts`
-- `apps/api/src/admission/http-admission.test.ts`
-- `apps/web/src/features/broadcast/api.test.ts`
+- `apps/api/src/sessions/sessions.service.ts`
+- `apps/api/src/sessions/sessions.service.test.ts`
 - `scripts/smoke-broadcast.mjs`
-- Every other fixture that `parseBroadcast` now rejects because `thumbnailUrl` is missing
 
 **Implementation:**
 
-1. Add `thumbnailUrl: string | null` to `BroadcastResponse`. `parseBroadcast` accepts null or exactly `/api/broadcasts/{uuid}/thumbnail.jpg` for that same id. Reject every other string, including a playlist path, an absolute URL, and a path for a different id. Update the shared broadcast tests and the web catalog fixtures so a parsed body still round-trips.
-2. Change `listByRoomSlug(slug, query)` to return `{ items, nextCursor }`. Resolve the room with `getBySlug` first, so a bad slug still throws `room_not_found` and does not query broadcasts. Apply the same limit, cursor, extra-row, and order rules as the room list. Do not filter by host. Keep `getById` as one object.
-3. `catalog` sets `thumbnailUrl` to `/api/broadcasts/{id}/thumbnail.jpg` only when the stored path is exactly `broadcasts/{id}/thumbnail.jpg`. Otherwise `thumbnailUrl` is null. The JSON still omits the stored playlist and thumbnail paths. Do not add `thumbnailUrl` to the socket snapshot.
-4. Add a confined `thumbnail.jpg` path helper next to `hlsPath`. It accepts only that filename, then uses the existing directory realpath checks. `GET broadcasts/:id/thumbnail.jpg` calls it only when the row's stored path matches the catalog rule and the file exists. Otherwise throw 404 `media_not_found`. Set `Content-Type: image/jpeg` and `Cache-Control: private`. Do not add the file to the HLS filename regex and do not write a thumbnail from FFmpeg.
-5. Assert in `http-admission.test.ts` that `GET /api/broadcasts/{id}/thumbnail.jpg` is `control`.
-6. Update the list test in `broadcasts.service.test.ts`. It currently expects an array and a `find` ordered by `createdAt DESC, id DESC`. Expect the page object, the default take of 21, and `thumbnailUrl: null`. Add one row whose `thumbnailPath` is the expected relative path and expect the catalog URL. Add one row whose path is `broadcasts/other/thumbnail.jpg` and expect null.
-7. In `scripts/smoke-broadcast.mjs`, replace both array reads of `/rooms/${slug}/broadcasts` with `items`. The newest `LIVE` row and the newest missing-FFmpeg `FAILED` row stay at `items[0]`. Assert `thumbnailUrl` is null. Leave the READY playlist, segment, and restart checks in place.
+1. Add the `bcryptjs` dependency to `@stageflow/api`. Do not add native `bcrypt`. Put `hashPassword` and `verifyPassword` in `password.ts`. Cost is 12. A test hashes one short password, checks that the stored string contains `$12$`, checks that the plaintext is absent, and checks that a different password fails.
+2. Add the migration from phase Section 5.1. Register it after `IndexRoomsByHost1793664000000` in `data-source.ts`. Append `AddHostCredentials1793923200000` to the expected list in `scripts/smoke-broadcast.mjs`.
+3. Map the columns on `User`. `passwordHash` is `select: false`. Defaults keep existing guest inserts valid: null email, null hash, `isGuest: true`, `sessionVersion: 0`.
+4. `createGuest` still inserts a guest. It signs `{ sub: user.id, sv: user.sessionVersion, guest: true }` with `{ expiresIn: '12h' }`. Leave the module default at `12h`.
+5. `verifyToken` applies phase Section 5.3. Missing `sv` is `0`. Missing `guest` matches only a guest row. A boolean `guest` must match `isGuest`. A non-integer `sv` is `unauthorized`.
+6. Update the pending-guest test. The released user includes `sessionVersion: 0` and `isGuest: true`. Expect `signAsync` to receive the guest claims and `expiresIn: '12h'`.
+7. Add verify cases: a guest token with no `sv` and no `guest` still loads a version-0 guest; `sv: 1` on a version-0 user fails; `guest: false` on a guest fails; `guest: true` on a host fails; a missing user fails. Build those tokens with the same `JwtService` settings the app uses, or a test `JwtService` with the test secret. Do not log the secret.
 
 **Verification:**
 
 ```powershell
-pnpm --filter @stageflow/shared test
 pnpm --filter @stageflow/api test
-pnpm --filter @stageflow/web test
 pnpm typecheck
 pnpm lint
 ```
 
-Run `pnpm smoke:broadcast` when disposable Postgres, Redis, and FFmpeg are available. If they are not, record WS-03's smoke half as unverified.
+**Done when:** Existing guest verification still passes, the new claims are signed, and the migration is registered. Register and login routes are still absent.
 
-**Done when:** The five catalog statuses can be represented in one page by the service test, smoke compiles against the page object, and the slice is committed.
+## 4. V3P1-C03 — Register and login
 
-**Handoff:** The home page still does not render history. Replay continues to load one broadcast by id.
+**Status:** planned\
+**Proposed commit message:** `feat(api-auth): register and log in a host`\
+**Actual commit:**
 
-## 5. V2P1-C04 — Workspace on the home page
+**Why:** A host can be created and can return with the same email. A wrong password does not reveal whether the email exists. Covers ID-01 on the API.
 
-**Status:** committed\
-**Proposed commit message:** `feat(web-home): show this guest's rooms and recordings`\
-**Actual commit:** `a7a858fb57c940a389ef733746699e164ccb30b8`
-
-**Why:** The guest can now see and use the catalog without entering the live room. Covers the browser half of WS-01 through WS-03.
-
-**Depends on:** V2P1-C02 and V2P1-C03.
+**Depends on:** V3P1-C02.
 
 **Files:**
 
-- `apps/web/src/features/rooms/api.ts`
-- `apps/web/src/features/rooms/query-options.ts`
-- `apps/web/src/features/rooms/history.ts`
-- `apps/web/src/features/rooms/history.test.ts`
-- `apps/web/src/features/rooms/room-list.tsx`
-- `apps/web/src/features/rooms/room-history.tsx`
-- `apps/web/src/features/rooms/thumbnail.tsx`
+- `apps/api/src/sessions/sessions.service.ts`
+- `apps/api/src/sessions/sessions.service.test.ts`
+- `apps/api/src/sessions/sessions.controller.ts`
+- `apps/api/src/admission/http-admission.ts`
+- `apps/api/src/admission/http-admission.test.ts`
+
+**Implementation:**
+
+1. `POST /api/sessions/register` reads `displayName`, `email`, and `password` from a JSON object. Parse each field. Ignore every other field. Insert `isGuest: false`, the lowercase email, the hash, and `sessionVersion: 0`. Sign a host token with `{ sub, sv: 0, guest: false }` and `{ expiresIn: '7d' }`. Return `{ token, userId, displayName }`.
+2. A duplicate email, including a unique-constraint race (`23505`), throws HTTP 409 `email_taken` with `That email is already registered.` Do not attach the new row to an existing user.
+3. `POST /api/sessions/login` reads `email` and `password`. Load the user with `passwordHash` selected. Compare against the stored hash, or against one lazily cached cost-12 dummy hash when the email is missing. Both failures throw HTTP 401 `unauthorized` with `Email or password is wrong.` Success signs a host token for that row's current `sessionVersion`.
+4. Register and login do not read the Authorization header. A guest bearer does not turn register into promote.
+5. Share one in-flight counter for this password work, capped by `GUEST_PENDING_LIMIT`. The existing guest-insert counter stays separate. Over the cap throws `server_busy` with `Account sign-in is busy. Try again shortly.` and does not start another hash.
+6. Extend the guest network budget in `http-admission.ts` so `POST /api/sessions/register` and `POST /api/sessions/login` spend it the same way `/api/sessions/guest` does. The ordinary control budget still applies first. Cover both new paths in `http-admission.test.ts`.
+7. Service tests use mocked repositories and a real `hashPassword` for one register-and-login pair. Assert the wrong-password and missing-email responses are the same error code and message. Assert a second register with that email does not call `save` a second time after the uniqueness failure is simulated. Assert `signAsync` receives `guest: false` and `expiresIn: '7d'`.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/api test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** Register and login match Section 5.4, guest create is unchanged, and promote is still absent.
+
+## 5. V3P1-C04 — Password change and promotion
+
+**Status:** planned\
+**Proposed commit message:** `feat(api-auth): promote the current guest and change the password`\
+**Actual commit:**
+
+**Why:** The current guest can keep their rooms, a live call blocks that change, and a password change kills the previous token. Covers ID-02 and ID-03 on the API.
+
+**Depends on:** V3P1-C03. The live connection and its Redis client.
+
+**Files:**
+
+- `apps/api/src/sessions/sessions.service.ts`
+- `apps/api/src/sessions/sessions.service.test.ts`
+- `apps/api/src/sessions/accounts.controller.ts`
+- `apps/api/src/sessions/accounts.module.ts`
+- `apps/api/src/app.module.ts`
+- `apps/api/src/live/live.connection.ts`
+- `apps/api/src/live/live.connection.test.ts`
+- `apps/api/src/admission/http-admission.ts`
+- `apps/api/src/admission/http-admission.test.ts`
+
+**Implementation:**
+
+1. Add `LiveConnection.hasUserMembership(userId)`. Scan `<namespace>:room:*:participants`. For each hash, treat a JSON value whose `userId` equals the argument as a membership. Return false when the scan finishes with no match. Throw if Redis fails or the cursor never returns to `0`. Do not delete keys and do not add a reverse index. Cover a matching hash, an empty scan, and a Redis error in the connection test.
+2. Add `AccountsModule` that imports `SessionsModule` and `LiveModule`. Declare the promote route there. Do not import `AccountsModule` from `LiveModule`. Register `AccountsModule` from `AppModule`.
+3. `POST /api/sessions/promote` uses the existing bearer guard. The caller must be `isGuest`. Otherwise throw `not_guest`. Parse `email` and `password`. Ignore a display name in the body. Call `hasUserMembership` before writing. On a match, throw `membership_active` and do not write. Then set email, hash, `isGuest: false`, and `sessionVersion + 1` on that same row. Scan again. On a match, restore the previous email, hash, `isGuest`, and `sessionVersion`, then throw `membership_active`. If the restore throws, throw `server_busy` and do not sign. Success signs a host token. A taken email throws `email_taken` and leaves the guest row as it was.
+4. `POST /api/sessions/password` stays on `SessionsController` because it does not need Redis. The caller must be a host. A guest receives `not_registered`. Parse `currentPassword` and `password` with `parsePassword`. A bad current password throws `wrong_password` and does not change the version. Success stores the new hash, increments `session_version`, and returns a host token. The previous token then fails `verifyToken`.
+5. Both routes spend the password in-flight cap and the guest network budget. Add `/api/sessions/password` and `/api/sessions/promote` beside the paths from C03.
+6. Tests pass a fake membership function into the service. One case finds a membership and expects no `save`. One case saves, then finds a membership and expects the guest columns restored. One case with Redis trouble expects `server_busy` and no host token. One password-change case expects `sv` to move from `0` to `1` and the old token to fail. A second user's rooms are not in the test writes.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/api test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** Promotion and password change match Sections 5.4 and 5.5, and the stage Lua scripts are unchanged.
+
+## 6. V3P1-C05 — Home account panel
+
+**Status:** planned\
+**Proposed commit message:** `feat(web-home): sign in, promote a guest, and show the host library`\
+**Actual commit:**
+
+**Why:** The API from C03 and C04 is reachable on the home page, and a host sees a different sentence from a guest. Covers the browser half of ID-01 through ID-04.
+
+**Depends on:** V3P1-C04. The existing home session store and room list.
+
+**Files:**
+
+- `apps/web/src/features/session/api.ts`
+- `apps/web/src/features/session/session-store.ts`
+- `apps/web/src/features/session/session-store.test.ts`
+- `apps/web/src/features/session/account-panel.tsx`
 - `apps/web/src/pages/HomePage.tsx`
+- `apps/web/src/features/rooms/room-list.tsx`
 - `apps/web/src/app/entry-graph.test.ts`
 
 **Implementation:**
 
-1. Add `replayHref(broadcast)` in `history.ts`. Return `/replay/${id}` only when `status` is `READY` and `playlistUrl` passes `isBroadcastPlaylistUrl`. Return null for `STARTING`, `LIVE`, `STOPPING`, `FAILED`, a READY row without a playlist, and a READY row with a non-catalog playlist. Test those cases. This module imports shared catalog helpers only. It does not import `playback.ts`, the player, or `hls.js`.
-2. Extend the rooms client with `listRooms(token, cursor, signal)` and `listBroadcasts(slug, token, cursor, signal)`. Parse pages with the existing room and broadcast parsers. Reject a room page unless every `hostId` equals the session user id. A 401 still clears that token. Query keys are `['private', userId, 'rooms', cursor]` and `['private', userId, 'room-broadcasts', slug, cursor]`. Use `skipToken` without a session. Do not send `hostId` or a limit above 50. Omit `limit` to take the default of 20.
-3. Change `HomePage` so a usable session skips `createGuest` for both create and join. The name field is shown only when no usable session exists. **Use a different name** calls `clearSession` and is preceded by the sentence that the current rooms stay with this guest token and a new session cannot find them by display name. Join runs `parseRoomJoinTarget` against `window.location.origin` and then `getRoom`. Remove the 12-character `maxLength` from the join field so a pasted URL is not truncated. Keep one abort controller for the submit in flight.
-4. Render the list below the create and join forms. The heading is `Rooms from this guest session`. While a session exists, show: `These rooms belong to this guest session. A new or expired session cannot find them by typing the same display name.` Also show that `LIVE` means the room has not ended and does not mean someone is connected. Each row shows title, mode, status, a `time` element, **Open room**, **Copy invitation**, and **Recordings**.
-5. Copy `{origin}/r/{slug}` with the clipboard API. On success, announce it in a `role="status"` message. On failure, show the URL in a read-only control and say it was not copied. **Open room** is a link to `/r/{slug}`.
-6. **Recordings** fetches the first broadcast page only after it is opened. Append later pages on **Load more**, dedupe by id, and keep already loaded rows if a later page fails. Render each status word. Show a trimmed `errorMessage` when it is non-empty. Render **Watch replay** only from `replayHref`. An empty page says the room has no broadcast attempts. `thumbnail.tsx` fetches a non-null `thumbnailUrl` with the bearer header, displays the object URL, and revokes it when the row changes or the view unmounts. A null URL or a failed fetch is a fallback that shows the status and is not a broken image. Do not put the token in the URL.
-7. Keep the list outside the form `fieldset`, so a pending create does not freeze the list. Do not mount `LiveRoom`. Extend `entry-graph.test.ts` so `HomePage.tsx` still contains no `hls` and does not import `broadcast-player`, `broadcast-player-gate`, or `hls.js`.
+1. Reuse `parseGuest` for register, login, promote, and password responses. Add those four POST helpers next to `createGuest`. They send JSON and, for promote and password, the bearer token.
+2. Add `isHostSession`. It returns true only when the token payload's `guest` value is boolean `false`. A missing claim, a string, or `true` is a guest session. Test a host token, a guest token, and a token with no `guest` claim.
+3. Render `AccountPanel` from `HomePage` for the three states in phase Section 5.6. Keep **Rooms from this guest session** and **Your rooms** in `HomePage.tsx`. Keep the guest explanation. Use the host explanation and empty-list sentence from that section. `RoomList` takes a flag for the empty sentence rather than reading the token itself.
+4. Guest state shows **Create host account** and does not show **Register**. Host state shows **Log out** and **Change password**, and hides **Use a different name**. Signed-out state keeps the display-name field for both guest create and register. Login while a guest session is stored includes the sentence that unpromoted rooms stay on that guest.
+5. Success stores the returned session through `setSession`. Logout calls `clearSession`. Field errors use the parser message. API errors use the response message in an alert. Buttons are real submits, with labels, and the fieldset follows the existing pending-disable pattern.
+6. Do not import `hls.js`, `LiveRoom`, or chat into the home page or the account panel. Extend `entry-graph.test.ts` so the home source still contains the guest heading, also contains `Your rooms`, and still does not contain `hls`.
+7. In the browser, as one guest: create a meeting, promote, log out, and log in from a cleared session. The meeting is listed under **Your rooms**. A wrong password stays on the login form. A second account sees no such meeting. A fresh guest with the same display name sees the guest heading and an empty list. A guest who is inside a live room receives the membership error and still sees the guest heading. Record the browser, the viewport, and any step that could not be run. Update the phase acceptance matrix with that record. Do not mark an unrun browser step verified.
 
 **Verification:**
 
@@ -213,34 +240,21 @@ Run `pnpm smoke:broadcast` when disposable Postgres, Redis, and FFmpeg are avail
 pnpm --filter @stageflow/web test
 pnpm typecheck
 pnpm lint
-rg -n "hls" apps/web/src/pages/HomePage.tsx
 ```
 
-The search prints nothing.
+Then exercise the home flow in the browser. A missing browser leaves ID-01 through ID-04 partial and named.
 
-Browser, with the local API and web app:
+**Done when:** The three home states match Section 5.6, and the replay and room signed-out gates are unchanged.
 
-1. Enter as Ava, create a meeting, return home, and create a webinar without typing the name again. Both rooms appear. A second browser profile as Sam, using the same display name, sees no rooms.
-2. Copy the invitation, paste it into Join, and land on that room. Paste the raw slug and land on it again. Paste a replay URL and another origin's room URL. Both fail and the route does not change.
-3. Open recordings for a room that has a READY attempt and a failed attempt. The statuses are distinct, the failure reason is visible, and only READY follows to the existing replay player. Confirm the home document did not load `hls.js`.
-4. Restart the API. The READY row remains and the replay still plays. Catalog `LIVE` is not described as the host being online.
-5. Use **Use a different name**, create a room, and confirm Ava's rooms are gone from the list. Use the keyboard for create, join, copy, recordings, load more, and the replay link.
+## 7. V3P1-C06 — README
 
-If no browser is available, leave those observations unverified and keep the automated results.
+**Status:** planned\
+**Proposed commit message:** `docs(readme): describe host accounts and guest promotion`\
+**Actual commit:**
 
-**Done when:** The browser script above has a recorded result, or an explicit unverified gap, and the slice is committed.
+**Why:** The README currently says accounts are future work. After C05 it must describe the host token, the guest path, and the promotion limit. This slice adds no runtime behavior.
 
-**Handoff:** Replay guest entry, the live room, and the player chunks are unchanged.
-
-## 6. V2P1-C05 — README
-
-**Status:** committed\
-**Proposed commit message:** `docs(readme): describe the guest room workspace`\
-**Actual commit:** `93fe1fe2cb5bcf239270dfc362c8189392ee0e74`
-
-**Why:** The product README still says V2 has not started. After the workspace exists, a reader needs the session limit and the catalog bounds in the same place as the other limits. Covers the documentation half of the phase exit.
-
-**Depends on:** V2P1-C04.
+**Depends on:** V3P1-C05.
 
 **Files:**
 
@@ -251,17 +265,19 @@ If no browser is available, leave those observations unverified and keep the aut
 
 **Implementation:**
 
-1. Replace the sentence that says V2 implementation has not started. State that the home page lists rooms for the current guest session, that create and join reuse that session, and that **Use a different name** starts a different guest. State that the same display name does not recover rooms.
-2. Add `GET /api/rooms` to the route list. State that `GET /api/rooms/:slug/broadcasts` returns `{ items, nextCursor }`, default 20 and maximum 50, ordered by creation time and id. Keep the existing slug and replay routes in that list.
-3. State that `LIVE` in the room list is the catalog status. State that a recording shows `STARTING`, `LIVE`, `STOPPING`, `READY`, or `FAILED`, and that only `READY` opens the replay. State that `thumbnailUrl` is optional and that this build does not generate thumbnails.
-4. Mention the host-list index in the migration paragraph. State that existing replay links remain usable by any guest who has the link.
-5. Keep the V1 physical-observation gap explicit. Do not describe device switching, reconnect, chat, or accounts as present.
-6. Record each slice hash in this guide. Set the phase contract and `plans/README.md` status from the verification that actually ran. Leave a browser or smoke gap as unverified rather than planned.
+1. State that a host registers and logs in with email and password, that the host token lasts 7 days, and that the guest token still lasts 12 hours. State that logout clears the browser session and that password change invalidates older tokens.
+2. State that **Create host account** updates the current guest only, that a taken email does nothing, and that a live membership must be left first. State that the same display name does not recover rooms. State that Google, email verification, and password reset mail are not in this build.
+3. Point the identity contract at `plans/phase1.md` and this guide. Leave the V2 workspace, device, reconnect, chat, and acceptance links on `plans/V2/`.
+4. Record the C05 browser result, or the reason it was not run, in the phase matrix. Do not mark open V2 ids passed. Do not claim `pnpm smoke:broadcast` ran unless it did.
 
 **Verification:**
 
-Read the edited README against phase Section 5. `pnpm exec prettier --check README.md plans/phase1.md plans/phase1/guide.md plans/README.md` passes.
+```powershell
+pnpm exec prettier --check README.md plans/phase1.md plans/phase1/guide.md plans/README.md
+```
 
-**Done when:** The README matches the shipped workspace and this guide names every slice hash.
+Read the edited README against phase Sections 5 and 6.
 
-**Handoff:** V2-P2 has not been written. Do not add device capture in this commit.
+**Done when:** The README matches the shipped account limits and this guide records C01 through C05. C06's hash is recorded in the follow-up `docs(v3-phase1): record the final slice hash`.
+
+**Handoff:** V3 phase 2 is optional Google. Do not write `plans/phase2.md` until that phase is requested.

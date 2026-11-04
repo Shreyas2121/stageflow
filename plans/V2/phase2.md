@@ -3,7 +3,7 @@
 **Status:** V2P2-C01 through V2P2-C06 are committed. MEDIA-01 has a synthetic two-window result. MEDIA-03's physical unplug, MEDIA-04 playback, and P3-A05 remain unverified.\
 **Last updated:** 2026-11-04.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
-**Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
+**Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](../V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
 **Requirement IDs:** MEDIA-01, MEDIA-02, MEDIA-03, MEDIA-04.
 
 ## 1. Outcome

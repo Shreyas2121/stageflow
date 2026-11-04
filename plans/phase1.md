@@ -1,234 +1,189 @@
-# V2 Phase 1 — Room and replay workspace
+# V3 Phase 1 — Host identity
 
-**Status:** V2P1-C01, V2P1-C02, V2P1-C03, V2P1-C04, and V2P1-C05 are committed. WS-01 and WS-02 have a partial browser result. WS-03 replay and `pnpm smoke:broadcast` remain unverified.\
+**Status:** planned. No slice is implemented.\
 **Last updated:** 2026-11-04.\
-**Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.2`, Sections 1, 3.1, 5, 6, 10, 11, and 12 (WS-01 through WS-03). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9`.\
-**Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V2P1-C01 through V2P1-C05. Those ids are not the V1 commits in [V1/phase1/guide.md](V1/phase1/guide.md). This file owns the rules those commits must satisfy.\
-**Requirement IDs:** WS-01, WS-02, WS-03.
+**Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.2`, Sections 1, 3, 4, 5, 6, and 12 (ID-01 through ID-04). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9` and `MASTER_PLAN_V2.md` version `2.0.0-draft.9`.\
+**Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V3P1-C01 through V3P1-C06. Those ids are not the V1 commits in [../V1/phase1/guide.md](../V1/phase1/guide.md) or the V2 commits in [../V2/phase1/guide.md](../V2/phase1/guide.md).\
+**Requirement IDs:** ID-01, ID-02, ID-03, ID-04.
 
 ## 1. Outcome
 
-A guest who already has a session opens the home page and sees the rooms that guest created. The list shows each room's title, mode, catalog status, and creation time. The guest copies an invitation, opens that room's existing broadcast attempts, and plays a READY replay. Joining accepts the raw slug or an invitation link from this app. Another guest cannot retrieve the first guest's list by sending the first guest's user id. Typing the same display name in a new guest session does not bring the rooms back.
+A person can register a host account with an email and a password, log in on a later visit, and see the rooms that account created. A guest can turn the current guest session into that host account and keep the rooms already owned by that guest. Logging out leaves the browser signed out. Changing the password makes the previous token fail. A second person with the same display name, or a taken email, does not receive those rooms.
 
-Example: Ava's current guest session already created the meeting `Design review` and the webinar `Launch`. On `/` she sees both under **Rooms from this guest session**. `Design review` is `LIVE` and `Launch` is `ENDED`. She copies `http://localhost:5173/r/` plus the meeting slug. She opens Launch's recordings and sees one `READY` row and one `FAILED` row whose stored error is visible. Only the `READY` row links to `/replay/` plus its broadcast id. Sam, in another guest session, receives an empty list even when the request includes Ava's user id.
-
-`LIVE` on that list means the room row has not ended. It does not mean Ava is connected.
+Example: Ava enters as a guest, creates the meeting `Design review`, and promotes that guest with `ava@example.com`. After logout, a fresh browser that logs in with that email sees `Design review` under **Your rooms**. Sam, registered as `sam@example.com`, sees an empty library. Ava's old guest token no longer calls the API. A guest who never promotes still sees **Rooms from this guest session**, and a new guest with the display name Ava does not see Ava's rooms.
 
 ## 2. Entry prerequisites
 
-Observed while writing this plan, on 2026-11-03. `HEAD` is `0267919feb41da48eda803498666e3f2b88d3f37` (`docs(v1): record verified acceptance and maintenance outcomes`). The worktree was not clean: `README.md` and `plans/README.md` already had uncommitted V2 pointer edits, `review.md` was deleted, and `MASTER_PLAN_V2.md` and `briefing.html` were untracked. This planning change moves the V1 plans and adds this phase. Recheck the worktree at execution. Do not revert unrelated work, restore `review.md`, or stage `briefing.html` as part of a slice.
+Observed while writing this plan, on 2026-11-04. `HEAD` is `03ac691f661a`. The worktree was not clean: `MASTER_PLAN_V2.md` and `plans/README.md` already had uncommitted V3 pointer edits, and `MASTER_PLAN_V3.md` was untracked. This planning change moves the V2 plans to `plans/V2/` and adds this phase. Recheck the worktree at execution. Do not revert unrelated work.
 
-V1 feature slices are committed. V1 is not fully verified. P3-A03, P3-A05, and P3-A06 remain open physical observations. This phase does not record them and does not mark them passed.
+V2-P1 through V2-P5 are delivered. Acceptance is partial. This phase does not record WS-01, WS-02, WS-03, MEDIA-01, MEDIA-02, REC-01, REC-03, REC-04, CHAT-04, MEDIA-03, MEDIA-04, REC-05, QA-02, P3-A03, P3-A05, or P3-A06 as passed.
 
 Observed in that tree:
 
-- There is no room-list route. `RoomsController` exposes `POST /api/rooms` and `GET /api/rooms/:slug` only. Any authenticated guest who knows the slug may fetch the room. `host_id` has no list index. The rooms migration is `1730332800000-CreateUsersAndRooms`.
-- `GET /api/rooms/:slug/broadcasts` returns every catalog row for that slug, newest `createdAt` then `id`, as a JSON array. `scripts/smoke-broadcast.mjs` reads that array. The web app does not call it. `GET /api/broadcasts/:id` returns one `BroadcastResponse`.
-- `BroadcastResponse` is `id`, `roomId`, `status`, `playlistUrl`, `errorMessage`, `startedAt`, `endedAt`, and `createdAt`. `playlistPath` and `thumbnailPath` stay off the wire. Stored `thumbnailPath` is written only as null. No route serves `thumbnail.jpg`. Thumbnail generation was omitted in V1.
-- Catalog playlist URLs are `/api/broadcasts/{uuid}/hls/index.m3u8` or null. The bearer token is attached only to that same-origin playlist and its `segment` plus at least six digits `.ts` files.
-- Home creates a new guest user on every create and every join, then replaces the session. A usable session in `sessionStorage` is ignored for those submits. The join field accepts only 12 characters.
-- `/r/:slug` and `/replay/:broadcastId` stay separate chunks. `apps/web/src/pages/HomePage.tsx` must not contain the letters `hls`. The home page does not import the room page, the replay page, or `hls.js`.
-- Replay without a session still creates one guest through `ReplayGuestEntry` and returns only a validated `/replay/{uuid}` path. Room fetch, replay fetch, and private react-query caches are already scoped by the session user id. A 401 from those clients clears that token.
-- `GET /api/rooms/:slug/broadcasts` is ordinary control admission. HLS reads and chunk uploads have their own budgets. Guest JWTs still expire after 12 hours. There is no refresh token.
+- `POST /api/sessions/guest` is the only session route. It inserts `is_guest = true` and signs `{ sub }` with the module lifetime of 12 hours. `verifyToken` checks `sub` and loads the user. It does not read a session version.
+- `users` has `id`, `display_name`, `is_guest`, and `created_at`. There is no email, password, or session version. Migrations are `CreateUsersAndRooms1730332800000`, `CreateBroadcasts1793577600000`, and `IndexRoomsByHost1793664000000`. `scripts/smoke-broadcast.mjs` expects that list in that order.
+- The web session is `GuestSessionResponse`: `token`, `userId`, `displayName`. It is stored in `sessionStorage` under `stageflow.session`. `usableSession` drops a token whose `exp` is in the past. A token without `exp` stays usable until the server rejects it.
+- Home create and join reuse a usable session. **Use a different name** clears it. The list heading is **Rooms from this guest session**. `GET /api/rooms` is already scoped to the caller and ignores a caller-supplied host id.
+- `JwtModule` registers `expiresIn: '12h'`. The socket handshake calls `SessionsService.verifyToken`. `LiveModule` imports `SessionsModule` and exports `LiveConnection`.
+- Participant JSON in `<LIVE_NAMESPACE>:room:{roomId}:participants` includes `userId`. There is no reverse index. Startup deletes `<LIVE_NAMESPACE>:room:*` only.
+- `GUEST_RATE_LIMIT` applies to `POST /api/sessions/guest` after the ordinary control budget. `GUEST_PENDING_LIMIT` bounds in-flight guest inserts. `bcrypt` and `bcryptjs` are not dependencies.
+- Home must not import `hls.js`, the live room, or chat. Replay and room routes already accept whatever session is stored.
 
-Recheck at execution. Git follows V1 master Section 1.4. A missing browser leaves the browser half of WS-01 through WS-03 unverified and named. A missing disposable Postgres leaves the migration run unverified. Neither gap authorizes skipping the unit checks or deleting developer data.
+Recheck at execution. Git follows V1 master Section 1.4. A missing browser leaves the browser half of ID-01, ID-03, and ID-04 unverified and named. A missing disposable Postgres leaves the migration run unverified. Neither gap authorizes skipping the unit checks or deleting developer data.
 
 ## 3. Included and excluded
 
 ### 3.1 Included
 
-- A host-scoped, cursor-paged room list for the authenticated guest.
-- An index on `rooms (host_id, created_at DESC, id DESC)`.
-- Create and join reuse the current usable guest session. A different name starts a new guest only after the current session is cleared.
-- Join accepts a raw slug or a room link from this app's origin.
-- Copying `{origin}/r/{slug}`.
-- The same cursor contract on the existing per-room broadcast list, including the smoke consumer.
-- `thumbnailUrl` on the catalog object, and one confined thumbnail read when the stored path is the expected file.
-- A home workspace that lists this guest's rooms and their broadcast attempts, and links a READY replay to the existing replay route.
-- README text for this workspace and for the limits it does not cross.
+- Email and password registration, login, logout, and in-session password change for a host.
+- Promotion of the user row named by the current guest token.
+- Token claims `sv` and `guest`, a 7-day host token, and the existing 12-hour guest token.
+- Home copy that distinguishes this guest session from the host library.
+- README text for these limits.
 
 ### 3.2 Excluded
 
-These are the exclusions this phase is most likely to violate. V2 master Sections 3.2, 7, 8, and 9 still apply.
+These are the exclusions this phase is most likely to violate. V3 master Sections 4, 7, 8, and 9 still apply.
 
-- Registered accounts, email/password, Google or other OAuth, refresh tokens, display-name recovery, and renaming a guest.
-- A global directory of rooms or recordings. Joining a room does not add it to the caller's list.
-- Making an existing replay URL private, or requiring the caller to be the host before `GET /api/rooms/:slug`, `GET /api/broadcasts/:id`, or the replay page.
-- Device replacement, device loss, output routing, reconnect, suspension, chat, scheduling, waiting rooms, and polls.
-- A new recording pipeline, encoder, thumbnail job, queue, or retention rule. `READY` does not depend on a thumbnail.
-- Loading `hls.js`, the broadcast player, or the live room socket from the home page.
-- Treating catalog `LIVE` as proof that the host socket is connected.
-- Offset pagination, an unbounded list, or a total-count query.
-- Closing P3-A03, P3-A05, or P3-A06.
+- Google sign-in, account linking, SMTP, email verification, and a password-reset mail.
+- Merging two users, or selecting a user by display name or by an equal email string on a different row.
+- A refresh token, a server logout denylist, or a change to the 12-hour guest lifetime.
+- Scheduling, waiting rooms, `require_admission`, replay visibility, replay deletion, and Q&A.
+- A new room route, a change to slug join, or a private replay. Link-accessible playback stays as it is.
+- Renaming a user. Promotion keeps the current display name.
+- Putting a password hash, a password, or an email into a log, a socket snapshot, or git.
+- Closing any open V1 or V2 physical or FFmpeg acceptance id.
 
 ## 4. Requirement mapping
 
-| ID    | Meaning in this phase                                                                                                                                                                                                         | What this phase does not claim                                 |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| WS-01 | The authenticated guest receives only rooms whose `host_id` is that guest. A caller-supplied host id is ignored. The home list uses the current session and says that a new session cannot recover it by display name         | An account, a rename, or rooms the guest only joined           |
-| WS-02 | A raw slug and a valid invitation URL open the same room. A malformed target fails before navigation. Create, `/r/:slug`, and `/replay/:broadcastId` remain available                                                         | Accepting links from another origin                            |
-| WS-03 | Broadcast history is paged and shows `STARTING`, `LIVE`, `STOPPING`, `READY`, and `FAILED` as different states. Only a `READY` row with a catalog playlist links to the existing replay. The row remains after an API restart | A new recording, a required thumbnail, or private replay links |
+| ID    | Meaning in this phase                                                                                                                                                                                         | What this phase does not claim                                      |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| ID-01 | Register and login return a host token. A fresh client that logs in sees only that user's rooms. A wrong password fails and writes nothing                                                                    | Google, or a session that survives clearing site data without login |
+| ID-02 | Logout clears the stored session. Password change increments `session_version`, rejects the previous token, and returns a token that works                                                                    | A server-side list of revoked tokens                                |
+| ID-03 | Promote updates that guest row only. Its rooms and broadcasts stay on that user id. A taken email and a live membership leave the guest row unchanged                                                         | Moving rooms from any other user, or promotion during a live call   |
+| ID-04 | Guest create, guest join, demo peers, and a current guest token still work. Guest home copy still says the list is this guest session. A new guest with the same display name does not see the promoted rooms | A permanent guest, or a guest refresh token                         |
 
 ## 5. System contracts
 
-### 5.1 Guest identity on the home page
+### 5.1 Account fields
 
-`usableSession` is the current guest. While it is present, create and join send that token and do not call `POST /api/sessions/guest`. The displayed name is the session's `displayName`. The form does not edit it.
+One new migration, `AddHostCredentials1793923200000`, after `IndexRoomsByHost1793664000000`.
 
-While no usable session is present, create and join keep today's order: parse the display name, create one guest, store that session, then create or fetch the room. One submit creates one user.
+| Column            | Rule                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| `email`           | `varchar(254)`, null. Unique where it is not null. Guests stay null  |
+| `password_hash`   | `text`, null. Never selected by a normal user load. Guests stay null |
+| `session_version` | `integer`, not null, default `0`. Existing rows become `0`           |
 
-**Use a different name** clears the current session through the existing store. The next submit creates a new guest. The cleared session's rooms remain in PostgreSQL and disappear from this browser. The page states that before the control is used. The same display name does not select the old user.
+`synchronize` stays forbidden. `scripts/smoke-broadcast.mjs` gains this migration name at the end of its expected list. Down drops the three columns.
 
-Direct `/r/:slug` without a session still sends the person home to enter a name. Replay without a session still uses `ReplayGuestEntry`. That replay guest is a new user and does not inherit the host's room list.
+The hash is bcrypt, cost 12, through the pure-JavaScript `bcryptjs` package. Do not add native `bcrypt`. The stored string is the library's hash. Compare with the library's compare. A hash of a fixed dummy password is computed once at cost 12 and reused when login does not find an email, so the missing-user path still compares.
 
-A 401 still clears only the token that failed. `room_not_found` does not clear the session.
+### 5.2 Parsers
 
-### 5.2 Room list
+Shared parsers live in `packages/shared/src/account.ts` and are exported from the package index.
 
-`GET /api/rooms` requires the existing bearer token. The host is `CurrentUser.id`. The handler reads `limit` and `cursor` and ignores every other query field, including `hostId`, `userId`, and `displayName`.
+`parseEmail` trims and lowercases. It accepts 3 to 254 characters with exactly one `@`, a non-empty local part, and a domain that contains a dot and does not start or end with a dot. It rejects whitespace, ASCII control characters, and any other shape. The error is `invalid_email` with `Enter a valid email address.`
 
-Declare this handler so it is not captured by `GET /api/rooms/:slug`. Slug fetch stays any authenticated guest who knows the slug. Slug validation and `room_not_found` stay as they are.
+`parsePassword` does not trim. It accepts 8 to 72 UTF-8 bytes and at least 8 code points. It rejects ASCII control characters, including newlines. The error is `invalid_password` with `Use 8 to 72 characters, without control characters.`
 
-The response is:
+`parseDisplayName` stays the display-name rule. Register uses it. Login and promote do not change the display name.
 
-```json
-{
-  "items": [],
-  "nextCursor": null
-}
-```
+### 5.3 Tokens
 
-Each item is the existing `RoomResponse`. Do not add a connection flag, a broadcast count, or a second room shape. An authenticated guest with no rooms gets an empty `items` array and `nextCursor: null`, not 404.
+Every new guest and host token is HS256 and carries `sub`, `sv`, and `guest`.
 
-Order is `created_at DESC, id DESC`. `id` is compared as a UUID. The page size defaults to 20 and cannot exceed 50. Request one extra row to decide `nextCursor`, then omit that row. `nextCursor` is the cursor of the last returned item when the extra row existed, otherwise null.
+- Guest `expiresIn` is `12h`. `sv` is that row's `session_version`. `guest` is `true`.
+- Host `expiresIn` is `7d`. `sv` is that row's `session_version`. `guest` is `false`.
+- The `JwtModule` default stays `12h`. Each `signAsync` passes its own `expiresIn`.
 
-The cursor is the shared history cursor from Section 5.4. A missing or empty cursor is the first page. A cursor is not a host selector. Rows that do not belong to the caller are never queried.
+`verifyToken` still requires a UUID `sub` and a row. A missing `sv` means `0`. A present `sv` must be an integer and equal `session_version`. A missing `guest` is accepted only while `is_guest` is true. A present `guest` must be a boolean equal to `is_guest`. Anything else is `unauthorized`. The socket handshake uses this same method, so a promoted user's old guest token fails on the next connection and on resume.
 
-Invalid `limit` or `cursor` is HTTP 400 and does not query:
+The response body stays `{ token, userId, displayName }`. The client may read `guest === false` to choose home copy. Access control stays on the server.
 
-```json
-{ "statusCode": 400, "error": "invalid_page", "message": "Choose a page size from 1 to 50." }
-```
+### 5.4 Routes
 
-```json
-{ "statusCode": 400, "error": "invalid_cursor", "message": "That page cursor is not valid." }
-```
+All four routes are under `/api/sessions`. Extra JSON fields are ignored. These routes share the existing guest network rate budget and, for the password work, one in-flight cap at `GUEST_PENDING_LIMIT`. Over the cap returns `server_busy` and does not hash.
 
-A new migration adds `rooms_host_created_idx` on `(host_id, created_at DESC, id DESC)` and its `down` drops only that index. Register it after `CreateBroadcasts1793577600000`. Leave `synchronize` and `migrationsRun` off. Do not edit the original rooms migration. Existing room rows stay.
+| Route      | Auth                       | Success                                                                 | Failure without a write                                                           |
+| ---------- | -------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `register` | none                       | New `is_guest = false` row, version `0`, host token                     | Invalid fields. `email_taken` if the email exists                                 |
+| `login`    | none                       | Host token for that email                                               | `unauthorized`, `Email or password is wrong.` Missing user and bad password match |
+| `password` | bearer, `is_guest = false` | New hash, version incremented, new host token                           | Guest receives `not_registered`. Wrong current password receives `wrong_password` |
+| `promote`  | bearer, `is_guest = true`  | That row gains the email and hash, `is_guest` becomes false, version +1 | See Section 5.5                                                                   |
 
-The entity may declare the same index name. The migration SQL is the authority for the descending order.
+Register and login ignore any bearer token. A guest who wants to keep their rooms uses promote, not register. Register always creates a different user.
 
-### 5.3 Broadcast history and thumbnail
+`email_taken` is HTTP 409 and `That email is already registered.` A unique-constraint race returns that same error. `not_registered` is HTTP 403 and `Create a host account before changing its password.` `not_guest` is HTTP 403 and `This session is already a host account.` `wrong_password` is HTTP 401 and `The current password is wrong.`
 
-`GET /api/rooms/:slug/broadcasts` keeps slug capability: any authenticated guest, same `room_not_found` behavior, no host filter. The body becomes a page with the same `limit` and `cursor` rules as Section 5.2. Order stays `createdAt DESC, id DESC`.
+Logout has no route. The home control clears `stageflow.session`.
 
-```json
-{
-  "items": [],
-  "nextCursor": null
-}
-```
+### 5.5 Promotion and live membership
 
-Each item is `BroadcastResponse` plus `thumbnailUrl`. Update shared parsing, the API catalog, the web parser, catalog fixtures, and `scripts/smoke-broadcast.mjs` in the same slice. Smoke reads `items` and no longer treats the body as an array.
+Promote loads the user id from the verified guest token. It writes only that row. It does not query by display name or email except for the unique email check. Rooms and broadcasts stay where they are because `host_id` does not change.
 
-`thumbnailUrl` is `/api/broadcasts/{id}/thumbnail.jpg` only when the stored `thumbnailPath` is exactly `broadcasts/{id}/thumbnail.jpg`. Every other stored value, including null, is `thumbnailUrl: null`. `playlistPath` and `thumbnailPath` remain absent from JSON. The socket snapshot's `broadcast` field does not gain a thumbnail.
+Before the write, and again after it, ask Redis whether that user id appears in any `<LIVE_NAMESPACE>:room:{roomId}:participants` hash. Scan `room:*:participants` under the namespace. Parse each JSON value. A match is a live membership, including a suspended one. Redis trouble, or a scan that cannot finish, returns `server_busy` and must not leave a promoted row behind.
 
-`GET /api/broadcasts/:id/thumbnail.jpg` requires the bearer token. It serves that one filename from the broadcast directory only after the row's stored path matches the rule above and the real path is a file inside that directory. Reuse the HLS confinement checks. Any other name, a missing file, a symlink escape, or a non-matching row is 404 `media_not_found`. The response type is `image/jpeg` and the cache header is private. The route stays on the ordinary HTTP admission budget. It is not an HLS read and it is not exempt.
+If the first scan matches, return HTTP 409 `membership_active` with `Leave the live room before creating a host account.` and do not write. If the second scan matches, restore that row's email, password hash, `is_guest`, and `session_version`, then return the same 409. A restore failure returns `server_busy` and does not issue a token.
 
-This phase does not write `thumbnail.jpg` and does not run FFmpeg for a thumbnail. A null thumbnail leaves `READY` unchanged.
+`SessionsModule` cannot import `LiveModule`, because `LiveModule` already imports `SessionsModule`. The promote route lives in a small accounts controller that can see `SessionsService` and `LiveConnection`. The lookup is a method on `LiveConnection`. It does not create a reverse index and it does not change the stage Lua scripts.
 
-The client loads a non-null thumbnail with the bearer header and an object URL. It does not put the token in the query string and does not point an image element at the API path directly. A null URL or a failed fetch uses a stable fallback that shows the status and does not look like a broken image. Playback does not wait for the thumbnail.
+A join that lands after the second scan can still overlap the committed promotion. Resume with the old guest token then fails closed. This phase does not evict the socket that is already connected.
 
-### 5.4 Shared page and link rules
+### 5.6 Home
 
-Add these error codes to `ApiErrorBody`: `invalid_page`, `invalid_cursor`, and `invalid_room_link`. The API emits the first two. The room-link code is returned by the client parser and is not an API response.
+Three mutually exclusive session states, all on `/`:
 
-`parseCatalogLimit` accepts a missing value as 20. It accepts a string of digits without a leading zero whose integer value is 1 through 50. Everything else, including arrays, blanks, `0`, `51`, and `020`, is `invalid_page`.
+- **Signed out.** The current guest name, create, and join stay. Add login and register. Register uses the same display-name field plus email and password. The list area still says to enter a display name.
+- **Guest.** Keep **Rooms from this guest session**, the current explanation, and **Use a different name**. Add email and password and the button **Create host account**. That button calls promote and stores the returned token. Do not also offer register on this state.
+- **Host.** `guest === false`. The heading is **Your rooms**. The explanation is `These rooms stay with this account. Sign in with the same email to see them on another browser.` The empty list says `This account has no rooms.` Show **Log out** and a current-password plus new-password form, **Change password**. Create and join send the host token and do not mint a guest.
 
-The history cursor is unpadded base64url of the ASCII text `v1\n`, the instant, `\n`, and the lowercase UUID. The instant matches the catalog rule: `YYYY-MM-DDTHH:mm:ss.sssZ`, and it must equal `new Date(value).toISOString()`. `encodeHistoryCursor` returns null for anything else. `parseHistoryCursor` accepts a missing or empty value as the first page and rejects every other malformed value with `invalid_cursor`. Parsing does not query and does not grant access.
+Login while a guest session is stored replaces that browser session. The form says that rooms which were not promoted stay on the guest. The replay page and the room page keep their current signed-out gates. A stored host token already satisfies them.
 
-`parseRoomJoinTarget(input, origin)` trims a string and then accepts:
-
-- a value `isRoomSlug` accepts;
-- a path that is exactly `/r/` plus that slug, with no query, hash, extra segment, or backslash;
-- an `http` or `https` URL whose origin equals the supplied origin and whose path is exactly `/r/` plus that slug, with no username, password, query, or hash.
-
-Reject replay paths, other origins, protocol-relative URLs, and any value the URL parser would rewrite. The failure is `invalid_room_link` with `Enter a room slug or a link to a room on this app.` The API still receives only the slug.
-
-The invitation string is the page origin plus `/r/` plus the slug, built with the URL constructor.
-
-### 5.5 Workspace behavior
-
-The create and join actions stay on `/` and stay available above the list. The list heading is **Rooms from this guest session**. Beside it, while a session exists, the page says that these rooms belong to this guest session and that a new or expired session cannot find them by typing the same display name.
-
-Each row shows title, mode, catalog status, and creation time. The time uses a `time` element whose `dateTime` is the catalog instant. **Open room** goes to the existing `/r/{slug}` route. **Copy invitation** writes the invitation URL. If the clipboard rejects it, the URL stays visible in a read-only field and the status says it was not copied. Success is a status message, not a navigation.
-
-**Recordings** loads that room's broadcast page only after the guest asks. It does not mount `LiveRoom`, open a socket, or import the player. Each attempt shows its status word: `STARTING`, `LIVE`, `STOPPING`, `READY`, or `FAILED`. A non-empty `errorMessage` is shown. **Watch replay** is a link to `/replay/{id}` only when the status is `READY` and `playlistUrl` is a catalog playlist URL. An ended room can still show a READY replay. An empty history says the room has no broadcast attempts.
-
-Load more appends the next page and does not discard rows already shown. Rows are deduplicated by id. The control is absent when `nextCursor` is null. A later page error keeps the rows already shown.
-
-Query keys for the room list and the recording pages start with `private` and the session user id, so the existing session subscription drops them when the guest changes. The list is not fetched without a token.
-
-The home source still must not contain `hls`. The room route and the replay route stay dynamically imported.
-
-### 5.6 Restart and old links
-
-API restart keeps the existing fail-in-flight behavior. `READY` rows and their playlists stay. The workspace reads those rows through the catalog. It does not read Redis presence and does not show a suspended participant.
-
-Owning a room in the host list does not change who may open `/replay/{id}` or `GET /api/broadcasts/:id`. A guest who knows the replay link can still watch a READY recording.
+Home still must not import `hls.js`, the live room, or chat.
 
 ## 6. Acceptance matrix
 
-| ID    | Observable result                                                                                                                                                                                                                                    | Method                                                                                                    | Status                                            |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| WS-01 | Two guest sessions. Each list contains only that guest's rooms. A `hostId` query for the other guest does not change the result. The home page reuses the session for a second create, and a new guest with the same display name sees an empty list | API service test and a browser session                                                                    | API passed; browser partial                       |
-| WS-02 | The raw slug and this app's `/r/{slug}` URL open the same room. Another origin, a replay URL, a query string, and a short slug fail with `invalid_room_link` and do not navigate. Existing room and replay entry still render                        | Shared parser tests and a browser join                                                                    | parser passed; browser partial                    |
-| WS-03 | One history page can show all five statuses. Only `READY` with a catalog playlist links to the current replay route. After an API restart the READY row is still listed and its replay plays. Smoke reads the page object and still finishes READY   | API catalog test, web history test, `pnpm smoke:broadcast` when disposable services exist, browser replay | catalog tests passed; smoke and replay unverified |
-
-WS-01 includes the visible session-limit sentence. WS-03 includes a null thumbnail and a fallback. A missing browser or disposable Postgres leaves only the corresponding method unverified. On 2026-11-03 the broadcast catalog service test shows `STARTING`, `LIVE`, `STOPPING`, `READY`, and `FAILED` on one page. The home workspace tests cover replay links, private catalog queries, and a home page that does not mention `hls`. On 2026-11-04 V2P5-C03 pointed the smoke assertion at `CreateUsersAndRooms1730332800000`, `CreateBroadcasts1793577600000`, and `IndexRoomsByHost1793664000000`, then an empty second run. `pnpm smoke:broadcast` was still not run because `FFMPEG_PATH` is the bare name `ffmpeg` and `ffmpeg` is not on PATH, so the smoke half of WS-03 and READY replay stay unverified. The combined session saw a second guest with the same display name and an empty room list, and the raw slug plus this app's `/r/{slug}` link opened the same room. An unknown slug stayed on the home page with the API error. Another origin, a replay URL, a query string, and a short slug were not repeated in that browser.
+| ID    | Observable result                                                                                                            | Method                                         | Status  |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------- |
+| ID-01 | A new account can register, log in from a fresh session, and see its own rooms. A wrong password does not change a row       | API regressions and a browser login            | planned |
+| ID-02 | Logout clears the stored session. The token from before a password change fails, and the returned token works                | Token-version regressions and a browser logout | planned |
+| ID-03 | Promotion keeps that user id's rooms, rejects a taken email, and rejects a live membership without changing the guest        | Service regressions and a browser promotion    | planned |
+| ID-04 | Guest create, join, and the guest list copy still work. The same display name in a new guest session does not show the rooms | Existing guest checks and a browser guest path | planned |
 
 ## 7. Verification commands
 
-These commands already exist. Run the package checks for the slices that changed, and the smoke only when its disposable Postgres, Redis, and FFmpeg are available.
+Commands already in the repo:
 
-```powershell
-pnpm --filter @stageflow/shared test
-pnpm --filter @stageflow/api test
-pnpm --filter @stageflow/web test
-pnpm typecheck
-pnpm lint
-pnpm smoke:broadcast
-```
+- `pnpm --filter @stageflow/shared test`
+- `pnpm --filter @stageflow/api test`
+- `pnpm --filter @stageflow/web test`
+- `pnpm typecheck`
+- `pnpm lint`
 
-`pnpm smoke:broadcast` builds the API, creates its own database, and runs the migrations. Do not point it at the developer database.
-
-Search from the repo root after the web slice:
-
-```powershell
-rg -n "hls" apps/web/src/pages/HomePage.tsx
-```
-
-That search prints nothing.
+The slice that edits the smoke migration list updates `scripts/smoke-broadcast.mjs`. Do not run that smoke against the developer database. Do not require `pnpm smoke:broadcast` to pass in this phase when FFmpeg is absent. Record that gap instead of deleting media.
 
 ## 8. Risks
 
-| Risk                                                                          | What to do                                                    |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| A caller-supplied host id lists another guest's rooms                         | Section 5.2. The only host is the authenticated user          |
-| Every create mints a guest, so the list never accumulates                     | Section 5.1. Reuse a usable session                           |
-| The same display name is treated as recovering the old rooms                  | Section 5.1. A new guest is a new user, and the page says so  |
-| The broadcast array change leaves smoke unable to find `LIVE` or `FAILED`     | Section 5.3. Update the smoke in the same slice               |
-| The thumbnail route reads `thumbnailPath` as a client path or leaks the token | Section 5.3. One confined filename, bearer header, object URL |
-| The home page imports the player or `hls.js` to show a preview                | Section 5.5. Link to the existing replay route                |
-| `LIVE` is labeled as the host being online                                    | Section 1. Catalog status is not presence                     |
-| Replay links become host-only while fixing the list                           | Section 5.6. Slug and replay capability stay                  |
-| Offset paging skips or repeats a row created during the next fetch            | Section 5.2. Keyset on `created_at` and `id`                  |
-| Device capture, reconnect, or chat starts inside the workspace slice          | Section 3.2. Stop at the catalog                              |
+| Risk                                                                | What keeps it contained                                                                                    |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| A host token is issued for 12 hours because the module default wins | Every `signAsync` passes `expiresIn`                                                                       |
+| An old guest token dies on deploy                                   | Missing `sv` means `0`, and missing `guest` matches a guest row                                            |
+| Promotion attaches another person's rooms                           | The only write is the JWT user id. Email uniqueness rejects the other row                                  |
+| A guest promotes from inside a call and keeps both                  | The participant scan runs before the write and again before success. Resume with the old token fails       |
+| Login reveals which emails exist                                    | One message and one compare for a missing user and a bad password                                          |
+| The home page starts loading the broadcast player                   | The entry-graph test still forbids `hls` on the home page                                                  |
+| Password hashes show up in query logs or git                        | `select: false`, no logging of the password or hash, and no fixture that commits a real user's credentials |
 
 ## 9. Exit and handoff
 
-V2-P1 is done when WS-01 through WS-03 have a result, each slice is committed under V1 master Section 1.4, and the README describes the guest-session list, the page bounds, the invitation rule, the optional thumbnail, and the unchanged replay links. A check that could not be run stays unverified with a reason. P3-A03, P3-A05, and P3-A06 stay open.
+The next phase may rely on these once the slices are committed:
 
-V2-P2 may rely on the current guest remaining the host of rooms created from the workspace, the paged room list, the paged broadcast catalog, `thumbnailUrl` being null when no thumbnail file was stored, and the existing mesh and recording pipeline. It may not rely on in-call device changes. Do not start those changes in V2P1-C05.
+- A guest token and a host token both pass the socket handshake when their claims match the row.
+- `users.email`, `users.password_hash`, and `users.session_version` exist. Existing guest rows have a null email, a null hash, and version `0`.
+- Home can show either the guest sentence or **Your rooms** from the stored token.
+- Promote refuses a live membership and a taken email.
 
-V2 phase 2 is specified in [phase2.md](phase2.md). That file does not authorize implementation.
+V3 phase 2 may add optional Google on top of this account row. It must not treat a Google email as a merge key. Do not write `plans/phase2.md` until that phase is requested.
+
+This phase does not make V2 acceptance complete. Leave the open ids open.

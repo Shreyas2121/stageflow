@@ -3,8 +3,8 @@
 **Status:** implementation complete; acceptance partially verified. V2P3-C01 through V2P3-C04 are committed. Browser and physical/native-picker gaps remain open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase3.md](../phase3.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
-**Deliverable:** A short unexpected socket drop keeps the same membership, and resume comes back with media off, in four commits. This is the only V2 Phase 3 guide. Its commit ids are not the V1 Phase 3 commits in [../V1/phase3/guide.md](../V1/phase3/guide.md).
+**Product authority:** [MASTER_PLAN_V2.md](../../../MASTER_PLAN_V2.md) version `2.0.0-draft.4`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** A short unexpected socket drop keeps the same membership, and resume comes back with media off, in four commits. This is the only V2 Phase 3 guide. Its commit ids are not the V1 Phase 3 commits in [../V1/phase3/guide.md](../../V1/phase3/guide.md).
 
 ## 1. Execution rules
 

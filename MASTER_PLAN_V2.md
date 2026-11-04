@@ -1,9 +1,11 @@
 # StageFlow — V2 Master Plan
 
 **Direction:** A practical local meeting and webinar product.\
-**Status:** V2-P1 through V2-P5 are delivered with partial acceptance. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is the README record in `plans/phase5.md`. Each chat line shows the server time. Still partial: WS-01, WS-02, WS-03, MEDIA-01, MEDIA-02, REC-01, REC-03, REC-04, and CHAT-04. Still unverified: MEDIA-03's physical unplug, MEDIA-04 playback and audible check, and REC-05 playback and FFmpeg. P3-A03, P3-A05, and P3-A06 stay open. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because `FFMPEG_PATH` is the bare name `ffmpeg` and is not on PATH. Redis and disposable Postgres were available. Accounts, scheduling, deployment, and `restartIce` remain future work.\
-**Plan version:** `2.0.0-draft.7`\
+**Status:** V2-P1 through V2-P5 are delivered with partial acceptance. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is the README record in `plans/V2/phase5.md`. Each chat line shows the server time. Still partial: WS-01, WS-02, WS-03, MEDIA-01, MEDIA-02, REC-01, REC-03, REC-04, and CHAT-04. Still unverified: MEDIA-03's physical unplug, MEDIA-04 playback and audible check, and REC-05 playback and FFmpeg. P3-A03, P3-A05, and P3-A06 stay open. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because `FFMPEG_PATH` is the bare name `ffmpeg` and is not on PATH. Redis and disposable Postgres were available. Accounts, scheduling, deployment, and `restartIce` remain future work.\
+**Plan version:** `2.0.0-draft.9`\
 **Date:** 2026-11-04\
+**Revision note (2.0.0-draft.9):** V3 Phase 1 was requested. The V2 phase contracts and guides moved from `plans/` to `plans/V2/`. Their acceptance results are unchanged. Current V2 paths below point at that directory.\
+**Revision note (2.0.0-draft.8):** The approved V3 scope now lives in `MASTER_PLAN_V3.md`. Section 4 remains the historical recommendation. V3 implementation still waits for a requested phase. V2 acceptance gaps are unchanged.\
 **Revision note (2.0.0-draft.7):** V2-P5 records combined acceptance under `plans/phase5.md`. UX-01 and QA-01 are verified, QA-02 is partial, and QA-03 is the README record. Slice hashes are in `plans/phase5/guide.md`. The server time is on each chat line. Section 4.1 names the partial and unverified ids, including P3-A03, P3-A05, and P3-A06. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because FFmpeg is missing. The phase contract rules are unchanged. V2 has no further phase file.\
 **Revision note (2.0.0-draft.6):** V2-P5, combined acceptance, is written at `plans/phase5.md`. It is not implemented.\
 **Revision note (2.0.0-draft.5):** V2-P4 delivers bounded room chat, host pause, history after join/resume, and README limits under `plans/phase4.md`. Slice hashes, passing tests, isolated Chrome/Redis evidence, the missing timestamp display, and remaining acceptance gaps are recorded in `plans/phase4/guide.md`. The contract version is unchanged; V2-P5's combined acceptance is not started.\
@@ -23,9 +25,9 @@ This is a plan, not authorization to implement application code. Implementation 
 
 For V2 work, use this chain:
 
-`idea.md` → `MASTER_PLAN.md` (V1 baseline) → `MASTER_PLAN_V2.md` → `plans/phase<N>.md` → `plans/phase<N>/guide.md`.
+`idea.md` → `MASTER_PLAN.md` (V1 baseline) → `MASTER_PLAN_V2.md` → `plans/V2/phase<N>.md` → `plans/V2/phase<N>/guide.md`.
 
-- Preserve V1 plans, guides, commit records, and verification evidence as history under `plans/V1/`. The active V2 phase stays in `plans/`. Do not write a second copy under `plans/v2/`.
+- Preserve V1 plans, guides, commit records, and verification evidence as history under `plans/V1/`. V2 phase files are history under `plans/V2/`. The active phase in `plans/` is V3. Do not write a second copy under `plans/v2/`.
 - This document overrides V1 only for the explicit changes in Section 5. All other V1 engineering and media invariants continue to apply.
 - A V2 phase contract defines its boundaries and acceptance. Its guide supplies the implementation sequence.
 - Write only the requested phase's contract and guide, after inspecting the repository at that time. Do not pre-generate all phase guides.
@@ -50,7 +52,7 @@ V1's documentation still records physical microphone/audible-output, native scre
 
 ## 3. V2 product promise
 
-This is the target for the full V2 release. The workspace, device controls, bounded reconnect, bounded room chat, and the visible server time are delivered. Combined acceptance is recorded: UX-01 and QA-01 are verified, QA-02 is partial, and QA-03 is the README record. `plans/phase5.md` Section 4.1 names every id that is still partial or unverified.
+This is the target for the full V2 release. The workspace, device controls, bounded reconnect, bounded room chat, and the visible server time are delivered. Combined acceptance is recorded: UX-01 and QA-01 are verified, QA-02 is partial, and QA-03 is the README record. `plans/V2/phase5.md` Section 4.1 names every id that is still partial or unverified.
 
 **A host can run a small local session, change devices without leaving, recover from a brief connection interruption, talk with the audience through chat, and find the session's replay afterward.**
 
@@ -166,7 +168,7 @@ Initial green-room permission requirements remain V1 behavior. Audio-only entry 
 
 ## 8. Bounded reconnect contract
 
-The V2-P3 implementation uses server-owned membership transitions and fresh sockets with `reconnection: false`. Its [phase contract](plans/phase3.md) and [execution guide](plans/phase3/guide.md) record the shipped rules, slice hashes, and verification results. Automated checks passed; the isolated synthetic browser run covers part of recovery. The browser pass against Redis, webinar playback/host-interruption/new-attempt browser check, and reconnect-specific audible FFmpeg run remain unverified.
+The V2-P3 implementation uses server-owned membership transitions and fresh sockets with `reconnection: false`. Its [phase contract](plans/V2/phase3.md) and [execution guide](plans/V2/phase3/guide.md) record the shipped rules, slice hashes, and verification results. Automated checks passed; the isolated synthetic browser run covers part of recovery. The browser pass against Redis, webinar playback/host-interruption/new-attempt browser check, and reconnect-specific audible FFmpeg run remain unverified.
 
 ### 8.1 Identity, authority, and stage reservations
 
@@ -330,4 +332,4 @@ There is no deployment gate. No V3 account, scheduling, waiting-room, or V4 medi
 
 V2-P5 is recorded. There is no further V2 phase file.
 
-> Read `MASTER_PLAN_V2.md`, `plans/phase5.md`, and `plans/phase5/guide.md` for the recorded acceptance result, slice hashes, and remaining gaps. V2-P5's four slices are delivered; acceptance remains partial. Keep the current mesh, device replacement, reconnect, chat, and broadcast pipeline. Do not write `plans/phase6.md` or a V3 contract. Do not add accounts, scheduling, deployment, or `restartIce` without a new request.
+> Read `MASTER_PLAN_V2.md`, `plans/V2/phase5.md`, and `plans/V2/phase5/guide.md` for the recorded acceptance result, slice hashes, and remaining gaps. V2-P5's four slices are delivered; acceptance remains partial. The active phase file is V3 Phase 1 at `plans/phase1.md`. Do not write `plans/phase6.md` or a second V2 phase. Do not implement V3-P1 until that phase is requested.

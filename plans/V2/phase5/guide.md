@@ -3,8 +3,8 @@
 **Status:** delivered; acceptance partial. V2P5-C01 through V2P5-C04 are committed. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is this record. P3-A03, P3-A05, and P3-A06 stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.7`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
-**Deliverable:** The practical local session has a visible chat server time, a recorded keyboard pass, and an honest acceptance record, in four commits. This is the only V2 Phase 5 guide. Its commit ids are not the V1 Phase 5 commits in [../V1/phase5/guide.md](../V1/phase5/guide.md).
+**Product authority:** [MASTER_PLAN_V2.md](../../../MASTER_PLAN_V2.md) version `2.0.0-draft.7`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** The practical local session has a visible chat server time, a recorded keyboard pass, and an honest acceptance record, in four commits. This is the only V2 Phase 5 guide. Its commit ids are not the V1 Phase 5 commits in [../V1/phase5/guide.md](../../V1/phase5/guide.md).
 
 ## 1. Execution rules
 

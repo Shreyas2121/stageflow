@@ -3,7 +3,7 @@
 **Status:** implementation complete; acceptance partially verified. V2P3-C01 through V2P3-C04 are implemented. The execution guide records slice hashes, automated results, partial synthetic-browser evidence, and remaining verification gaps.\
 **Last updated:** 2026-11-04.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.4`, Sections 1, 5, 8, 10, 11, and 12 (REC-01 through REC-05). Unchanged mesh, lock, device, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P2 contract.\
-**Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V2P3-C01 through V2P3-C04. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md). This file owns the rules those commits must satisfy.\
+**Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V2P3-C01 through V2P3-C04. Those ids are not the V1 commits in [V1/phase3/guide.md](../V1/phase3/guide.md). This file owns the rules those commits must satisfy.\
 **Requirement IDs:** REC-01, REC-02, REC-03, REC-04, REC-05.
 
 ## 1. Outcome

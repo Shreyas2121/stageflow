@@ -2,7 +2,7 @@
 
 These are the V1 phase contracts, guides, and verification records. They were moved here from `plans/` on 2026-11-03 so the active V2 phase can occupy `plans/`.
 
-V1 product authority remains [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`. [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) is the V2 authority. Active V2 phase files stay in the parent `plans/` directory. This directory is history.
+V1 product authority remains [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`. [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) is the V2 authority, and those phase files are history in [../V2/README.md](../V2/README.md). The active V3 phase stays in the parent `plans/` directory. This directory is history.
 
 Section 1 of the V1 master plan is the execution chain that produced these files. Section 17 is the shape of a phase file and a guide.
 

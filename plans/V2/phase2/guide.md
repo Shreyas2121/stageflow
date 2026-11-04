@@ -3,8 +3,8 @@
 **Status:** V2P2-C01 through V2P2-C06 are committed. V2P2-C04's two-window browser pass and V2P2-C05's playback browser pass are unverified.\
 **Last updated:** 2026-11-03.\
 **Phase contract:** [../phase2.md](../phase2.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
-**Deliverable:** A stage member can change camera, microphone, and speaker while joined, and a lost input does not close the room, in six commits. This is the only V2 Phase 2 guide. Its commit ids are not the V1 Phase 2 commits in [../V1/phase2/guide.md](../V1/phase2/guide.md).
+**Product authority:** [MASTER_PLAN_V2.md](../../../MASTER_PLAN_V2.md) version `2.0.0-draft.3`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** A stage member can change camera, microphone, and speaker while joined, and a lost input does not close the room, in six commits. This is the only V2 Phase 2 guide. Its commit ids are not the V1 Phase 2 commits in [../V1/phase2/guide.md](../../V1/phase2/guide.md).
 
 ## 1. Execution rules
 

@@ -3,8 +3,8 @@
 **Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C05 are committed. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
-**Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
-**Deliverable:** Connected people can exchange bounded room text, with host pause and recent history, in five commits. This is the only V2 Phase 4 guide. Its commit ids are not the V1 Phase 4 commits in [../V1/phase4/guide.md](../V1/phase4/guide.md).
+**Product authority:** [MASTER_PLAN_V2.md](../../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** Connected people can exchange bounded room text, with host pause and recent history, in five commits. This is the only V2 Phase 4 guide. Its commit ids are not the V1 Phase 4 commits in [../V1/phase4/guide.md](../../V1/phase4/guide.md).
 
 ## 1. Execution rules
 
