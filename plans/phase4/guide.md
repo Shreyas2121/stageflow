@@ -1,6 +1,6 @@
 # Guide — V2 Phase 4, commit by commit
 
-**Status:** in progress. V2P4-C01 through V2P4-C03 are committed. V2P4-C04 is verified. V2P4-C05 is planned.\
+**Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C04 are committed. V2P4-C05 is verified. CHAT-04's remaining observations and the missing server-timestamp display stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -172,9 +172,9 @@ pnpm lint
 
 ## 5. V2P4-C04 — Room panel
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): show room chat beside the stage`\
-**Actual commit:**
+**Actual commit:** `dd993548c7472f71ad99e7e15fb70d2529943cad`
 
 **Why:** The server can store a line that nobody in the room can see or answer. Covers the client half of CHAT-01 and CHAT-04.
 
@@ -231,7 +231,7 @@ If no browser is available, leave this pass unverified. A synthetic device does 
 
 ## 6. V2P4-C05 — README
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `docs(readme): state the room chat limits`\
 **Actual commit:**
 
@@ -261,5 +261,9 @@ If no browser is available, leave this pass unverified. A synthetic device does 
 Read the edited README against phase Section 5. `pnpm exec prettier --check README.md plans/phase4.md plans/phase4/guide.md plans/README.md MASTER_PLAN_V2.md` passes.
 
 **Done when:** The README matches the shipped chat behavior and this guide names every slice hash.
+
+**Verification result (2026-11-04):** Reviewed the README against phase Section 5 and the shipped shared constants, Redis accept/pause scripts, and client session/panel. `pnpm exec prettier --check README.md plans/phase4.md plans/phase4/guide.md plans/README.md MASTER_PLAN_V2.md` and `pnpm format:check` passed. The README documents plain-text room membership, 1,000 UTF-16 code units and 4,000 bytes, 500-message retention and 24-hour idle TTL, 50/100-message history pages, 10-per-participant and 100-per-room accepts per 10 seconds, five pending sends, bounded same-id retry, capacity/queue limits, host pause, resume without automatic resend, current-page retention after room end, ephemeral storage, failure isolation, and the live/delayed-video sentence. The API Lua-asset description now matches fourteen live scripts plus three chat scripts. C04's hash and recorded runtime evidence carry forward; this documentation-only slice uses the repository's documentation formatting gate and adds no runtime tests or browser observation. CHAT-01 through CHAT-03 retain their verified scope; CHAT-04 and all earlier physical/native-picker and V2 browser/playback/FFmpeg gaps remain open.
+
+**Implementation gap:** Master Section 9.1 calls for a visible server timestamp. The server stores `ChatMessage.sentAt`, while the panel currently renders name, role, and text without time. The README, phase contract, plan index, and master status now identify this as missing implementation. This documentation slice does not waive or implement that requirement.
 
 **Handoff:** V2-P5 has not been written. Do not add the combined acceptance pass in this commit.

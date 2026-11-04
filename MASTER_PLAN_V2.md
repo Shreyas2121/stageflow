@@ -1,9 +1,10 @@
 # StageFlow — V2 Master Plan
 
 **Direction:** A practical local meeting and webinar product.\
-**Status:** V2-P1 through V2-P3 are implemented. V2-P1 browser checks and the WS-03 smoke, V2-P2 browser passes, and the V2-P3 browser pass against Redis and broadcast/FFmpeg recovery checks remain unverified. V1 physical/native-picker gaps remain open. Chat is planned for V2-P4.\
-**Plan version:** `2.0.0-draft.4`\
+**Status:** V2-P1 through V2-P4 are delivered with partial acceptance. V2-P1 browser checks and the WS-03 smoke, V2-P2 browser passes, and the V2-P3 browser pass against Redis and broadcast/FFmpeg recovery checks remain unverified. V2-P4 has real Redis and isolated Chrome chat evidence; full catalog/media/playback observations remain open, and the panel's server-timestamp display is missing. V1 physical/native-picker gaps remain open. V2-P5 has not started.\
+**Plan version:** `2.0.0-draft.5`\
 **Date:** 2026-11-04\
+**Revision note (2.0.0-draft.5):** V2-P4 delivers bounded room chat, host pause, history after join/resume, and README limits under `plans/phase4.md`. Slice hashes, passing tests, isolated Chrome/Redis evidence, the missing timestamp display, and remaining acceptance gaps are recorded in `plans/phase4/guide.md`. The contract version is unchanged; V2-P5's combined acceptance is not started.\
 **Revision note (2.0.0-draft.4):** V2-P3, bounded reconnect, is implemented under `plans/phase3.md`; slice hashes, passing tests, partial synthetic-browser evidence, and remaining verification gaps are recorded in `plans/phase3/guide.md`. The contract version is unchanged.\
 **Revision note (2.0.0-draft.3):** V2-P2, in-call devices, is written at `plans/phase2.md`. V2-P1 slices are committed; WS-01 through WS-03 browser checks and the WS-03 smoke remain unverified.\
 **Revision note (2.0.0-draft.2):** V1 phase contracts and guides now live in `plans/V1/`. The active V2 phase file is `plans/phase<N>.md` with its guide at `plans/phase<N>/guide.md`.\
@@ -47,7 +48,7 @@ V1's documentation still records physical microphone/audible-output, native scre
 
 ## 3. V2 product promise
 
-This is the target for the full V2 release. The workspace, device controls, and bounded reconnect are implemented; room chat remains planned.
+This is the target for the full V2 release. The workspace, device controls, bounded reconnect, and bounded room chat are delivered. Phase records retain the missing timestamp display and remaining verification gaps; combined acceptance has not started.
 
 **A host can run a small local session, change devices without leaving, recover from a brief connection interruption, talk with the audience through chat, and find the session's replay afterward.**
 
@@ -325,6 +326,6 @@ There is no deployment gate. No V3 account, scheduling, waiting-room, or V4 medi
 
 ## 15. Next execution request
 
-For V2-P3 verification and handoff, start with:
+For V2-P4 verification and handoff, start with:
 
-> Read `MASTER_PLAN_V2.md`, `plans/phase3.md`, and `plans/phase3/guide.md` for the shipped reconnect behavior and remaining verification gaps. V2-P3 implementation is complete. Keep the current mesh, device replacement, and broadcast pipeline. Do not start another phase or add chat, accounts, scheduling, deployment, or ICE restart without a new request.
+> Read `MASTER_PLAN_V2.md`, `plans/phase4.md`, and `plans/phase4/guide.md` for the shipped room-chat behavior, slice hashes, and remaining implementation and verification gaps. V2-P4's five slices are delivered; its timestamp display is still missing and acceptance remains partial. Keep the current mesh, device replacement, reconnect, and broadcast pipeline. V2-P5 has not been written. Do not start its combined acceptance, accounts, scheduling, deployment, or ICE restart without a new request.
