@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '../../components/ui/button';
 import type { ChatSession } from './chat-session';
+import { formatChatTime } from './format-chat-time';
 
 export function ChatPanel({ session, host }: { session: ChatSession; host: boolean }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -82,21 +83,32 @@ export function ChatPanel({ session, host }: { session: ChatSession; host: boole
         }}
       >
         <ol className="m-0 list-none space-y-4 p-0">
-          {state.messages.map((message) => (
-            <li key={message.sequence}>
-              <p className="m-0 text-xs text-muted wrap-anywhere">
-                <span className="font-semibold text-ink">{message.displayName}</span>{' '}
-                <span>
-                  {message.role === 'HOST'
-                    ? 'Host'
-                    : message.role === 'SPEAKER'
-                      ? 'Speaker'
-                      : 'Attendee'}
-                </span>
-              </p>
-              <p className="mt-1 mb-0 text-sm whitespace-pre-wrap wrap-anywhere">{message.text}</p>
-            </li>
-          ))}
+          {state.messages.map((message) => {
+            const time = formatChatTime(message.sentAt, Date.now());
+            return (
+              <li key={message.sequence}>
+                <p className="m-0 text-xs text-muted wrap-anywhere">
+                  <span className="font-semibold text-ink">{message.displayName}</span>{' '}
+                  <span>
+                    {message.role === 'HOST'
+                      ? 'Host'
+                      : message.role === 'SPEAKER'
+                        ? 'Speaker'
+                        : 'Attendee'}
+                  </span>
+                  {time && (
+                    <>
+                      {' '}
+                      <time dateTime={time.dateTime}>{time.text}</time>
+                    </>
+                  )}
+                </p>
+                <p className="mt-1 mb-0 text-sm whitespace-pre-wrap wrap-anywhere">
+                  {message.text}
+                </p>
+              </li>
+            );
+          })}
         </ol>
         {!state.loading && state.messages.length === 0 && (
           <p className="text-sm text-muted">No messages yet.</p>

@@ -1,6 +1,6 @@
 # V2 Phase 5 — Combined acceptance
 
-**Status:** planned. No implementation slice has started.\
+**Status:** in progress. V2P5-C01's server-time display is implemented and verified. V2P5-C02 through V2P5-C04 remain planned.\
 **Last updated:** 2026-11-04.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.6`, Sections 9.1, 11, 12, 13, and 14 (UX-01, QA-01, QA-02, QA-03, and the combined local script). Unchanged mesh, lock, device, reconnect, broadcast, and chat rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P1 through V2-P4 contracts.\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns V2P5-C01 through V2P5-C04. Those ids are not the V1 commits in [V1/phase5/guide.md](V1/phase5/guide.md). This file owns the rules those commits must satisfy.\
@@ -144,6 +144,8 @@ The four-person mesh, Perfect Negotiation, host locks, device replacement, bound
 | QA-03 | README and phase records match Section 4.1 after the slices that actually ran. The visible time, the open physical checks, and any skipped command are named                           | Documentation review against the guide's verification results                                   | planned |
 
 A missing browser, Redis, disposable Postgres, or FFmpeg leaves only that method unverified. Synthetic media does not close P3-A03, P3-A05, or P3-A06.
+
+**V2P5-C01 verification (2026-11-04):** `pnpm --filter @stageflow/web test` passed (313 tests), including seven formatter cases for same-day time without a date, another-day date and time, local calendar comparison across a UTC boundary, non-finite timestamps, and a finite instant outside the Date range. `pnpm check` passed: typecheck, lint, shared tests (262), web tests (313), API tests against Redis (219), both production builds, and repository formatting. Each accepted chat line now renders its server `sentAt` after the role in a `time` element with a UTC ISO `dateTime`; invalid instants omit that element. The README describes the local hour/minute and the date on another local day. This closes CHAT-04's missing timestamp implementation only. No browser walk or combined session was run in C01; UX-01, the remaining CHAT-04 observations, and P3-A03/P3-A05/P3-A06 remain open. C02 through C04 have not started.
 
 ## 7. Verification commands
 

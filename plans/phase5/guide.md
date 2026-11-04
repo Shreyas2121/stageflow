@@ -1,6 +1,6 @@
 # Guide — V2 Phase 5, commit by commit
 
-**Status:** planned. V2P5-C01 through V2P5-C04 have not started.\
+**Status:** in progress. V2P5-C01's server-time display is implemented and verified. V2P5-C02 through V2P5-C04 remain planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.6`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -43,7 +43,7 @@ When V2P5-C02 changes product code, commit it as `fix(web): keep the session usa
 
 ## 2. V2P5-C01 — Server time
 
-**Status:** planned\
+**Status:** verified; awaiting commit\
 **Proposed commit message:** `feat(web-room): show the chat server time`\
 **Actual commit:**
 
@@ -75,6 +75,8 @@ pnpm lint
 ```
 
 **Done when:** The formatter tests pass, the panel renders the time, the README sentence matches Section 5.1, and the slice is committed.
+
+**Verification result (2026-11-04):** `pnpm --filter @stageflow/web test` passed (313 tests), including seven new formatter cases covering same-day time, another-day date/time, local calendar comparison across a UTC boundary, non-finite timestamps, and a finite out-of-range instant. `pnpm check` passed with typecheck, lint, shared tests (262), web tests (313), API tests against Redis (219), both builds, and repository formatting. The panel formats the stored server instant after the role and omits invalid times; its focus behavior and chat region are unchanged. The README now describes the displayed time. The home entry regression passed. No browser walk, combined session, or release smoke was run in this slice; those observations remain for C02 and C03, and CHAT-04's other observations and the physical/native-picker gaps remain open.
 
 **Handoff:** The keyboard walk and the release script have not been recorded.
 
