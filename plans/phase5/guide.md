@@ -1,6 +1,6 @@
 # Guide — V2 Phase 5, commit by commit
 
-**Status:** delivered; acceptance partial. V2P5-C01, V2P5-C02, and V2P5-C03 are committed. V2P5-C04 is verified. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is this record. P3-A03, P3-A05, and P3-A06 stay open.\
+**Status:** delivered; acceptance partial. V2P5-C01 through V2P5-C04 are committed. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is this record. P3-A03, P3-A05, and P3-A06 stay open.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.7`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -180,9 +180,9 @@ Section 4.1 records the mapped observations. Chrome fake tracks did not dispatch
 
 ## 5. V2P5-C04 — Acceptance record
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): record the V2 acceptance result`\
-**Actual commit:**
+**Actual commit:** `b4d9cde3fb4b2a93c7fbf8b6925821ed9b37bda9`
 
 **Why:** The product README does not yet give one result for the practical session, the visible server time, and the checks that remain open.
 

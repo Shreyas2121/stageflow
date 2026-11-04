@@ -1,6 +1,6 @@
 # V2 Phase 5 — Combined acceptance
 
-**Status:** delivered; acceptance partial. V2P5-C01 through V2P5-C03 are committed, and V2P5-C04's acceptance record is verified. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is verified as this documentation record. Section 4.1 names the remaining partial and unverified ids. P3-A03, P3-A05, and P3-A06 stay open.\
+**Status:** delivered; acceptance partial. V2P5-C01 through V2P5-C04 are committed. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is verified as this documentation record. Section 4.1 names the remaining partial and unverified ids. P3-A03, P3-A05, and P3-A06 stay open.\
 **Last updated:** 2026-11-04.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.7`, Sections 9.1, 11, 12, 13, and 14 (UX-01, QA-01, QA-02, QA-03, and the combined local script). Unchanged mesh, lock, device, reconnect, broadcast, and chat rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P1 through V2-P4 contracts.\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns V2P5-C01 through V2P5-C04. Those ids are not the V1 commits in [V1/phase5/guide.md](V1/phase5/guide.md). This file owns the rules those commits must satisfy.\
