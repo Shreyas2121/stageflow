@@ -231,4 +231,4 @@ V2-P1 is done when WS-01 through WS-03 have a result, each slice is committed un
 
 V2-P2 may rely on the current guest remaining the host of rooms created from the workspace, the paged room list, the paged broadcast catalog, `thumbnailUrl` being null when no thumbnail file was stored, and the existing mesh and recording pipeline. It may not rely on in-call device changes. Do not start those changes in V2P1-C05.
 
-Do not write `plans/phase2.md` until that work starts.
+V2 phase 2 is specified in [phase2.md](phase2.md). That file does not authorize implementation.

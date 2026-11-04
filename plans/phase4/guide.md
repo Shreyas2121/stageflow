@@ -266,4 +266,4 @@ Read the edited README against phase Section 5. `pnpm exec prettier --check READ
 
 **Implementation gap:** Master Section 9.1 calls for a visible server timestamp. The server stores `ChatMessage.sentAt`, while the panel currently renders name, role, and text without time. The README, phase contract, plan index, and master status now identify this as missing implementation. This documentation slice does not waive or implement that requirement.
 
-**Handoff:** V2-P5 has not been written. Do not add the combined acceptance pass in this commit.
+**Handoff:** V2 phase 5 is specified in [../phase5.md](../phase5.md). That file does not authorize implementation.

@@ -168,6 +168,6 @@ The two-window check uses the local web app and API. Send from the host and from
 
 V2-P4 is done when CHAT-01 through CHAT-04 have a result, each slice is committed under V1 master Section 1.4, and the README describes the channel, the pause, the retention, the resume behavior, and the delayed-video sentence. Unverified browser and physical checks stay named. P3-A03, P3-A05, P3-A06, and the earlier unverified V2 browser, smoke, and FFmpeg checks stay open.
 
-V2-P5 may rely on this separate chat channel, the host pause, and history that is absent from the room snapshot. It may rely on resume leaving an unsent draft unsent. It may not rely on a written combined-acceptance plan. Do not implement that acceptance pass in this phase.
+V2-P5 may rely on this separate chat channel, the host pause, and history that is absent from the room snapshot. It may rely on resume leaving an unsent draft unsent. Do not implement that acceptance pass in this phase.
 
-Do not write `plans/phase5.md` until that work starts.
+V2 phase 5 is specified in [phase5.md](phase5.md). That file does not authorize implementation.

@@ -195,8 +195,8 @@ The two-window check uses the local web app and API. Drop the signaling socket, 
 
 V2-P3 is done when REC-01 through REC-05 have a result, each slice is committed under V1 master Section 1.4, and the README describes grace, explicit leave, host expiry, failed host broadcasts, media staying off, and the cases that do not resume. Unverified browser, physical, and native-picker checks stay named. P3-A03, P3-A05, P3-A06, and the V2-P1 and V2-P2 browser and smoke gaps stay open.
 
-Implementation is complete in four slices, with verification gaps recorded in Section 6. The README now states grace, exit and expiry behavior, media-off resume, broadcast failure, restart limits, and nine Redis room keys. V2-P4 has not been written or started.
+Implementation is complete in four slices, with verification gaps recorded in Section 6. The README now states grace, exit and expiry behavior, media-off resume, broadcast failure, restart limits, and nine Redis room keys.
 
 V2-P4 may rely on `participantId`, the connection generation, and rejection of a stale transport. It may rely on a suspended member remaining in the room until expiry. It may not rely on chat. The generation check added here is the check a later chat command must pass. Do not implement chat in this phase.
 
-Do not write `plans/phase4.md` until that work starts.
+V2 phase 4 is specified in [phase4.md](phase4.md). That file does not authorize implementation.

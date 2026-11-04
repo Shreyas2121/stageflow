@@ -183,4 +183,4 @@ On 2026-11-03 the README states those limits. V2P2-C01 through V2P2-C06 are comm
 
 V2-P3 may rely on local capture stopping when the session generation advances, and on one audio sender and one video sender per peer. It may not rely on reconnect. The replacement cancel used by leave and demotion is the cancel V2-P3 must call when a member is suspended. Do not implement suspension in this phase.
 
-Do not write `plans/phase3.md` until that work starts.
+V2 phase 3 is specified in [phase3.md](phase3.md). That file does not authorize implementation.
