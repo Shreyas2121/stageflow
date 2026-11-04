@@ -46,6 +46,8 @@ const systemClock: LiveClock = {
 type ResumeResult =
   | { ok: true; participantId: string; connectionGeneration: number; snapshot: RoomSnapshot }
   | Extract<CommandAck, { ok: false }>;
+// One in-flight join or resume on a socket. Disconnect marks it before client.room exists.
+type BindingAttempt = { abandoned: boolean };
 // Transport effects run inside the operation queue to preserve snapshot/membership ordering.
 export interface LiveTransport {
   join(socketId: string, roomId: string): Promise<void>;
@@ -75,6 +77,9 @@ export class LiveService {
     string,
     { client: LiveSession; transport: LiveTransport; now: number }
   >();
+  private readonly bindingAttempts = new Map<string, BindingAttempt>();
+  // When the transport died during binding. Grace uses this instant, not the later suspend.
+  private readonly disconnectedAt = new Map<string, number>();
   private cancelSweep?: () => void;
   private disposed = false;
   constructor(
@@ -123,6 +128,99 @@ export class LiveService {
     client.participantId = undefined;
     client.generation = undefined;
     client.isSyntheticBot = undefined;
+  }
+
+  private openBinding(client: LiveSession): BindingAttempt {
+    const attempt: BindingAttempt = { abandoned: false };
+    this.bindingAttempts.set(client.id, attempt);
+    return attempt;
+  }
+
+  private closeBinding(client: LiveSession, attempt: BindingAttempt): void {
+    if (this.bindingAttempts.get(client.id) === attempt) this.bindingAttempts.delete(client.id);
+  }
+
+  // Record the loss even when membership is not associated yet. A later commit must compensate.
+  private noteBindingLoss(client: LiveSession): void {
+    const attempt = this.bindingAttempts.get(client.id);
+    if (!attempt) return;
+    attempt.abandoned = true;
+    if (!this.disconnectedAt.has(client.id)) this.disconnectedAt.set(client.id, this.clock.now());
+  }
+
+  private bindingLost(client: LiveSession, attempt: BindingAttempt): boolean {
+    return attempt.abandoned || !client.connected;
+  }
+
+  private settleDisconnect(client: LiveSession): void {
+    this.pendingDisconnects.delete(client.id);
+    this.disconnectedAt.delete(client.id);
+  }
+
+  private attachMembership(
+    client: LiveSession,
+    room: LiveRoom,
+    participantId: string,
+    generation: number,
+    isSyntheticBot: boolean,
+  ): void {
+    client.room = room;
+    client.participantId = participantId;
+    client.generation = generation;
+    client.isSyntheticBot = isSyntheticBot;
+  }
+
+  // Null means the transport is still bound and the caller may publish. Otherwise compensate later,
+  // after this socket operation releases the queue, so suspend cannot deadlock behind itself.
+  private abandonIfLost(
+    client: LiveSession,
+    attempt: BindingAttempt,
+    abandonedCommit: { current: boolean },
+  ): Extract<CommandAck, { ok: false }> | null {
+    if (!this.bindingLost(client, attempt)) return null;
+    abandonedCommit.current = true;
+    return failure('not_joined');
+  }
+
+  private async adoptIfCommitted(
+    client: LiveSession,
+    room: LiveRoom,
+    participantId: string,
+    generation: number,
+    isSyntheticBot: boolean,
+  ): Promise<boolean> {
+    try {
+      const current = await this.live.readParticipant(
+        roomPrefix(room.roomId, this.namespace),
+        participantId,
+      );
+      if (current?.presence !== 'connected' || current.socketId !== client.id) return false;
+      this.attachMembership(
+        client,
+        room,
+        participantId,
+        current.connectionGeneration,
+        isSyntheticBot,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : 'Live binding read failed.');
+      this.attachMembership(client, room, participantId, generation, isSyntheticBot);
+      return true;
+    }
+  }
+
+  private finishBinding<T extends CommandAck>(
+    client: LiveSession,
+    transport: LiveTransport,
+    result: Promise<T>,
+    abandonedCommit: { current: boolean },
+  ): Promise<T> {
+    return result.then(async (ack) => {
+      if (abandonedCommit.current) await this.disconnect(client, transport);
+      else if (!this.pendingDisconnects.has(client.id)) this.disconnectedAt.delete(client.id);
+      return ack;
+    });
   }
 
   // Chat shares membership authority without entering either stage operation queue.
@@ -311,58 +409,101 @@ export class LiveService {
     participantId: string,
     resumeDigest?: string,
   ): Promise<CommandAck> {
-    return this.execute(client, async (): Promise<CommandAck> => {
-      if (!client.connected) return failure('not_joined');
-      if (client.room && client.room.roomId !== request.roomId) return failure('already_joined');
-      return this.operations.run(`room:${request.roomId}`, async (): Promise<CommandAck> => {
-        if (this.ending.has(request.roomId)) return failure('room_ended');
-        // Publication failure leaves membership in place. The same join delivers that revision
-        // from this queue and does not apply join again.
-        if (client.room) {
-          const pending = this.unpublished.get(request.roomId);
-          if (!pending) return failure('already_joined');
-          await this.publish({ ...pending, changed: false }, transport);
-          return { ok: true };
+    const abandonedCommit = { current: false };
+    return this.finishBinding(
+      client,
+      transport,
+      this.execute(client, async (): Promise<CommandAck> => {
+        if (!client.connected) return failure('not_joined');
+        if (client.room && client.room.roomId !== request.roomId) return failure('already_joined');
+        const attempt = this.openBinding(client);
+        try {
+          return await this.operations.run(
+            `room:${request.roomId}`,
+            async (): Promise<CommandAck> => {
+              if (this.ending.has(request.roomId)) return failure('room_ended');
+              // Publication failure leaves membership in place. The same join delivers that revision
+              // from this queue and does not apply join again.
+              if (client.room) {
+                const abandoned = this.abandonIfLost(client, attempt, abandonedCommit);
+                if (abandoned) return abandoned;
+                const pending = this.unpublished.get(request.roomId);
+                if (!pending) return failure('already_joined');
+                await this.publish({ ...pending, changed: false }, transport);
+                return this.abandonIfLost(client, attempt, abandonedCommit) ?? { ok: true };
+              }
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              const room = await this.rooms.getById(request.roomId);
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              if (!room) return failure('room_not_found');
+              if (room.status === 'ENDED') return failure('room_ended');
+              const liveRoom: LiveRoom = {
+                roomId: room.id,
+                hostId: room.hostId,
+                mode: room.mode,
+                status: room.status,
+              };
+              const user = client.user;
+              const now = this.clock.now();
+              if (this.suspendedRooms.has(room.id)) {
+                await this.expireInRoom(liveRoom, transport, now);
+                if (
+                  this.ending.has(room.id) ||
+                  (await this.rooms.getById(room.id))?.status === 'ENDED'
+                )
+                  return failure('room_ended');
+              }
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              const prefix = roomPrefix(room.id, this.namespace);
+              let result: LiveResult;
+              try {
+                result = await this.live.apply(prefix, liveRoom, {
+                  type: 'join',
+                  participantId,
+                  socketId: client.id,
+                  userId: user.id,
+                  displayName: user.displayName,
+                  isAudioMuted: request.isAudioMuted,
+                  isVideoOff: request.isVideoOff,
+                  isSyntheticBot: request.isSyntheticBot,
+                  joinedAt: now,
+                  now,
+                  ...(resumeDigest ? { resumeDigest } : {}),
+                });
+              } catch (error) {
+                if (
+                  this.bindingLost(client, attempt) &&
+                  (await this.adoptIfCommitted(
+                    client,
+                    liveRoom,
+                    participantId,
+                    1,
+                    request.isSyntheticBot,
+                  ))
+                )
+                  abandonedCommit.current = true;
+                throw error;
+              }
+              if (!result.ok) return this.failedResult(result, liveRoom, transport);
+              this.attachMembership(client, liveRoom, participantId, 1, request.isSyntheticBot);
+              const abandoned = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (abandoned) return abandoned;
+              await transport.join(client.id, room.id);
+              const lost = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (lost) return lost;
+              await this.publish(result, transport);
+              return this.abandonIfLost(client, attempt, abandonedCommit) ?? { ok: true };
+            },
+          );
+        } finally {
+          // A throw after Redis committed still has to reach the cleanup queue.
+          if (client.room && (attempt.abandoned || !client.connected))
+            abandonedCommit.current = true;
+          this.closeBinding(client, attempt);
         }
-        const room = await this.rooms.getById(request.roomId);
-        if (!room) return failure('room_not_found');
-        if (room.status === 'ENDED') return failure('room_ended');
-        const liveRoom: LiveRoom = {
-          roomId: room.id,
-          hostId: room.hostId,
-          mode: room.mode,
-          status: room.status,
-        };
-        const user = client.user;
-        const now = this.clock.now();
-        if (this.suspendedRooms.has(room.id)) {
-          await this.expireInRoom(liveRoom, transport, now);
-          if (this.ending.has(room.id) || (await this.rooms.getById(room.id))?.status === 'ENDED')
-            return failure('room_ended');
-        }
-        const result = await this.live.apply(roomPrefix(room.id, this.namespace), liveRoom, {
-          type: 'join',
-          participantId,
-          socketId: client.id,
-          userId: user.id,
-          displayName: user.displayName,
-          isAudioMuted: request.isAudioMuted,
-          isVideoOff: request.isVideoOff,
-          isSyntheticBot: request.isSyntheticBot,
-          joinedAt: now,
-          now,
-          ...(resumeDigest ? { resumeDigest } : {}),
-        });
-        if (!result.ok) return this.failedResult(result, liveRoom, transport);
-        client.room = liveRoom;
-        client.participantId = participantId;
-        client.generation = 1;
-        client.isSyntheticBot = request.isSyntheticBot;
-        await transport.join(client.id, room.id);
-        await this.publish(result, transport);
-        return { ok: true };
-      });
-    });
+      }),
+      abandonedCommit,
+    );
   }
 
   resume(
@@ -370,79 +511,135 @@ export class LiveService {
     request: ResumeRoomRequest,
     transport: LiveTransport,
   ): Promise<ResumeResult> {
-    return this.execute(client, async (): Promise<ResumeResult> => {
-      if (client.room)
-        return failure(
-          client.room.roomId === request.roomId && client.participantId === request.participantId
-            ? 'already_connected'
-            : 'already_joined',
-        );
-      // Observe before entering the room queue so concurrent attempts carry the same generation.
-      const observed = await this.live.readParticipant(
-        roomPrefix(request.roomId, this.namespace),
-        request.participantId,
-      );
-      return this.operations.run(`room:${request.roomId}`, async (): Promise<ResumeResult> => {
-        if (this.ending.has(request.roomId)) return failure('room_ended');
-        const room = await this.rooms.getById(request.roomId);
-        if (!room) return failure('room_not_found');
-        if (room.status === 'ENDED') return failure('room_ended');
-        const liveRoom: LiveRoom = {
-          roomId: room.id,
-          hostId: room.hostId,
-          mode: room.mode,
-          status: room.status,
-        };
-        if (this.suspendedRooms.has(room.id)) {
-          await this.expireInRoom(liveRoom, transport, this.clock.now());
-          if ((await this.rooms.getById(room.id))?.status === 'ENDED') return failure('room_ended');
-          if (
-            observed?.presence === 'suspended' &&
-            !(await this.live.readParticipant(
-              roomPrefix(room.id, this.namespace),
-              request.participantId,
-            ))
-          )
-            return failure('resume_expired');
+    const abandonedCommit = { current: false };
+    return this.finishBinding(
+      client,
+      transport,
+      this.execute(client, async (): Promise<ResumeResult> => {
+        if (client.room)
+          return failure(
+            client.room.roomId === request.roomId && client.participantId === request.participantId
+              ? 'already_connected'
+              : 'already_joined',
+          );
+        if (!client.connected) return failure('not_joined');
+        const attempt = this.openBinding(client);
+        try {
+          // Observe before entering the room queue so concurrent attempts carry the same generation.
+          const observed = await this.live.readParticipant(
+            roomPrefix(request.roomId, this.namespace),
+            request.participantId,
+          );
+          if (this.bindingLost(client, attempt)) return failure('not_joined');
+          return await this.operations.run(
+            `room:${request.roomId}`,
+            async (): Promise<ResumeResult> => {
+              if (this.ending.has(request.roomId)) return failure('room_ended');
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              const room = await this.rooms.getById(request.roomId);
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              if (!room) return failure('room_not_found');
+              if (room.status === 'ENDED') return failure('room_ended');
+              const liveRoom: LiveRoom = {
+                roomId: room.id,
+                hostId: room.hostId,
+                mode: room.mode,
+                status: room.status,
+              };
+              if (this.suspendedRooms.has(room.id)) {
+                await this.expireInRoom(liveRoom, transport, this.clock.now());
+                if ((await this.rooms.getById(room.id))?.status === 'ENDED')
+                  return failure('room_ended');
+                if (
+                  observed?.presence === 'suspended' &&
+                  !(await this.live.readParticipant(
+                    roomPrefix(room.id, this.namespace),
+                    request.participantId,
+                  ))
+                )
+                  return failure('resume_expired');
+              }
+              if (this.bindingLost(client, attempt)) return failure('not_joined');
+              const prefix = roomPrefix(room.id, this.namespace);
+              const generation = (observed?.connectionGeneration ?? 0) + 1;
+              let result: LiveResult;
+              try {
+                result = await this.live.apply(prefix, liveRoom, {
+                  type: 'resume',
+                  participantId: request.participantId,
+                  userId: client.user.id,
+                  socketId: client.id,
+                  resumeDigest: createHash('sha256').update(request.resumeCredential).digest('hex'),
+                  expectedGeneration: observed?.connectionGeneration ?? 0,
+                  now: this.clock.now(),
+                });
+              } catch (error) {
+                if (
+                  this.bindingLost(client, attempt) &&
+                  (await this.adoptIfCommitted(
+                    client,
+                    liveRoom,
+                    request.participantId,
+                    generation,
+                    false,
+                  ))
+                )
+                  abandonedCommit.current = true;
+                throw error;
+              }
+              if (!result.ok) return this.failedResult(result, liveRoom, transport);
+              const participant = result.state.participants.find(
+                (p) => p.participantId === request.participantId,
+              )!;
+              this.attachMembership(
+                client,
+                liveRoom,
+                participant.participantId,
+                participant.connectionGeneration,
+                false,
+              );
+              const abandoned = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (abandoned) return abandoned;
+              this.trackSuspended(result, liveRoom, transport);
+              await transport.join(client.id, room.id);
+              const lost = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (lost) return lost;
+              const snapshot = await this.roomSnapshot(result);
+              const unpublished = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (unpublished) return unpublished;
+              await this.publish(result, transport);
+              const afterPublish = this.abandonIfLost(client, attempt, abandonedCommit);
+              if (afterPublish) return afterPublish;
+              return {
+                ok: true,
+                participantId: participant.participantId,
+                connectionGeneration: participant.connectionGeneration,
+                snapshot,
+              };
+            },
+          );
+        } finally {
+          if (client.room && (attempt.abandoned || !client.connected))
+            abandonedCommit.current = true;
+          this.closeBinding(client, attempt);
         }
-        const result = await this.live.apply(roomPrefix(room.id, this.namespace), liveRoom, {
-          type: 'resume',
-          participantId: request.participantId,
-          userId: client.user.id,
-          socketId: client.id,
-          resumeDigest: createHash('sha256').update(request.resumeCredential).digest('hex'),
-          expectedGeneration: observed?.connectionGeneration ?? 0,
-          now: this.clock.now(),
-        });
-        if (!result.ok) return this.failedResult(result, liveRoom, transport);
-        const participant = result.state.participants.find(
-          (p) => p.participantId === request.participantId,
-        )!;
-        client.room = liveRoom;
-        client.participantId = participant.participantId;
-        client.generation = participant.connectionGeneration;
-        client.isSyntheticBot = false;
-        this.trackSuspended(result, liveRoom, transport);
-        await transport.join(client.id, room.id);
-        const snapshot = await this.roomSnapshot(result);
-        await this.publish(result, transport);
-        return {
-          ok: true,
-          participantId: participant.participantId,
-          connectionGeneration: participant.connectionGeneration,
-          snapshot,
-        };
-      });
-    });
+      }),
+      abandonedCommit,
+    );
   }
 
   disconnect(client: LiveSession, transport: LiveTransport): Promise<CommandAck> {
+    this.noteBindingLoss(client);
     if (!client.room) return Promise.resolve({ ok: true });
-    if (client.isSyntheticBot) return this.leave(client, transport);
+    if (client.isSyntheticBot) {
+      this.disconnectedAt.delete(client.id);
+      return this.leave(client, transport);
+    }
+    if (!this.disconnectedAt.has(client.id)) this.disconnectedAt.set(client.id, this.clock.now());
     const pending = this.pendingDisconnects.get(client.id) ?? {
       client,
       transport,
-      now: this.clock.now(),
+      now: this.disconnectedAt.get(client.id) ?? this.clock.now(),
     };
     this.pendingDisconnects.set(client.id, pending);
     this.scheduleSweep();
@@ -451,20 +648,20 @@ export class LiveService {
       async () => {
         const room = client.room;
         if (!room) {
-          this.pendingDisconnects.delete(client.id);
+          this.settleDisconnect(client);
           return { ok: true };
         }
         return this.operations.run(
           `room:${room.roomId}`,
           async () => {
             if (client.room !== room) {
-              this.pendingDisconnects.delete(client.id);
+              this.settleDisconnect(client);
               return { ok: true };
             }
             if (this.ending.has(room.roomId)) {
               await this.finishShutdown(room, transport);
               this.clearBinding(client);
-              this.pendingDisconnects.delete(client.id);
+              this.settleDisconnect(client);
               return { ok: true };
             }
             const current = client.participantId
@@ -480,7 +677,7 @@ export class LiveService {
               current.connectionGeneration === client.generation;
             const invalid = committed ? null : await this.validateBinding(client, room);
             if (invalid) {
-              this.pendingDisconnects.delete(client.id);
+              this.settleDisconnect(client);
               return failure(invalid);
             }
             if (client.user.id === room.hostId) {
@@ -496,7 +693,7 @@ export class LiveService {
             if (!result.ok) return failure(result.error);
             this.trackSuspended(result, room, transport);
             this.clearBinding(client);
-            this.pendingDisconnects.delete(client.id);
+            this.settleDisconnect(client);
             await this.publish({ ...result, changed: result.changed || committed }, transport);
             await transport.leave(client.id, room.roomId);
             return { ok: true };

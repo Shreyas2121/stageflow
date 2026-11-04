@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Redis } from 'ioredis';
 import { applyStageCommand, type LiveState, type StageCommand } from '@stageflow/shared';
-import { LiveRepository } from './live.repository';
+import { LiveRepository, type LiveRoom } from './live.repository';
+import { LiveService, type LiveTransport } from './live.service';
 import { LiveConnection } from './live.connection';
 import { liveKeys, roomPrefix } from './live.keys';
+import type { RoomsService } from '../rooms/rooms.service';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SerializedOperations } from './serialized-operations';
@@ -464,6 +466,108 @@ describe('Redis Lua stage transitions', () => {
       });
       expect(await stored(value)).toEqual(before);
     }
+  });
+
+  it('suspends a committed join when its socket is already gone, and a stale binding cannot evict the next generation', async () => {
+    const roomId = randomUUID();
+    const namespace = 'itest';
+    const value = roomPrefix(roomId, namespace);
+    prefixes.add(value);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const liveRoom: LiveRoom = {
+      roomId,
+      hostId: 'host-user',
+      mode: 'MEETING',
+      status: 'LIVE',
+    };
+    const live = {
+      apply: async (key: string, room: LiveRoom, command: StageCommand) => {
+        if (command.type === 'join') {
+          markEntered();
+          await gate;
+        }
+        return repository.apply(key, room, command);
+      },
+      readStage: (key: string) => repository.readStage(key),
+      readConnectedStage: (key: string) => repository.readConnectedStage(key),
+      readSocket: (key: string, participantId: string) => repository.readSocket(key, participantId),
+      readParticipant: (key: string, participantId: string) =>
+        repository.readParticipant(key, participantId),
+      deleteRoom: (key: string) => repository.deleteRoom(key),
+    };
+    const rooms: Pick<RoomsService, 'getById' | 'end'> = {
+      getById: async () =>
+        ({ ...liveRoom, id: roomId }) as unknown as Awaited<ReturnType<RoomsService['getById']>>,
+      end: async () => undefined,
+    };
+    const service = new LiveService(rooms, live, new SerializedOperations(), undefined, namespace);
+    const sockets: LiveTransport = {
+      join: async () => undefined,
+      leave: async () => undefined,
+      publish: () => undefined,
+      forceMute: () => undefined,
+      peer: () => undefined,
+      end: () => undefined,
+    };
+    const client = {
+      id: 'socket-host',
+      user: { id: 'host-user', displayName: 'Host' },
+      connected: true,
+      room: undefined as LiveRoom | undefined,
+      participantId: undefined as string | undefined,
+      generation: undefined as number | undefined,
+    };
+    const joining = service.join(
+      client,
+      { roomId, isAudioMuted: true, isVideoOff: true, isSyntheticBot: false },
+      sockets,
+      'host-member',
+      'digest-host',
+    );
+    await entered;
+    client.connected = false;
+    await service.disconnect(client, sockets);
+    release();
+    await expect(joining).resolves.toMatchObject({ ok: false, error: 'not_joined' });
+    await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
+      presence: 'suspended',
+      socketId: null,
+      connectionGeneration: 1,
+      role: 'HOST',
+    });
+    expect(await redis.zscore(`${value}:deadlines`, 'host-member')).not.toBeNull();
+    expect(await redis.hget(`${value}:transports`, 'socket-host')).toBeNull();
+    const resumed = await repository.apply(value, liveRoom, {
+      type: 'resume',
+      participantId: 'host-member',
+      userId: 'host-user',
+      socketId: 'socket-new',
+      resumeDigest: 'digest-host',
+      expectedGeneration: 1,
+      now: Date.now(),
+    });
+    expect(resumed.ok).toBe(true);
+    const before = await stored(value);
+    client.room = liveRoom;
+    client.participantId = 'host-member';
+    client.generation = 1;
+    await expect(service.disconnect(client, sockets)).resolves.toMatchObject({
+      error: 'stale_transport',
+    });
+    expect(await stored(value)).toEqual(before);
+    await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
+      presence: 'connected',
+      socketId: 'socket-new',
+      connectionGeneration: 2,
+    });
+    service.onModuleDestroy();
   });
 
   it.each([true, false])(

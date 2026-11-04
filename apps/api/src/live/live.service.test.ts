@@ -143,7 +143,18 @@ function fixture(
         ? undefined
         : createHash('sha256').update(`credential-${peer.user.id}`).digest('hex'),
     );
-  return { service, rooms, live, chat, transport, client, join, events, snapshots };
+  return {
+    service,
+    rooms,
+    live,
+    chat,
+    transport,
+    client,
+    join,
+    events,
+    snapshots,
+    readState: () => state,
+  };
 }
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
@@ -1285,4 +1296,430 @@ it('retries chat cleanup after host expiry and keeps the interrupted broadcast f
     f.service.onModuleDestroy();
     logger.mockRestore();
   }
+});
+
+function dropSocket(peer: LiveSession): void {
+  Object.defineProperty(peer, 'connected', { value: false, configurable: true });
+}
+
+function pause(): {
+  promise: Promise<void>;
+  entered: Promise<void>;
+  enter(): void;
+  release(): void;
+} {
+  let release!: () => void;
+  let enter!: () => void;
+  return {
+    promise: new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    entered: new Promise<void>((resolve) => {
+      enter = resolve;
+    }),
+    enter: () => enter(),
+    release: () => release(),
+  };
+}
+
+async function disconnectDuring(peer: LiveSession, service: LiveService, transport: LiveTransport) {
+  dropSocket(peer);
+  await service.disconnect(peer, transport);
+}
+
+it('does not admit a guest when the socket dies before the catalog read returns', async () => {
+  const f = fixture();
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  const held = pause();
+  const read = vi.mocked(f.rooms.getById).getMockImplementation()!;
+  vi.mocked(f.rooms.getById).mockImplementationOnce(async (...args) => {
+    held.enter();
+    await held.promise;
+    return read(...args);
+  });
+  const joining = f.join(guest);
+  await held.entered;
+  await disconnectDuring(guest, f.service, f.transport);
+  held.release();
+  expect(await joining).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.live.apply).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({ type: 'join', participantId: 'guest' }),
+  );
+  expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host']);
+  expect(f.events).not.toContain('join:guest');
+  f.service.onModuleDestroy();
+});
+
+it('suspends a guest joined after the socket died and releases that slot when grace ends', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  const held = pause();
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  vi.mocked(f.live.apply).mockImplementation(async (...args) => {
+    const command = args[2];
+    if (command.type === 'join' && command.participantId === 'guest') {
+      held.enter();
+      await held.promise;
+    }
+    return apply(...args);
+  });
+  const joining = f.join(guest);
+  await held.entered;
+  await disconnectDuring(guest, f.service, f.transport);
+  time.set(1800);
+  const before = f.snapshots.length;
+  held.release();
+  expect(await joining).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.live.apply).toHaveBeenCalledWith(
+    'sf:room:room',
+    expect.anything(),
+    expect.objectContaining({
+      type: 'suspend',
+      participantId: 'guest',
+      now: 1000,
+      transport: { participantId: 'guest', socketId: 'guest', generation: 1 },
+    }),
+  );
+  expect(
+    f.snapshots
+      .slice(before)
+      .some((snapshot) =>
+        snapshot.participants.some(
+          (p) => p.participantId === 'guest' && p.presence === 'connected',
+        ),
+      ),
+  ).toBe(false);
+  expect(f.snapshots.at(-1)!.participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'suspended',
+    socketId: null,
+  });
+  expect(f.snapshots.at(-1)!.stageParticipantIds).toContain('guest');
+  expect(f.events).not.toContain('join:guest');
+  expect(await f.join(f.client('other', 'guest'))).toMatchObject({ error: 'already_joined' });
+  time.set(20999);
+  await f.service.sweep();
+  expect(
+    f.snapshots
+      .at(-1)!
+      .participants.map((p) => p.participantId)
+      .sort(),
+  ).toEqual(['guest', 'host']);
+  time.set(21000);
+  await f.service.sweep();
+  expect(f.snapshots.at(-1)!.participants.map((p) => p.participantId)).toEqual(['host']);
+  expect(f.rooms.end).not.toHaveBeenCalled();
+  f.service.onModuleDestroy();
+});
+
+it('keeps host grace when the socket dies after join commits and before association', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  const host = f.client('host');
+  const held = pause();
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  vi.mocked(f.live.apply).mockImplementationOnce(async (...args) => {
+    const result = await apply(...args);
+    held.enter();
+    await held.promise;
+    return result;
+  });
+  const joining = f.join(host);
+  await held.entered;
+  await disconnectDuring(host, f.service, f.transport);
+  time.set(1800);
+  held.release();
+  expect(await joining).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.events).not.toContain('join:host');
+  expect(f.snapshots.at(-1)).toMatchObject({ status: 'LIVE' });
+  expect(f.snapshots.at(-1)!.participants).toEqual([
+    expect.objectContaining({
+      participantId: 'host',
+      role: 'HOST',
+      presence: 'suspended',
+      socketId: null,
+    }),
+  ]);
+  expect(f.live.apply).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({ type: 'suspend', participantId: 'host', now: 1000 }),
+  );
+  expect(f.rooms.end).not.toHaveBeenCalled();
+  time.set(20999);
+  await f.service.sweep();
+  expect(f.rooms.end).not.toHaveBeenCalled();
+  expect(f.readState().participants.map((p) => p.participantId)).toEqual(['host']);
+  time.set(21000);
+  await f.service.sweep();
+  expect(f.rooms.end).toHaveBeenCalledExactlyOnceWith('room');
+  expect(f.readState().status).toBe('ENDED');
+  expect(f.readState().participants).toEqual([]);
+  f.service.onModuleDestroy();
+});
+
+it('suspends a join whose Redis reply is lost after the socket is already gone', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    const host = f.client('host');
+    const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+    vi.mocked(f.live.apply).mockImplementationOnce(async (...args) => {
+      await apply(...args);
+      await disconnectDuring(host, f.service, f.transport);
+      throw new Error('reply lost');
+    });
+    expect(await f.join(host)).toMatchObject({ ok: false, error: 'server_error' });
+    expect(f.events).not.toContain('join:host');
+    expect(f.readState().participants).toEqual([
+      expect.objectContaining({ participantId: 'host', presence: 'suspended', socketId: null }),
+    ]);
+    expect(f.readState().deadlines.host).toBe(21000);
+    time.set(21000);
+    await f.service.sweep();
+    expect(f.rooms.end).toHaveBeenCalledExactlyOnceWith('room');
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('leaves an existing suspension in place when resume dies before the catalog read returns', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  await f.service.disconnect(guest, f.transport);
+  const next = f.client('returning', 'guest');
+  const held = pause();
+  const read = vi.mocked(f.rooms.getById).getMockImplementation()!;
+  vi.mocked(f.rooms.getById).mockImplementationOnce(async (...args) => {
+    held.enter();
+    await held.promise;
+    return read(...args);
+  });
+  const resuming = f.service.resume(next, resumeRequest('guest'), f.transport);
+  await held.entered;
+  await disconnectDuring(next, f.service, f.transport);
+  time.set(5000);
+  held.release();
+  expect(await resuming).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.live.apply).not.toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({ type: 'resume' }),
+  );
+  expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'suspended',
+    connectionGeneration: 1,
+    socketId: null,
+  });
+  expect(f.readState().deadlines.guest).toBe(21000);
+  expect(f.events).not.toContain('join:returning');
+  time.set(21000);
+  await f.service.sweep();
+  expect(f.readState().participants.map((p) => p.participantId)).toEqual(['host']);
+  f.service.onModuleDestroy();
+});
+
+it('suspends a resume that commits after its socket has disconnected', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  await f.service.disconnect(guest, f.transport);
+  const next = f.client('returning', 'guest');
+  const held = pause();
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  vi.mocked(f.live.apply).mockImplementation(async (...args) => {
+    const command = args[2];
+    if (command.type === 'resume') {
+      held.enter();
+      await held.promise;
+    }
+    return apply(...args);
+  });
+  time.set(5000);
+  const resuming = f.service.resume(next, resumeRequest('guest'), f.transport);
+  await held.entered;
+  await disconnectDuring(next, f.service, f.transport);
+  time.set(8000);
+  const before = f.snapshots.length;
+  held.release();
+  expect(await resuming).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.live.apply).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({
+      type: 'suspend',
+      participantId: 'guest',
+      now: 5000,
+      transport: { participantId: 'guest', socketId: 'returning', generation: 2 },
+    }),
+  );
+  expect(
+    f.snapshots
+      .slice(before)
+      .some((snapshot) =>
+        snapshot.participants.some(
+          (p) => p.participantId === 'guest' && p.presence === 'connected',
+        ),
+      ),
+  ).toBe(false);
+  expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'suspended',
+    connectionGeneration: 2,
+    socketId: null,
+  });
+  expect(f.readState().deadlines.guest).toBe(25000);
+  expect(f.events).not.toContain('join:returning');
+  time.set(24999);
+  await f.service.sweep();
+  expect(
+    f
+      .readState()
+      .participants.map((p) => p.participantId)
+      .sort(),
+  ).toEqual(['guest', 'host']);
+  time.set(25000);
+  await f.service.sweep();
+  expect(f.readState().participants.map((p) => p.participantId)).toEqual(['host']);
+  f.service.onModuleDestroy();
+});
+
+it('suspends a resume that committed before the socket was associated', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  await f.service.disconnect(guest, f.transport);
+  const next = f.client('returning', 'guest');
+  const held = pause();
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  vi.mocked(f.live.apply).mockImplementation(async (...args) => {
+    if (args[2].type !== 'resume') return apply(...args);
+    const result = await apply(...args);
+    held.enter();
+    await held.promise;
+    return result;
+  });
+  time.set(5000);
+  const resuming = f.service.resume(next, resumeRequest('guest'), f.transport);
+  await held.entered;
+  await disconnectDuring(next, f.service, f.transport);
+  time.set(8000);
+  held.release();
+  expect(await resuming).toMatchObject({ ok: false, error: 'not_joined' });
+  expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'suspended',
+    connectionGeneration: 2,
+    socketId: null,
+  });
+  expect(f.readState().deadlines.guest).toBe(25000);
+  expect(f.events).not.toContain('join:returning');
+  f.service.onModuleDestroy();
+});
+
+it('suspends a resume whose Redis reply is lost after the socket is already gone', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  try {
+    await f.join(f.client('host'));
+    const guest = f.client('guest');
+    await f.join(guest);
+    await f.service.disconnect(guest, f.transport);
+    const next = f.client('returning', 'guest');
+    const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+    vi.mocked(f.live.apply).mockImplementation(async (...args) => {
+      if (args[2].type !== 'resume') return apply(...args);
+      await apply(...args);
+      await disconnectDuring(next, f.service, f.transport);
+      throw new Error('reply lost');
+    });
+    time.set(5000);
+    expect(await f.service.resume(next, resumeRequest('guest'), f.transport)).toMatchObject({
+      ok: false,
+      error: 'server_error',
+    });
+    expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+      presence: 'suspended',
+      connectionGeneration: 2,
+      socketId: null,
+    });
+    expect(f.readState().deadlines.guest).toBe(25000);
+    expect(f.events).not.toContain('join:returning');
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('does not let a stale resume cleanup evict a newer generation', async () => {
+  const time = controlledClock();
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, time.clock);
+  await f.join(f.client('host'));
+  const guest = f.client('guest');
+  await f.join(guest);
+  await f.service.disconnect(guest, f.transport);
+  const next = f.client('returning', 'guest');
+  const apply = vi.mocked(f.live.apply).getMockImplementation()!;
+  const read = vi.mocked(f.live.readParticipant).getMockImplementation()!;
+  let armWinner = false;
+  vi.mocked(f.live.readParticipant).mockImplementation(async (...args) => {
+    if (armWinner && args[1] === 'guest') {
+      armWinner = false;
+      const participant = f.readState().participants.find((p) => p.participantId === 'guest');
+      if (participant) {
+        participant.connectionGeneration = 3;
+        participant.socketId = 'newer';
+        participant.presence = 'connected';
+      }
+      delete f.readState().deadlines.guest;
+    }
+    return read(...args);
+  });
+  vi.mocked(f.live.apply).mockImplementation(async (...args) => {
+    const result = await apply(...args);
+    if (args[2].type === 'resume') {
+      await disconnectDuring(next, f.service, f.transport);
+      armWinner = true;
+    }
+    return result;
+  });
+  expect(await f.service.resume(next, resumeRequest('guest'), f.transport)).toMatchObject({
+    ok: false,
+    error: 'not_joined',
+  });
+  expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'connected',
+    connectionGeneration: 3,
+    socketId: 'newer',
+  });
+  expect(f.readState().deadlines.guest).toBeUndefined();
+  expect(
+    vi.mocked(f.live.apply).mock.calls.filter((call) => call[2].type === 'suspend'),
+  ).toHaveLength(1);
+  expect(
+    await f.service.update(
+      next,
+      { type: 'patchMedia', participantId: 'guest', patch: { isAudioMuted: false } },
+      f.transport,
+    ),
+  ).toMatchObject({ error: 'not_joined' });
+  await f.service.sweep();
+  expect(f.readState().participants.find((p) => p.participantId === 'guest')).toMatchObject({
+    presence: 'connected',
+    socketId: 'newer',
+    connectionGeneration: 3,
+  });
+  f.service.onModuleDestroy();
 });
