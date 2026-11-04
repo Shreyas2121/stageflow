@@ -1,6 +1,6 @@
 # Guide — V2 Phase 4, commit by commit
 
-**Status:** in progress. V2P4-C01 is committed and V2P4-C02 is verified. V2P4-C03 through V2P4-C05 are planned.\
+**Status:** in progress. V2P4-C01 and V2P4-C02 are committed, and V2P4-C03 is verified. V2P4-C04 and V2P4-C05 are planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -82,9 +82,9 @@ pnpm lint
 
 ## 3. V2P4-C02 — Redis accept path
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-chat): accept chat in one Redis script`\
-**Actual commit:**
+**Actual commit:** `d77747c3cd57a6e2dbb4fe6bb65e434ac48ca890`
 
 **Why:** Order, pause, rate, and dedup have to commit together or two callers can disagree. Covers the store half of CHAT-01, CHAT-02, and CHAT-03.
 
@@ -126,7 +126,7 @@ Missing Redis leaves this slice unverified and named.
 
 ## 4. V2P4-C03 — Authorize and isolate
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-live): authorize chat without touching the stage`\
 **Actual commit:**
 
@@ -138,10 +138,14 @@ Missing Redis leaves this slice unverified and named.
 
 - `apps/api/src/chat/chat.service.ts`
 - `apps/api/src/chat/chat.service.test.ts`
+- `apps/api/src/live/live.module.ts`
 - `apps/api/src/live/signaling.gateway.ts`
+- `apps/api/src/live/signaling.gateway.test.ts`
 - `apps/api/src/live/signaling.messages.ts`
 - `apps/api/src/live/live.service.ts`
+- `apps/api/src/live/live.service.test.ts`
 - `packages/shared/src/signaling.ts`
+- `scripts/smoke-live.mjs`
 
 **Implementation:**
 
@@ -161,6 +165,8 @@ pnpm lint
 ```
 
 **Done when:** The gateway, pause, and queue-isolation tests pass and the slice is committed.
+
+**Verification result (2026-11-04):** `pnpm --filter @stageflow/shared test` passed (262 tests), `pnpm --filter @stageflow/api test` passed against Redis (219 tests), `pnpm typecheck` passed, and `pnpm lint` passed. Ten chat service tests plus gateway and shutdown regressions cover authorization, script authority, delayed publication, stable failures, event-budget accounting, and one running chat operation with 32 waiting while room leave completes. Host leave and host expiry retry failed chat deletion before notifying; interrupted broadcast status stays `FAILED`. The API build, `node scripts/check-artifacts.mjs --api`, and `pnpm smoke:live` passed. The isolated real Socket.IO/Redis smoke covers host/attendee delivery, history, duplicate ack, pause, forged payloads, unchanged stage revision, and chat key cleanup. CHAT-03 and the server half of CHAT-04 are verified. Client/browser acceptance and the earlier browser, playback, physical, and native-picker gaps remain open.
 
 **Handoff:** A client can call the events. The room page still has no composer.
 

@@ -20,6 +20,9 @@ import {
   parseStageTargetRequest,
   parseStageLockRequest,
   parseResumeRoomRequest,
+  parseChatSendRequest,
+  parseChatHistoryRequest,
+  parseChatSetPausedRequest,
 } from '@stageflow/shared';
 
 import type {
@@ -29,6 +32,9 @@ import type {
   JoinAck,
   ResumeAck,
   ServerToClientEvents,
+  ChatSendAck,
+  ChatHistoryAck,
+  ChatSetPausedAck,
 } from '@stageflow/shared';
 import { env } from '../config/env';
 import { SessionsService } from '../sessions/sessions.service';
@@ -40,6 +46,7 @@ import { failure } from './signaling.messages';
 import { socketOptions } from './socket-options';
 import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
+import { ChatService, type ChatTransport } from '../chat/chat.service';
 
 type SocketData = {
   user: User;
@@ -88,6 +95,7 @@ export class SignalingGateway
     private readonly sessions: SessionsService,
     private readonly live: LiveService,
     private readonly connection: LiveConnection,
+    private readonly chat: ChatService,
   ) {}
   private session(client: GuestSocket): LiveSession {
     return {
@@ -153,6 +161,14 @@ export class SignalingGateway
           delete socket.data.joinCredential;
         }
       }
+    },
+  };
+  private readonly chatTransport: ChatTransport = {
+    message: (roomId, message) => {
+      this.server.to(roomId).emit('chat:message', message);
+    },
+    paused: (roomId, payload) => {
+      this.server.to(roomId).emit('chat:paused', payload);
     },
   };
   afterInit(server: RoomServer): void {
@@ -394,6 +410,36 @@ export class SignalingGateway
   @SubscribeMessage('room:leave')
   leave(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
     return this.live.leave(this.session(client), this.transport);
+  }
+
+  @SubscribeMessage('chat:send')
+  sendChat(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<ChatSendAck> | ChatSendAck {
+    const request = parseChatSendRequest(payload);
+    if (!request.ok) return failure(request.error);
+    return this.chat.send(this.session(client), request.value, this.chatTransport);
+  }
+
+  @SubscribeMessage('chat:history')
+  chatHistory(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<ChatHistoryAck> | ChatHistoryAck {
+    const request = parseChatHistoryRequest(payload);
+    if (!request.ok) return failure(request.error);
+    return this.chat.history(this.session(client), request.value);
+  }
+
+  @SubscribeMessage('chat:set-paused')
+  setChatPaused(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<ChatSetPausedAck> | ChatSetPausedAck {
+    const request = parseChatSetPausedRequest(payload);
+    if (!request.ok) return failure(request.error);
+    return this.chat.setPaused(this.session(client), request.value.paused, this.chatTransport);
   }
   handleDisconnect(client: GuestSocket): void {
     delete client.data?.joinCredential;

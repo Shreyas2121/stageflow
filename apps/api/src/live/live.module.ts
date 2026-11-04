@@ -11,6 +11,8 @@ import { LiveRepository } from './live.repository';
 import { SignalingGateway } from './signaling.gateway';
 import { BroadcastsModule } from '../broadcasts/broadcasts.module';
 import { BroadcastsService } from '../broadcasts/broadcasts.service';
+import { ChatRepository } from '../chat/chat.repository';
+import { ChatService } from '../chat/chat.service';
 
 @Module({
   imports: [SessionsModule, RoomsModule, BroadcastsModule],
@@ -26,6 +28,11 @@ import { BroadcastsService } from '../broadcasts/broadcasts.service';
       provide: LiveRepository,
       inject: [LiveConnection],
       useFactory: (connection: LiveConnection) => new LiveRepository(connection.client),
+    },
+    {
+      provide: ChatRepository,
+      inject: [LiveConnection],
+      useFactory: (connection: LiveConnection) => new ChatRepository(connection.client),
     },
     {
       provide: SerializedOperations,
@@ -44,6 +51,7 @@ import { BroadcastsService } from '../broadcasts/broadcasts.service';
         SerializedOperations,
         LiveConnection,
         BroadcastsService,
+        ChatRepository,
       ],
       useFactory: (
         rooms: RoomsService,
@@ -51,11 +59,27 @@ import { BroadcastsService } from '../broadcasts/broadcasts.service';
         operations: SerializedOperations,
         connection: LiveConnection,
         broadcasts: BroadcastsService,
+        chat: ChatRepository,
       ) =>
-        new LiveService(rooms, live, operations, connection, env.LIVE_NAMESPACE, {
-          service: broadcasts,
-          repository: live,
-        }),
+        new LiveService(
+          rooms,
+          live,
+          operations,
+          connection,
+          env.LIVE_NAMESPACE,
+          {
+            service: broadcasts,
+            repository: live,
+          },
+          undefined,
+          chat,
+        ),
+    },
+    {
+      provide: ChatService,
+      inject: [ChatRepository, LiveService],
+      useFactory: (repository: ChatRepository, live: LiveService) =>
+        new ChatService(repository, live, env.LIVE_NAMESPACE),
     },
     SignalingGateway,
   ],

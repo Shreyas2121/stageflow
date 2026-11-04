@@ -7,6 +7,7 @@ import type { SessionsService } from '../sessions/sessions.service';
 import { env } from '../config/env';
 import { isUuid } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
+import type { ChatService } from '../chat/chat.service';
 
 it('issues a membership UUID and uses it for later commands instead of the socket id', async () => {
   const join = vi.fn<LiveService['join']>(async (session, _request, _transport, participantId) => {
@@ -18,6 +19,7 @@ it('issues a membership UUID and uses it for later commands instead of the socke
     {} as SessionsService,
     { join, update } as unknown as LiveService,
     {} as LiveConnection,
+    {} as ChatService,
   );
   const client = {
     id: 'transport-id',
@@ -64,6 +66,7 @@ it('gives synthetic joins no resume credential and rejects an expired JWT before
     { verifyToken } as unknown as SessionsService,
     { join, resume } as unknown as LiveService,
     {} as LiveConnection,
+    {} as ChatService,
   );
   const client = {
     id: 'bot-socket',
@@ -142,6 +145,7 @@ it('drops sockets on Redis loss without trying to end catalog rooms', async () =
       { verifyToken: vi.fn() } as unknown as SessionsService,
       { leave } as unknown as LiveService,
       connection,
+      {} as ChatService,
     );
     const disconnectSockets = vi.fn((close?: boolean) => {
       expect(close).toBe(true);
@@ -170,6 +174,7 @@ it('bounds concurrent authentication before starting additional user lookups', a
     { verifyToken } as unknown as SessionsService,
     {} as LiveService,
     { whenLost: () => {} } as unknown as LiveConnection,
+    {} as ChatService,
   );
   let middleware!: (socket: unknown, next: (error?: Error) => void) => void;
   gateway.afterInit({
@@ -195,4 +200,115 @@ it('bounds concurrent authentication before starting additional user lookups', a
   await vi.waitFor(() =>
     expect(callbacks.every((next) => next.mock.calls.length === 1)).toBe(true),
   );
+});
+
+it('strictly parses chat payloads and uses only the socket-bound membership and room', async () => {
+  const message = {
+    sequence: 1,
+    participantId: 'member',
+    displayName: 'Ava',
+    role: 'HOST',
+    text: 'Hello',
+    sentAt: 1000,
+  } as const;
+  const history = {
+    paused: false,
+    oldestSequence: 1,
+    latestSequence: 1,
+    retentionGap: false,
+    messages: [message],
+  };
+  const send = vi.fn<ChatService['send']>(async (session, _request, transport) => {
+    transport.message(session.room!.roomId, message);
+    return { ok: true, message };
+  });
+  const readHistory = vi.fn<ChatService['history']>(async () => ({ ok: true, ...history }));
+  const setPaused = vi.fn<ChatService['setPaused']>(async (session, paused, transport) => {
+    transport.paused(session.room!.roomId, { paused });
+    return { ok: true, paused };
+  });
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    {} as LiveService,
+    {} as LiveConnection,
+    { send, history: readHistory, setPaused } as unknown as ChatService,
+  );
+  const emit = vi.fn();
+  const to = vi.fn(() => ({ emit }));
+  gateway.server = { to } as never;
+  const client = {
+    id: 'socket',
+    connected: true,
+    data: {
+      user: { id: 'guest', displayName: 'Guest' },
+      participantId: 'member',
+      generation: 2,
+      room: { roomId: 'bound-room', hostId: 'guest', mode: 'WEBINAR', status: 'LIVE' },
+    },
+  };
+  const requestId = '550e8400-e29b-41d4-a716-446655440000';
+  const request = { requestId, text: ' \nHello\t ' };
+  for (const field of ['roomId', 'displayName', 'role', 'sequence', 'sentAt'])
+    expect(
+      await gateway.sendChat(client as never, { ...request, [field]: 'forged' }),
+    ).toMatchObject({ error: 'invalid_payload' });
+  expect(await gateway.sendChat(client as never, { requestId, text: ' ' })).toMatchObject({
+    error: 'chat_invalid',
+  });
+  expect(send).not.toHaveBeenCalled();
+  expect(await gateway.sendChat(client as never, request)).toEqual({ ok: true, message });
+  expect(send.mock.calls[0]![0]).toMatchObject({
+    id: 'socket',
+    participantId: 'member',
+    generation: 2,
+    room: client.data.room,
+  });
+  expect(send.mock.calls[0]![1]).toEqual({ requestId, text: 'Hello' });
+  expect(to).toHaveBeenCalledExactlyOnceWith('bound-room');
+  expect(emit).toHaveBeenCalledExactlyOnceWith('chat:message', message);
+  expect(await gateway.chatHistory(client as never, undefined)).toEqual({ ok: true, ...history });
+  expect(readHistory.mock.calls[0]![1]).toEqual({ limit: 50 });
+  expect(await gateway.chatHistory(client as never, { limit: 101 })).toMatchObject({
+    error: 'invalid_payload',
+  });
+  expect(
+    await gateway.setChatPaused(client as never, { paused: true, role: 'HOST' }),
+  ).toMatchObject({ error: 'invalid_payload' });
+  expect(await gateway.setChatPaused(client as never, { paused: true })).toEqual({
+    ok: true,
+    paused: true,
+  });
+  expect(emit).toHaveBeenLastCalledWith('chat:paused', { paused: true });
+  expect(emit).not.toHaveBeenCalledWith('room:state', expect.anything());
+});
+
+it('charges all chat events to the socket event budget and preserves the leave bypass', () => {
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    {} as LiveService,
+    {} as LiveConnection,
+    {} as ChatService,
+  );
+  let middleware!: (packet: unknown[], next: () => void) => void;
+  gateway.handleConnection({
+    data: { user: { id: 'budget-user' } },
+    use: (handler: typeof middleware) => {
+      middleware = handler;
+    },
+  } as never);
+  for (let index = 0; index < env.SOCKET_EVENT_RATE_LIMIT; index++) {
+    const next = vi.fn();
+    middleware(['chat:send', {}, vi.fn()], next);
+    expect(next).toHaveBeenCalledOnce();
+  }
+  for (const event of ['chat:send', 'chat:history', 'chat:set-paused']) {
+    const ack = vi.fn(),
+      next = vi.fn();
+    middleware([event, {}, ack], next);
+    expect(next).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith(expect.objectContaining({ error: 'rate_limited' }));
+  }
+  const leave = vi.fn();
+  middleware(['room:leave', vi.fn()], leave);
+  expect(leave).toHaveBeenCalledOnce();
 });

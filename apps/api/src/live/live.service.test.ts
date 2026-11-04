@@ -12,6 +12,7 @@ import {
 import { SerializedOperations } from './serialized-operations';
 import type { LiveRepository } from './live.repository';
 import type { RoomsService } from '../rooms/rooms.service';
+import type { ChatRepository } from '../chat/chat.repository';
 function fixture(
   mode: LiveState['mode'] = 'MEETING',
   availability: { isReady(): boolean } = { isReady: () => true },
@@ -121,6 +122,7 @@ function fixture(
       for (const peer of sessions.values()) peer.room = undefined;
     }),
   };
+  const chat = { delete: vi.fn<ChatRepository['delete']>(async () => {}) };
   const service = new LiveService(
     rooms,
     live,
@@ -129,6 +131,7 @@ function fixture(
     namespace,
     broadcasts,
     clock,
+    chat,
   );
   const join = (peer: LiveSession, isSyntheticBot = false) =>
     service.join(
@@ -140,7 +143,7 @@ function fixture(
         ? undefined
         : createHash('sha256').update(`credential-${peer.user.id}`).digest('hex'),
     );
-  return { service, rooms, live, transport, client, join, events, snapshots };
+  return { service, rooms, live, chat, transport, client, join, events, snapshots };
 }
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
@@ -1211,6 +1214,73 @@ it('retries failed host-expiry shutdown and rejects joins until catalog cleanup 
     expect(f.rooms.end).toHaveBeenCalledTimes(2);
     expect(f.transport.end).toHaveBeenCalledExactlyOnceWith('room');
     expect(f.live.deleteRoom).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+  } finally {
+    f.service.onModuleDestroy();
+    logger.mockRestore();
+  }
+});
+
+it('deletes chat after stage keys and retries a chat deletion failure before ending the transport', async () => {
+  const logger = silenceErrors();
+  const f = fixture();
+  try {
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    f.events.length = 0;
+    f.chat.delete.mockRejectedValueOnce(new Error('chat deletion unavailable'));
+    expect(await f.service.leave(host, f.transport)).toMatchObject({ error: 'server_error' });
+    expect(f.events).toEqual(['apply:leave', 'database:end', 'redis:delete']);
+    expect(f.chat.delete).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(host.room).toBeDefined();
+    expect(guest.room).toBeDefined();
+    expect(await f.join(f.client('late'))).toMatchObject({ error: 'room_ended' });
+    f.chat.delete.mockImplementationOnce(async () => {
+      f.events.push('chat:delete');
+    });
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(f.events.slice(-4)).toEqual([
+      'database:end',
+      'redis:delete',
+      'chat:delete',
+      'transport:end',
+    ]);
+    expect(f.chat.delete).toHaveBeenCalledTimes(2);
+    expect(f.live.deleteRoom).toHaveBeenCalledTimes(2);
+    expect(f.live.apply).toHaveBeenCalledTimes(3);
+    expect(host.room).toBeUndefined();
+    expect(guest.room).toBeUndefined();
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(f.chat.delete).toHaveBeenCalledTimes(2);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('retries chat cleanup after host expiry and keeps the interrupted broadcast failed', async () => {
+  const logger = silenceErrors();
+  const time = controlledClock();
+  const f = broadcastFixture('WEBINAR', time.clock);
+  try {
+    const host = f.client('host');
+    await f.join(host);
+    await f.service.startBroadcast(host, f.transport);
+    await f.service.disconnect(host, f.transport);
+    expect(f.snapshots.at(-1)?.broadcast?.status).toBe('FAILED');
+    f.chat.delete.mockRejectedValueOnce(new Error('chat deletion unavailable'));
+    time.set(21000);
+    expect(await f.service.expire('room')).toMatchObject({ error: 'server_error' });
+    expect(f.live.deleteRoom).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(f.chat.delete).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+    await f.service.sweep();
+    expect(f.chat.delete).toHaveBeenCalledTimes(2);
+    expect(f.transport.end).toHaveBeenCalledExactlyOnceWith('room');
+    expect(f.control.service.failInterrupted).toHaveBeenCalledOnce();
+    expect(await f.control.service.snapshot('room', null)).toMatchObject({ status: 'FAILED' });
+    expect(f.snapshots.some((snapshot) => snapshot.broadcast?.status === 'READY')).toBe(false);
   } finally {
     f.service.onModuleDestroy();
     logger.mockRestore();

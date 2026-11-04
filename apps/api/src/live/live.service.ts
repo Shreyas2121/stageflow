@@ -17,6 +17,7 @@ import type { LiveRepository, LiveRoom, LiveResult } from './live.repository';
 import { SerializedOperations, WorkCapacityError } from './serialized-operations';
 import { failure } from './signaling.messages';
 import type { BroadcastsService } from '../broadcasts/broadcasts.service';
+import type { ChatRepository } from '../chat/chat.repository';
 export type BroadcastControl = {
   service: Pick<BroadcastsService, 'snapshot' | 'start' | 'stopRoom' | 'failInterrupted'>;
   repository: Pick<
@@ -87,6 +88,7 @@ export class LiveService {
     private readonly namespace = 'sf',
     private readonly broadcasts?: BroadcastControl,
     private readonly clock: LiveClock = systemClock,
+    private readonly chat?: Pick<ChatRepository, 'delete'>,
   ) {}
 
   private binding(client: LiveSession): TransportBinding {
@@ -121,6 +123,18 @@ export class LiveService {
     client.participantId = undefined;
     client.generation = undefined;
     client.isSyntheticBot = undefined;
+  }
+
+  // Chat shares membership authority without entering either stage operation queue.
+  async authorizeChat(client: LiveSession, room: LiveRoom): Promise<CommandAck> {
+    if (!this.availability.isReady()) return failure('chat_busy');
+    if (!client.room) return failure('not_joined');
+    if (!client.connected || client.room !== room) return failure('stale_transport');
+    if (this.ending.has(room.roomId) || room.status === 'ENDED') return failure('room_ended');
+    const invalid = await this.validateBinding(client, room);
+    if (invalid) return failure(invalid);
+    if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
+    return { ok: true };
   }
 
   private scheduleSweep(): void {
@@ -629,6 +643,7 @@ export class LiveService {
       await this.broadcasts?.service.stopRoom(room.roomId);
       await this.rooms.end(room.roomId);
       await this.live.deleteRoom(roomPrefix(room.roomId, this.namespace));
+      await this.chat?.delete(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
       this.ending.delete(room.roomId);
       this.broadcastView.delete(room.roomId);

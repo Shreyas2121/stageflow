@@ -1,5 +1,9 @@
 import type { CommandAck, SignalingError } from '@stageflow/shared';
 const messages: Record<SignalingError, string> = {
+  chat_invalid: 'Enter a message from 1 to 1,000 characters and at most 4,000 UTF-8 bytes.',
+  chat_paused: 'The host paused chat.',
+  chat_rate_limited: 'Too many chat messages. Try again shortly.',
+  chat_busy: 'Chat is busy. Try again shortly.',
   broadcast_not_available: 'Broadcast is not available yet.',
   broadcast_active: 'A broadcast is already active.',
   ffmpeg_unavailable: 'FFmpeg is not available. The stage is still up.',

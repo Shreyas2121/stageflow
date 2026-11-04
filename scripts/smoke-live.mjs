@@ -25,6 +25,8 @@ const { SessionsService } = require(`${dist}sessions/sessions.service.js`);
 const { SignalingGateway } = require(`${dist}live/signaling.gateway.js`);
 const { LiveService } = require(`${dist}live/live.service.js`);
 const { LiveRepository } = require(`${dist}live/live.repository.js`);
+const { ChatRepository, chatKeys } = require(`${dist}chat/chat.repository.js`);
+const { ChatService } = require(`${dist}chat/chat.service.js`);
 const { SerializedOperations } = require(`${dist}live/serialized-operations.js`);
 const { socketOptions } = require(`${dist}live/socket-options.js`);
 const { liveKeys, roomPrefix } = require(`${dist}live/live.keys.js`);
@@ -42,6 +44,7 @@ const clients = [];
 const roomIds = [];
 let gateway;
 let live;
+let chat;
 
 function once(socket, event) {
   return new Promise((resolve, reject) => {
@@ -79,6 +82,7 @@ try {
   users.set(guest.id, guest);
   const rooms = new Map();
   let failEnd = false;
+  const chatRepository = new ChatRepository(redis);
   live = new LiveService(
     {
       getById: async (id) => rooms.get(id) ?? null,
@@ -94,8 +98,12 @@ try {
     new SerializedOperations(),
     { isReady: () => true },
     namespace,
+    undefined,
+    undefined,
+    chatRepository,
   );
-  gateway = new SignalingGateway(sessions, live, { whenLost: () => {} });
+  chat = new ChatService(chatRepository, live, namespace);
+  gateway = new SignalingGateway(sessions, live, { whenLost: () => {} }, chat);
   gateway.server = server;
   gateway.afterInit(server);
   server.on('connection', (socket) => {
@@ -108,6 +116,9 @@ try {
       ['stage:raise-hand', 'hand'],
       ['webrtc:description', 'description'],
       ['webrtc:ice-candidate', 'iceCandidate'],
+      ['chat:send', 'sendChat'],
+      ['chat:history', 'chatHistory'],
+      ['chat:set-paused', 'setChatPaused'],
     ]) {
       socket.on(event, (payload, ack) => {
         Promise.resolve(gateway[method](socket, payload))
@@ -343,18 +354,89 @@ try {
   const oversizedClosed = once(oversized, 'disconnect');
   oversized.emit('room:join', { padding: 'x'.repeat(socketOptions.maxHttpBufferSize + 1) });
   await oversizedClosed;
+
+  const ava = { id: randomUUID(), displayName: 'Ava' };
+  const sam = { id: randomUUID(), displayName: 'Sam' };
+  users.set(ava.id, ava);
+  users.set(sam.id, sam);
+  const avaSocket = await connect(ava),
+    samSocket = await connect(sam);
+  const discussion = room('WEBINAR');
+  discussion.hostId = ava.id;
+  assert.equal((await join(avaSocket, discussion)).ok, true);
+  assert.equal((await join(samSocket, discussion)).ok, true);
+  const discussionPrefix = roomPrefix(discussion.id, namespace);
+  const stageRevision = await redis.get(`${discussionPrefix}:rev`);
+  const avaMessages = [],
+    samMessages = [];
+  avaSocket.on('chat:message', (message) => avaMessages.push(message));
+  samSocket.on('chat:message', (message) => samMessages.push(message));
+  const firstLine = await command(avaSocket, 'chat:send', {
+    requestId: randomUUID(),
+    text: ' Starting now. ',
+  });
+  assert.equal(firstLine.ok, true);
+  assert.equal(firstLine.message.text, 'Starting now.');
+  assert.equal(firstLine.message.displayName, 'Ava');
+  assert.equal(firstLine.message.role, 'HOST');
+  const question = { requestId: randomUUID(), text: 'When do we begin?' };
+  const secondLine = await command(samSocket, 'chat:send', question);
+  assert.equal(secondLine.ok, true);
+  assert.equal(secondLine.message.role, 'ATTENDEE');
+  assert.equal(secondLine.message.sequence, firstLine.message.sequence + 1);
+  await eventually(() => avaMessages.length === 2 && samMessages.length === 2);
+  assert.deepEqual(avaMessages, samMessages);
+  const recent = await command(samSocket, 'chat:history');
+  assert.equal(recent.ok, true);
+  assert.deepEqual(recent.messages, [firstLine.message, secondLine.message]);
+  assert.deepEqual(await command(samSocket, 'chat:send', question), secondLine);
+  assert.equal(await redis.llen(`${discussionPrefix}:chat:messages`), 2);
+  const avaPaused = once(avaSocket, 'chat:paused'),
+    samPaused = once(samSocket, 'chat:paused');
+  assert.deepEqual(await command(avaSocket, 'chat:set-paused', { paused: true }), {
+    ok: true,
+    paused: true,
+  });
+  assert.deepEqual(await avaPaused, { paused: true });
+  assert.deepEqual(await samPaused, { paused: true });
+  for (const socket of [avaSocket, samSocket])
+    assert.equal(
+      (await command(socket, 'chat:send', { requestId: randomUUID(), text: 'Paused' })).error,
+      'chat_paused',
+    );
+  assert.equal((await command(samSocket, 'chat:set-paused', { paused: false })).error, 'not_host');
+  assert.equal(
+    (await command(samSocket, 'chat:send', { ...question, displayName: 'Forged' })).error,
+    'invalid_payload',
+  );
+  assert.equal(
+    (await command(samSocket, 'chat:send', { requestId: randomUUID(), text: ' ' })).error,
+    'chat_invalid',
+  );
+  assert.equal((await command(avaSocket, 'chat:set-paused', { paused: false })).ok, true);
+  assert.equal(await redis.get(`${discussionPrefix}:rev`), stageRevision);
+  const discussionEnded = once(samSocket, 'room:ended');
+  assert.equal((await command(avaSocket, 'room:leave')).ok, true);
+  assert.deepEqual(await discussionEnded, { roomId: discussion.id });
+  assert.equal(await redis.exists(...chatKeys(discussionPrefix), ...liveKeys(discussionPrefix)), 0);
+  assert.equal((await command(samSocket, 'chat:history')).error, 'not_joined');
   console.log(
-    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();
   live?.onModuleDestroy();
+  await chat?.onModuleDestroy();
   for (const socket of clients) socket.disconnect();
   await new Promise((resolve) => server.close(resolve));
   if (http.listening) await new Promise((resolve) => http.close(resolve));
   try {
     if (redis.status === 'ready')
-      for (const id of roomIds) await redis.del(...liveKeys(roomPrefix(id, namespace)));
+      for (const id of roomIds)
+        await redis.del(
+          ...liveKeys(roomPrefix(id, namespace)),
+          ...chatKeys(roomPrefix(id, namespace)),
+        );
   } finally {
     redis.disconnect();
   }
