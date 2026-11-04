@@ -1,6 +1,6 @@
 # Guide — V2 Phase 5, commit by commit
 
-**Status:** in progress. V2P5-C01 is committed. V2P5-C02's keyboard walk is verified and awaiting commit. V2P5-C03 and V2P5-C04 remain planned.\
+**Status:** in progress. V2P5-C01 and V2P5-C02 are committed. V2P5-C03 is verified and awaiting commit. V2P5-C04 remains planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.6`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -82,9 +82,9 @@ pnpm lint
 
 ## 3. V2P5-C02 — Keyboard walk
 
-**Status:** verified; awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `docs(v2-phase5): record the keyboard walk`\
-**Actual commit:**
+**Actual commit:** `c07636cfd3d69023073d9c1585abdd39f0f3d836`
 
 **Why:** The session controls are native controls with an existing focus outline, and UX-01 still has no recorded walk. Covers UX-01.
 
@@ -134,7 +134,7 @@ That command passed. Product code is unchanged, so the web suite, typecheck, lin
 
 ## 4. V2P5-C03 — Local session evidence
 
-**Status:** planned\
+**Status:** verified; awaiting commit\
 **Proposed commit message:** `test(release): account for the local session script`\
 **Actual commit:**
 
@@ -168,7 +168,15 @@ Missing Redis leaves the API tests unverified. Missing disposable Postgres or FF
 
 **Done when:** QA-01 and QA-02 have a result, Section 4.1 matches the observations from this slice, and the slice is committed.
 
-**Handoff:** The README acceptance summary is still the pre-acceptance text.
+**Result (2026-11-04):** `pnpm check` passed: typecheck, lint, shared 262, web 313, API 219 against Redis, both builds, and Prettier. `pnpm check:release` and `pnpm smoke:broadcast` were skipped. `FFMPEG_PATH` is the bare name `ffmpeg`, which is not a file and is not on PATH, so no FFmpeg version was printed. Redis and disposable Postgres were available. `scripts/smoke-broadcast.mjs` now expects `CreateUsersAndRooms1730332800000`, `CreateBroadcasts1793577600000`, and `IndexRoomsByHost1793664000000`, then an empty second run, and its log names that registered list. The disposable database remains `sf_broadcast_*`. No service regression was added.
+
+The combined session ran in Chrome `156.0.8078.80` headless on Windows 11 Home Single Language, viewport 1280 by 800, locale `en-GB`, time zone `UTC`. The keyboard step is the V2P5-C02 walk at 1280 by 800 and 1024 by 768 in commit `c07636cfd3d69023073d9c1585abdd39f0f3d836`. This slice did not change those controls. The passing report is `C:/Users/rasai/AppData/Local/Temp/stageflow-p5-c03-JMhb6P/report.json`. The helper `node_modules/.cache/p5-c03-session.mjs` is ignored.
+
+QA-01 is verified. The script spawned and removed three demos inside the four-slot cap, rejected a fifth person with the stage-full sentence, locked and unlocked a microphone, and joined an attendee without an extra capture. QA-02 is partial. A disposable `sf_session_*` database applied the three registered migrations and then none. Developer counts stayed broadcasts 0, rooms 135, and users 299. Restarting that disposable API cleared presence and did not resume it. READY replay and `pnpm smoke:broadcast` did not run.
+
+Section 4.1 records the mapped observations. Chrome fake tracks did not dispatch `ended`; the session called the existing handler and recovered with **Try this camera**. That does not close the physical unplug. Synthetic screen share kept `nativePicker` false. P3-A03, P3-A05, and P3-A06 stay open. Broadcast, attendee HLS, and audible playback stay unverified without FFmpeg.
+
+**Handoff:** The README acceptance summary is still the pre-acceptance text. C04 remains planned.
 
 ## 5. V2P5-C04 — Acceptance record
 

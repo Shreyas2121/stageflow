@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { devShutdownPath, requestDevShutdown } from './dev-shutdown.mjs';
 import { killPid, listDescendantPids } from './dev.mjs';
 
-// Real compiled main/modules, both migrations, PostgreSQL, Redis, HTTP, Socket.IO and FFmpeg.
+// Real compiled main/modules, the registered migrations, PostgreSQL, Redis, HTTP, Socket.IO and FFmpeg.
 // DATABASE_URL is an administrative connection: only a newly created database is migrated/dropped.
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const webRequire = createRequire(new URL('../apps/web/package.json', import.meta.url));
@@ -293,12 +293,19 @@ try {
   });
   await dataSource.initialize();
   const migrations = await dataSource.runMigrations();
+  const registered = [
+    'CreateUsersAndRooms1730332800000',
+    'CreateBroadcasts1793577600000',
+    'IndexRoomsByHost1793664000000',
+  ];
   assert.deepEqual(
     migrations.map((m) => m.name),
-    ['CreateUsersAndRooms1730332800000', 'CreateBroadcasts1793577600000'],
+    registered,
   );
   assert.deepEqual(await dataSource.runMigrations(), []);
-  console.log('Both compiled migrations applied; second migration run is empty.');
+  console.log(
+    `Registered migrations applied: ${registered.join(', ')}; second migration run is empty.`,
+  );
   await redis.connect();
   await redis.set(foreignKey, id, 'EX', 300);
   const input = join(root, 'input.webm');
