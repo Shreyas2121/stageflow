@@ -11,6 +11,7 @@ import type {
   ResumeAck,
 } from '@stageflow/shared';
 import { BroadcastSession, recordingFinishError } from '../../broadcast/services/broadcast-session';
+import { ChatSession } from '../../chat/chat-session';
 import {
   StageRecorder,
   type BroadcastRecorder,
@@ -96,6 +97,7 @@ export class RoomSession {
   readonly media: RoomMedia;
   readonly share: ScreenShareController;
   readonly demos: DemoRegistry;
+  readonly chat = new ChatSession();
 
   private readonly room: RoomResponse;
   private readonly userId: string;
@@ -523,6 +525,7 @@ export class RoomSession {
         this.state.phase = 'lobby';
         this.state.error = result.message;
         if (result.error === 'room_ended') {
+          this.chat.end();
           this.teardownLocal();
           this.notifyEnded();
         }
@@ -532,6 +535,7 @@ export class RoomSession {
         ? { participantId: result.participantId, resumeCredential: result.resumeCredential }
         : null;
       this.state.phase = 'joined';
+      this.chat.connect(active);
       this.media.releaseLobby();
       this.syncFromStore();
     } catch (failure) {
@@ -550,6 +554,8 @@ export class RoomSession {
     const active = this.connection;
     this.cancelRecovery();
     this.state.phase = 'leaving';
+    if (this.room.hostId === this.userId) this.chat.end();
+    else this.chat.suspend(false);
     this.state.error = '';
     this.teardownLocal();
     const generation = this.generation;
@@ -724,6 +730,7 @@ export class RoomSession {
   private finishEnded(active: RoomConnection): void {
     if (this.connection !== active) return;
     this.connection = null;
+    this.chat.end();
     this.cancelRecovery();
     this.teardownLocal();
     this.state.phase = 'lobby';
@@ -745,6 +752,7 @@ export class RoomSession {
       !this.pageHidden &&
       this.resumeIdentity !== null;
     const role = this.state.role;
+    this.chat.suspend(canResume);
     this.teardownLocal();
     if (canResume) {
       this.state.phase = 'recovering';
@@ -773,6 +781,12 @@ export class RoomSession {
     const current = () =>
       opened.current !== null && this.connection === opened.current && !this.pageHidden;
     return {
+      onChatMessage: (message) => {
+        if (current()) this.chat.receive(message);
+      },
+      onChatPaused: (paused) => {
+        if (current()) this.chat.receivePaused(paused);
+      },
       onForceMute: (payload) => {
         if (current()) this.forceMute(payload);
       },
@@ -905,12 +919,15 @@ export class RoomSession {
     // Atomic baseline replacement also supports test and alternate signaling adapters.
     useRoomStore.getState().resumed(result.participantId, result.iceServers, result.snapshot);
     this.state.phase = 'joined';
+    this.chat.connect(active);
     this.syncFromStore();
   }
 
   private failRecovery(message: string): void {
     const active = this.connection;
     this.connection = null;
+    if (message === 'This room has ended.') this.chat.end();
+    else this.chat.suspend(false);
     this.cancelRecovery();
     active?.close();
     this.teardownLocal();
@@ -1416,6 +1433,7 @@ export class RoomSession {
   private closeSession(): void {
     const active = this.connection;
     this.connection = null;
+    this.chat.suspend(false);
     this.cancelRecovery();
     this.teardownLocal();
     active?.close();

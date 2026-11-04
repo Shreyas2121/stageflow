@@ -177,6 +177,16 @@ function fakePeers() {
 
 function fakeConnection() {
   return {
+    chatHistory: vi.fn<RoomConnection['chatHistory']>(async () => ({
+      ok: true,
+      paused: false,
+      messages: [],
+      oldestSequence: null,
+      latestSequence: null,
+      retentionGap: false,
+    })),
+    chatSend: vi.fn<RoomConnection['chatSend']>(),
+    chatSetPaused: vi.fn<RoomConnection['chatSetPaused']>(),
     resume: vi.fn<RoomConnection['resume']>(async () => ({
       ok: true,
       participantId: 'self',
@@ -1510,6 +1520,69 @@ describe('RoomSession', () => {
     expect(onEnded).toHaveBeenCalledOnce();
     expect(media.stopped).toBe(1);
     expect(session.phase).toBe('lobby');
+  });
+
+  it('keeps chat busy failures away from the active stage and broadcast and retains text on room end', async () => {
+    const recorder = recorderFake();
+    const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
+    expect(h.session.chat.visible).toBe(false);
+    await startLiveBroadcast(h);
+    await Promise.resolve();
+    expect(h.connection.chatHistory).toHaveBeenCalledExactlyOnceWith({});
+    const line = {
+      sequence: 1,
+      participantId: 'self',
+      displayName: 'Ava',
+      role: 'HOST' as const,
+      text: 'Starting now.',
+      sentAt: 0,
+    };
+    h.callbacks()!.onChatMessage?.(line);
+    h.connection.chatSend.mockResolvedValueOnce({
+      ok: false,
+      error: 'chat_busy',
+      message: 'Chat is busy. Try again shortly.',
+    });
+    h.session.chat.setDraft('Question');
+    h.session.chat.sendDraft();
+    await Promise.resolve();
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.error).toBe('');
+    expect(h.peers.close).not.toHaveBeenCalled();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    expect(recorder.start).toHaveBeenCalledOnce();
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(h.session.broadcastActive).toBe(true);
+    h.callbacks()!.onEnded();
+    expect(h.session.chat.getSnapshot().phase).toBe('closed');
+    expect(h.session.chat.getSnapshot().messages).toEqual([line]);
+    expect(h.session.chat.visible).toBe(true);
+    expect(h.session.chat.canSend).toBe(false);
+  });
+
+  it('refetches chat after resume without replaying uncertain sends', async () => {
+    vi.useFakeTimers();
+    const h = open({ freshConnections: true });
+    await joinRecoverable(h);
+    h.connection.chatSend.mockImplementationOnce(() => new Promise(() => undefined));
+    h.session.chat.setDraft('Uncertain question');
+    h.session.chat.sendDraft();
+    h.callbacks()!.onDisconnect();
+    expect(h.session.chat.getSnapshot().attempts[0]?.status).toBe('failed');
+    expect(h.session.chat.canSend).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('joined');
+    expect(h.opened[1]!.connection.chatHistory).toHaveBeenCalledExactlyOnceWith({});
+    expect(h.opened[1]!.connection.chatSend).not.toHaveBeenCalled();
+    h.opened[0]!.callbacks.onChatMessage?.({
+      sequence: 20,
+      participantId: 'self',
+      displayName: 'Ava',
+      role: 'HOST',
+      text: 'stale',
+      sentAt: 0,
+    });
+    expect(h.session.chat.getSnapshot().messages).toEqual([]);
   });
 
   it('ignores a second dispose', async () => {

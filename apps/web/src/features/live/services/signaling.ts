@@ -3,6 +3,7 @@ import { signalingUrl } from '../../../config/env';
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
+  ChatMessage,
   CommandAck,
   JoinAck,
   JoinRoomRequest,
@@ -15,6 +16,7 @@ import type {
   StageForceMute,
 } from '@stageflow/shared';
 import { useRoomStore } from '../stores/room-store';
+import type { ChatTransport } from '../../chat/chat-session';
 import type {
   DescriptionRequest,
   IceCandidateRequest,
@@ -28,7 +30,7 @@ const PENDING_TIMEOUT_MS = 8_000;
 /** Server stop allows 10 seconds for FFmpeg, plus persistence/publication time. */
 export const BROADCAST_STOP_MS = 15_000;
 
-export type RoomConnection = {
+export type RoomConnection = ChatTransport & {
   description: (payload: DescriptionRequest) => Promise<CommandAck>;
   candidate: (payload: IceCandidateRequest) => Promise<CommandAck>;
   join: (payload: JoinRoomRequest) => Promise<JoinAck>;
@@ -46,6 +48,8 @@ export type RoomConnection = {
 let current: RoomConnection | null = null;
 
 type SignalingCallbacks = {
+  onChatMessage?: (message: ChatMessage) => void;
+  onChatPaused?: (paused: boolean) => void;
   onResumed?: (result: Extract<ResumeAck, { ok: true }>) => void;
   onForceMute?: (payload: StageForceMute) => void;
   onEnded: () => void;
@@ -145,9 +149,16 @@ export function openIndependentSignaling(
     error: 'not_joined',
     message: 'Join the room first.',
   });
-  const command = (action: () => Promise<CommandAck>): Promise<CommandAck> =>
+  const command = <T extends CommandAck>(
+    action: () => Promise<T>,
+  ): Promise<T | Extract<CommandAck, { ok: false }>> =>
     !closed && joined && transportConnected ? action() : Promise.resolve(unavailable());
   const connection: RoomConnection = {
+    chatSend: (request) => command(() => socket.timeout(8000).emitWithAck('chat:send', request)),
+    chatHistory: (request) =>
+      command(() => socket.timeout(8000).emitWithAck('chat:history', request)),
+    chatSetPaused: (request) =>
+      command(() => socket.timeout(8000).emitWithAck('chat:set-paused', request)),
     async join(payload) {
       if (membershipStarted)
         return {
@@ -366,6 +377,13 @@ export function openIndependentSignaling(
         )
           callbacks.onCandidate(payload);
       });
+  });
+  socket.on('chat:message', (message) => {
+    // The history read after membership covers early chat. Chat never fills the stage queue.
+    if (!closed && joined) callbacks.onChatMessage?.(message);
+  });
+  socket.on('chat:paused', (payload) => {
+    if (!closed && joined) callbacks.onChatPaused?.(payload.paused);
   });
   socket.on('room:state', (snapshot) => {
     if (closed || snapshot.roomId !== roomId) return;

@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { io } from 'socket.io-client';
 import type {
   CommandAck,
+  ChatSendAck,
+  ChatHistoryAck,
+  ChatSetPausedAck,
   JoinAck,
   ResumeAck,
   ParticipantState,
@@ -32,7 +35,10 @@ class FakeSocket extends EventEmitter {
   });
   disconnect = vi.fn();
   emitWithAck = vi.fn<
-    (event: string, payload?: unknown) => Promise<CommandAck | JoinAck | ResumeAck>
+    (
+      event: string,
+      payload?: unknown,
+    ) => Promise<CommandAck | JoinAck | ResumeAck | ChatSendAck | ChatHistoryAck | ChatSetPausedAck>
   >(async (event: string) => {
     if (event === 'room:join') {
       this.beforeAck();
@@ -218,6 +224,8 @@ it('stores the acknowledged participant id independently of the signaling socket
 });
 function callbacks() {
   return {
+    onChatMessage: vi.fn(),
+    onChatPaused: vi.fn(),
     onEnded: vi.fn(),
     onDisconnect: vi.fn(),
     onDescription: vi.fn(),
@@ -243,6 +251,48 @@ afterEach(() => {
 });
 
 describe('signaling connection ownership', () => {
+  it('gates chat commands on membership and isolates early chat from stage signaling', async () => {
+    const own = callbacks();
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    const request = { requestId: 'request', text: 'hello' };
+    expect(await peer.chatSend(request)).toMatchObject({ error: 'not_joined' });
+    expect(await peer.chatHistory({})).toMatchObject({ error: 'not_joined' });
+    expect(await peer.chatSetPaused({ paused: true })).toMatchObject({ error: 'not_joined' });
+    const message = {
+      sequence: 1,
+      participantId: 'self',
+      displayName: 'Ava',
+      role: 'HOST' as const,
+      text: 'hello',
+      sentAt: 0,
+    };
+    sockets[0]!.beforeAck = () => {
+      for (let index = 0; index < 100; index++) sockets[0]!.emit('chat:message', message);
+      sockets[0]!.emit('chat:paused', { paused: true });
+    };
+    expect((await peer.join(joinRequest)).ok).toBe(true);
+    expect(own.onChatMessage).not.toHaveBeenCalled();
+    sockets[0]!.emit('chat:message', message);
+    sockets[0]!.emit('chat:paused', { paused: false });
+    expect(own.onChatMessage).toHaveBeenCalledExactlyOnceWith(message);
+    expect(own.onChatPaused).toHaveBeenCalledExactlyOnceWith(false);
+    sockets[0]!.emitWithAck.mockResolvedValueOnce({ ok: true, message });
+    expect(await peer.chatSend(request)).toEqual({ ok: true, message });
+    sockets[0]!.emitWithAck.mockResolvedValueOnce({ ok: true, paused: true });
+    expect(await peer.chatSetPaused({ paused: true })).toEqual({ ok: true, paused: true });
+    await peer.chatHistory({ beforeSequence: 4, limit: 100 });
+    expect(sockets[0]!.emitWithAck.mock.calls.map(([event]) => event)).toEqual([
+      'room:join',
+      'chat:send',
+      'chat:set-paused',
+      'chat:history',
+    ]);
+    sockets[0]!.emit('disconnect');
+    sockets[0]!.emit('chat:message', message);
+    expect(own.onChatMessage).toHaveBeenCalledOnce();
+    expect(await peer.chatSend(request)).toMatchObject({ error: 'not_joined' });
+  });
   it('allows the server stop deadline to complete after the ordinary eight-second ack budget', async () => {
     vi.useFakeTimers();
     try {

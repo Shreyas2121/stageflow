@@ -64,6 +64,7 @@ export function RoomPage() {
 }
 
 function RoomContents({ room, session }: { room: RoomResponse; session: GuestSessionResponse }) {
+  const [openedLive] = useState(room.status !== 'ENDED');
   const [ended, setEnded] = useState(room.status === 'ENDED');
   const isEnded = ended || room.status === 'ENDED';
   return (
@@ -104,12 +105,12 @@ function RoomContents({ room, session }: { room: RoomResponse; session: GuestSes
           <dd>{room.hostDisplayName}</dd>
         </div>
       </dl>
-      {isEnded ? (
+      {openedLive ? (
+        <LiveRoom room={room} session={session} onEnded={() => setEnded(true)} />
+      ) : (
         <p className="mt-8 rounded-lg border border-input-line p-6" role="status">
           This room has ended.
         </p>
-      ) : (
-        <LiveRoom room={room} session={session} onEnded={() => setEnded(true)} />
       )}
       <aside className="mt-6.5 flex items-start gap-3 rounded-lg border border-dashed border-note-line px-5 py-4.5">
         <span

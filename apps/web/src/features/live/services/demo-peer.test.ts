@@ -72,6 +72,9 @@ beforeEach(() => {
     displayName: 'Demo Peer 1',
   });
   connection = {
+    chatHistory: vi.fn(),
+    chatSend: vi.fn(),
+    chatSetPaused: vi.fn(),
     resume: vi.fn(),
     join: vi.fn(async () => ({ ok: true as const, participantId: 'demo', iceServers: [] })),
     leave: vi.fn(async () => ({ ok: true as const })),

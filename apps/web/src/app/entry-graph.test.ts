@@ -17,6 +17,7 @@ describe('home entry', () => {
     expect(home).not.toContain('broadcast-player-gate');
     expect(home).not.toContain('hls.js');
     expect(home).not.toContain('LiveRoom');
+    expect(home).not.toMatch(/chat-panel|ChatPanel|features\/chat/);
     expect(home).toContain('Rooms from this guest session');
     expect(source('main.tsx').toLowerCase()).not.toContain('hls');
   });

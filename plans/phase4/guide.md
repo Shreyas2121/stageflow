@@ -1,6 +1,6 @@
 # Guide — V2 Phase 4, commit by commit
 
-**Status:** in progress. V2P4-C01 and V2P4-C02 are committed, and V2P4-C03 is verified. V2P4-C04 and V2P4-C05 are planned.\
+**Status:** in progress. V2P4-C01 through V2P4-C03 are committed. V2P4-C04 is verified. V2P4-C05 is planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -126,9 +126,9 @@ Missing Redis leaves this slice unverified and named.
 
 ## 4. V2P4-C03 — Authorize and isolate
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-live): authorize chat without touching the stage`\
-**Actual commit:**
+**Actual commit:** `712f7f9fb8bdfd78d3a6f17b2916b53ab4c5b9fd`
 
 **Why:** A stored script that the socket cannot call, or that shares the stage queue, does not meet the room contract. Covers CHAT-03 at the gateway and the server half of CHAT-04.
 
@@ -172,7 +172,7 @@ pnpm lint
 
 ## 5. V2P4-C04 — Room panel
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-room): show room chat beside the stage`\
 **Actual commit:**
 
@@ -189,6 +189,8 @@ pnpm lint
 - `apps/web/src/features/live/services/signaling.ts`
 - `apps/web/src/features/live/components/live-room.tsx`
 - `apps/web/src/app/entry-graph.test.ts`
+- `apps/web/src/pages/RoomPage.tsx` (keep the live view mounted after room end)
+- Adjacent signaling, room-session, and demo-peer tests
 
 **Implementation:**
 
@@ -220,6 +222,10 @@ Browser, with the local API, one host window, and one attendee window:
 If no browser is available, leave this pass unverified. A synthetic device does not close P3-A03 or P3-A06.
 
 **Done when:** The session tests pass, the browser script has a recorded result or an explicit unverified gap, and the slice is committed.
+
+**Verification result (2026-11-04):** `pnpm --filter @stageflow/web test` passed (306 tests), shared tests passed (262), API tests passed against Redis (219), `pnpm typecheck` passed, and `pnpm lint` passed. The web build, web artifact check, and formatting check for the slice files passed. The home-page `hls` search printed nothing. Fourteen chat-session tests cover join history, sequence deduplication, one gap fetch with bounded older pages, retention gaps, five pending sends, preserved drafts, pause races, stale acknowledgements, explicit same-id retry, and room-end retention. Signaling and room-session regressions cover early chat outside the media signaling queue, membership gating, history after resume, stale socket callbacks, and a chat-busy rejection while the stage and an active recorder remain running. The panel renders text, preserves focus and scroll, and keeps the ended transcript mounted.
+
+**Browser result (2026-11-04):** Two isolated Chrome headless contexts ran the room page against the real local Socket.IO gateway, chat/live services, and Redis with only `sf:itest:*` keys. The catalog and guest repository were in-memory fixtures; host capture used synthetic devices. Ava's host line and Sam's attendee question appeared once in matching order with their names and roles. A send held across host pause failed; both panels showed the pause sentence, and unpause accepted a new line. A transport interruption refetched history within grace, marked the unacknowledged send failed, and made no automatic resend; Retry reused its request id and kept one accepted line. Enter sent, Shift+Enter inserted a newline, HTML and URLs stayed plain text, and an off-bottom arrival preserved focus and scroll with a polite new-message button. `chat_busy` stayed on chat while room controls remained available. Host leave closed both composers, retained both lists, and deleted the chat keys. Sam made zero capture requests, and the delayed-video sentence was present. This verifies CHAT-01 and the chat UI portion of CHAT-04. Full API/PostgreSQL catalog, multi-peer media, live broadcast/playback, physical P3-A03/P3-A05/P3-A06, native-picker, and the earlier V2 browser/playback gaps remain open.
 
 **Handoff:** The README still has no room-chat limits.
 
