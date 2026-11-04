@@ -1,6 +1,6 @@
 # Guide — V2 Phase 5, commit by commit
 
-**Status:** in progress. V2P5-C01's server-time display is implemented and verified. V2P5-C02 through V2P5-C04 remain planned.\
+**Status:** in progress. V2P5-C01 is committed. V2P5-C02's keyboard walk is verified and awaiting commit. V2P5-C03 and V2P5-C04 remain planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.6`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -43,9 +43,9 @@ When V2P5-C02 changes product code, commit it as `fix(web): keep the session usa
 
 ## 2. V2P5-C01 — Server time
 
-**Status:** verified; awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): show the chat server time`\
-**Actual commit:**
+**Actual commit:** `03cf746d87cdf567b26acb7450a31f3fa786f31d`
 
 **Why:** Master Section 9.1 requires the server time on a line. The server already stores it, and the panel renders name, role, and text. Covers the timestamp gap inside CHAT-04.
 
@@ -82,7 +82,7 @@ pnpm lint
 
 ## 3. V2P5-C02 — Keyboard walk
 
-**Status:** planned\
+**Status:** verified; awaiting commit\
 **Proposed commit message:** `docs(v2-phase5): record the keyboard walk`\
 **Actual commit:**
 
@@ -115,6 +115,20 @@ pnpm lint
 Run those commands when this slice changes product code. The docs-only result still records the walk in this guide.
 
 **Done when:** UX-01 has a walk result or an explicit unverified gap, any required fix is committed with this slice, and the slice is committed.
+
+**Verification result (2026-11-04):** UX-01 passed the Section 5.2 walk in Chrome `156.0.8078.80` headless on Windows NT `10.0.26300.0` at **1280 by 800** and **1024 by 768**. A Playwright keyboard driver used Tab for navigation, Enter/Space for buttons and links, Home/ArrowDown/Enter for selects, and keyboard input for fields and chat. It checked the existing `:focus-visible` outline and visibility at each focused control: 81 checks per size, all passed. Each size passed home/green-room/devices/replay, attendee/moderation, chat, and recovery/end/new-guest scenarios, with no uncaught page errors. Screenshots were inspected for readable name/role/time and visible focus. No product defect was found; this slice uses the proposed docs commit message.
+
+The walk operated display name, meeting/webinar creation, slug and room-link joins, room-list Open room, Copy invitation, Recordings, Watch replay, and Use a different name. It operated green-room and joined camera/microphone/speaker selects, mute and camera toggles, join, leave, attendee hand, promotion with explicit capture consent, both host locks/unlocks, and demotion. The chat textarea kept **Message the room**; Send, Enter, Shift+Enter, injected `chat_busy` failure and same-request Retry, pause/resume, keyboard scrolling, and the new-message button worked. New arrivals preserved composer focus. Both reconnecting sentences, pause, failed-send, and room-end text were visible. During recovery Leave stayed reachable and chat stayed read only. Resume left all previous tracks ended and made no capture request until an explicit keyboard camera/microphone action. The log stayed a region without an `aria-live` attribute. Native replay controls paused and played decoded video, and the return link opened the workspace.
+
+**Fixture and limits:** The local web app ran against the real session verifier, JWT, Socket.IO gateway, live/chat services, and Redis Lua with isolated `sf:itest:keyboard:*` keys; guest/catalog repositories were in-memory fixtures. Synthetic capture supplied devices, and a temporary four-second video-only fragmented MP4 HLS fixture supplied replay. Speaker selects returned to System default after exercising synthetic outputs. The harness closed its owned browser and servers and removed its Redis keys. Persisted catalog, the combined session, production FFmpeg output, physical/audible devices, and native screen-picker acceptance remain outside this result; P3-A03/P3-A05/P3-A06 stay open. C03/C04 have not started.
+
+**Local evidence:** The helper is `node_modules/.cache/p5-c02-keyboard.mjs` (ignored). The successful report is `C:/Users/rasai/AppData/Local/Temp/stageflow-p5-c02-WNwzWb/report.json`, beside `1280-*.png` and `1024-*.png` screenshots for meeting, replay, chat, recovery, room end, and home focus. The report records both widths, each focused control/outline, device choices, server-time text/ISO values, scenario results, and zero uncaught page errors. It is local evidence; the observations above are the committed record.
+
+```powershell
+pnpm --filter @stageflow/api exec dotenv -e ../../.env -- node ../../node_modules/.cache/p5-c02-keyboard.mjs
+```
+
+That command passed. Product code is unchanged, so the web suite, typecheck, lint, and full gate were not rerun for this docs-only slice; C01 records their passing results. The two edited Markdown files passed `pnpm exec prettier --check plans/phase5.md plans/phase5/guide.md`, and `git diff --check` passed.
 
 **Handoff:** The release script and the migration assertion are unchanged.
 
