@@ -87,6 +87,7 @@ it('loads an unknown room projection once and does not keep a reservation that f
     error: 'broadcast_active',
   });
   expect(f.repository.delete).toHaveBeenCalledOnce();
+  expect(f.hooks.clear).not.toHaveBeenCalled();
   expect(f.repository.findOneBy).not.toHaveBeenCalled();
   await f.service.snapshot('room-2', null);
   expect(f.repository.findOne).toHaveBeenCalledTimes(2);
@@ -465,6 +466,210 @@ it('retries finalization and will not clear a newer reservation', async () => {
     await Promise.all(newer.tasks);
     expect(key).toBe('newer-id');
     expect(newer.hooks.clear).not.toHaveBeenCalledWith('newer-id');
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('clears a reservation that committed before its reply was lost', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = await fixture();
+    const roomId = 'room-lost';
+    const claims = new Set<string>();
+    vi.mocked(f.hooks.reserve).mockImplementationOnce(async (id: string) => {
+      claims.add(id);
+      throw new Error('reply lost');
+    });
+    vi.mocked(f.hooks.clear).mockImplementation(async (id: string) => {
+      claims.delete(id);
+    });
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    const id = f.rows[0]!.id;
+    expect(claims.has(id)).toBe(false);
+    expect(f.hooks.clear).toHaveBeenCalledExactlyOnceWith(id);
+    expect(f.repository.delete).toHaveBeenCalledExactlyOnceWith(id);
+    expect(f.hooks.publish).not.toHaveBeenCalled();
+    expect(f.spawn).not.toHaveBeenCalled();
+    await f.service.stopRoom(roomId);
+    await f.service.stopRoom(roomId);
+    expect(f.hooks.clear).toHaveBeenCalledOnce();
+    expect(await f.service.start(roomId, 'host', f.hooks)).toEqual({ ok: true });
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.rows).toHaveLength(2);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('retries a conditional clear once and then lets the next start proceed', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = await fixture();
+    const roomId = 'room-clear-once';
+    const claims = new Set<string>();
+    let clears = 0;
+    vi.mocked(f.hooks.reserve).mockImplementationOnce(async (id: string) => {
+      claims.add(id);
+      throw new Error('reply lost');
+    });
+    vi.mocked(f.hooks.clear).mockImplementation(async (id: string) => {
+      clears += 1;
+      if (clears === 1) throw new Error('redis down');
+      claims.delete(id);
+    });
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    expect(clears).toBe(2);
+    expect(claims.size).toBe(0);
+    expect(f.hooks.clear).toHaveBeenCalledTimes(2);
+    expect(f.hooks.clear).toHaveBeenNthCalledWith(1, f.rows[0]!.id);
+    expect(f.hooks.clear).toHaveBeenNthCalledWith(2, f.rows[0]!.id);
+    expect(f.repository.delete).toHaveBeenCalledExactlyOnceWith(f.rows[0]!.id);
+    expect(f.spawn).not.toHaveBeenCalled();
+    expect(await f.service.start(roomId, 'host', f.hooks)).toEqual({ ok: true });
+    expect(f.hooks.clear).toHaveBeenCalledTimes(2);
+    expect(f.spawn).toHaveBeenCalledOnce();
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('keeps an ambiguous reservation until clear succeeds, and stop retries without a second row', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = await fixture();
+    const roomId = 'room-clear-stuck';
+    const claims = new Set<string>();
+    vi.mocked(f.hooks.reserve).mockImplementationOnce(async (id: string) => {
+      claims.add(id);
+      throw new Error('reply lost');
+    });
+    vi.mocked(f.hooks.clear).mockImplementation(async () => {
+      throw new Error('redis down');
+    });
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    const id = f.rows[0]!.id;
+    expect(f.repository.save).toHaveBeenCalledTimes(1);
+    expect(f.hooks.reserve).toHaveBeenCalledTimes(1);
+    expect(f.hooks.clear).toHaveBeenCalledTimes(3);
+    expect(f.repository.delete).not.toHaveBeenCalled();
+    expect(claims.has(id)).toBe(true);
+    expect(f.spawn).not.toHaveBeenCalled();
+
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    expect(f.rows).toHaveLength(1);
+    expect(f.repository.save).toHaveBeenCalledTimes(1);
+    expect(f.hooks.reserve).toHaveBeenCalledTimes(1);
+    expect(f.hooks.clear).toHaveBeenCalledTimes(6);
+    expect(vi.mocked(f.hooks.clear).mock.calls.every(([clearedId]) => clearedId === id)).toBe(true);
+
+    await expect(f.service.stopRoom(roomId)).rejects.toThrow(
+      'Broadcast reservation cleanup failed.',
+    );
+    expect(f.hooks.clear).toHaveBeenCalledTimes(9);
+    expect(claims.has(id)).toBe(true);
+    await f.service.failInterrupted(roomId);
+    expect(f.hooks.clear).toHaveBeenCalledTimes(12);
+    expect(f.rows).toHaveLength(1);
+    expect(f.child.kill).not.toHaveBeenCalled();
+
+    vi.mocked(f.hooks.clear).mockImplementation(async (clearedId: string) => {
+      expect(clearedId).toBe(id);
+      claims.delete(clearedId);
+    });
+    await f.service.stopRoom(roomId);
+    expect(claims.size).toBe(0);
+    expect(f.repository.delete).toHaveBeenCalledExactlyOnceWith(id);
+    await f.service.stopRoom(roomId);
+    expect(f.hooks.clear).toHaveBeenCalledTimes(13);
+    expect(f.repository.delete).toHaveBeenCalledOnce();
+    expect(await f.service.start(roomId, 'host', f.hooks)).toEqual({ ok: true });
+    expect(f.rows).toHaveLength(2);
+    expect(f.spawn).toHaveBeenCalledOnce();
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('does not clear a newer claim while reconciling a lost reservation reply', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = await fixture();
+    const roomId = 'room-newer-claim';
+    let active = '';
+    vi.mocked(f.hooks.reserve).mockImplementationOnce(async (id: string) => {
+      active = id;
+      throw new Error('reply lost');
+    });
+    vi.mocked(f.hooks.clear).mockImplementation(async (id: string) => {
+      active = 'newer-id';
+      expect(id).toBe(f.rows[0]!.id);
+      if (active === id) active = 'cleared';
+    });
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    expect(active).toBe('newer-id');
+    expect(f.hooks.clear).toHaveBeenCalledExactlyOnceWith(f.rows[0]!.id);
+    expect(f.hooks.clear).not.toHaveBeenCalledWith('newer-id');
+    expect(f.repository.delete).toHaveBeenCalledExactlyOnceWith(f.rows[0]!.id);
+    expect(f.spawn).not.toHaveBeenCalled();
+    await f.service.stopRoom(roomId);
+    await f.service.stopRoom(roomId);
+    expect(f.hooks.clear).toHaveBeenCalledOnce();
+    expect(active).toBe('newer-id');
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('keeps the attempt when the row delete reply is lost and does not reserve again', async () => {
+  const logger = silenceErrors();
+  try {
+    const f = await fixture();
+    const roomId = 'room-delete-lost';
+    const order: string[] = [];
+    const claims = new Set<string>();
+    let deletes = 0;
+    vi.mocked(f.repository.save).mockImplementation(async (row: Broadcast) => {
+      order.push('save');
+      if (!row.id) {
+        row.id = randomUUID();
+        row.createdAt = new Date();
+        f.rows.push(row);
+      }
+      f.events.push(row.status);
+      return row;
+    });
+    vi.mocked(f.hooks.reserve).mockImplementation(async (id: string) => {
+      order.push('reserve');
+      if (order.filter((item) => item === 'reserve').length === 1) {
+        claims.add(id);
+        throw new Error('reply lost');
+      }
+      f.events.push('reserve');
+      return true;
+    });
+    vi.mocked(f.hooks.clear).mockImplementation(async (id: string) => {
+      order.push('clear');
+      claims.delete(id);
+    });
+    vi.mocked(f.repository.delete).mockImplementation(async () => {
+      order.push('delete');
+      deletes += 1;
+      if (deletes <= 3) throw new Error('delete lost');
+    });
+    expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
+    expect(order).toEqual(['save', 'reserve', 'clear', 'delete', 'delete', 'delete']);
+    expect(claims.size).toBe(0);
+    expect(f.rows).toHaveLength(1);
+    expect(f.spawn).not.toHaveBeenCalled();
+
+    expect(await f.service.start(roomId, 'host', f.hooks)).toEqual({ ok: true });
+    expect(order.slice(6, 9)).toEqual(['delete', 'save', 'reserve']);
+    expect(f.rows).toHaveLength(2);
+    expect(f.hooks.clear).toHaveBeenCalledOnce();
+    expect(f.hooks.reserve).toHaveBeenCalledTimes(2);
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(claims.size).toBe(0);
   } finally {
     logger.mockRestore();
   }

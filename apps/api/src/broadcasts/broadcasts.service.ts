@@ -31,7 +31,13 @@ export type BroadcastHooks = {
   onExit(action: () => Promise<void>): void;
 };
 const CLEANUP_ATTEMPTS = 3;
+const RESERVATION_CLEANUP_FAILED = 'Broadcast reservation cleanup failed.';
 type AttemptCleanup = { saved: boolean; cleared: boolean; published: boolean };
+type AbandonedReservation = {
+  row: Broadcast;
+  hooks: BroadcastHooks;
+  cleared: boolean;
+};
 type RunningBroadcast = {
   row: Broadcast;
   hostId: string;
@@ -84,6 +90,9 @@ function beforeHistoryCursor(createdAt: string, id: string) {
 export class BroadcastsService {
   private readonly logger = new Logger(BroadcastsService.name);
   private readonly running = new Map<string, RunningBroadcast>();
+  // A rejected reserve can still have committed its claim. The attempt stays until that id is
+  // conditionally cleared and its row delete resolves. Cleanup never targets a different id.
+  private readonly abandoned = new Map<string, AbandonedReservation>();
   // Last projection for a room. A missing key is not loaded; null means no attempt was found.
   private readonly views = new Map<string, RoomSnapshot['broadcast']>();
   private closing = false;
@@ -125,6 +134,7 @@ export class BroadcastsService {
 
   async start(roomId: string, hostId: string, hooks: BroadcastHooks): Promise<CommandAck> {
     if (this.closing) return failure('server_error');
+    if (!(await this.reconcileAbandoned(roomId))) return failure('server_error');
     let row: Broadcast;
     try {
       row = await this.broadcasts.save(
@@ -139,6 +149,7 @@ export class BroadcastsService {
         }),
       );
     } catch (error) {
+      // The database assigns the id. A lost insert reply has no claim and is not cleared.
       this.logger.error(error instanceof Error ? error.message : 'Broadcast row insert failed.');
       return failure('server_error');
     }
@@ -149,7 +160,8 @@ export class BroadcastsService {
       }
     } catch (error) {
       this.logger.error(error instanceof Error ? error.message : 'Broadcast reservation failed.');
-      await this.deleteRow(row.id);
+      this.abandoned.set(roomId, { row, hooks, cleared: false });
+      await this.reconcileAbandoned(roomId);
       return failure('server_error');
     }
     this.remember(row);
@@ -217,6 +229,29 @@ export class BroadcastsService {
         }
       }
     }
+  }
+
+  // True only after this attempt's conditional clear and its row delete both resolve.
+  // A resolved clear preserves a newer claim. A thrown clear or delete keeps the attempt.
+  private async reconcileAbandoned(roomId: string): Promise<boolean> {
+    const pending = this.abandoned.get(roomId);
+    if (!pending) return true;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < CLEANUP_ATTEMPTS; attempt++) {
+      try {
+        if (!pending.cleared) {
+          await pending.hooks.clear(pending.row.id);
+          pending.cleared = true;
+        }
+        await this.broadcasts.delete(pending.row.id);
+        this.abandoned.delete(roomId);
+        return true;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    this.logger.error(lastError instanceof Error ? lastError.message : RESERVATION_CLEANUP_FAILED);
+    return false;
   }
 
   private finish(entry: RunningBroadcast, exit: FfmpegExit): Promise<void> {
@@ -298,8 +333,12 @@ export class BroadcastsService {
   }
 
   async stopRoom(roomId: string): Promise<void> {
+    const reconciled = await this.reconcileAbandoned(roomId);
     const entry = [...this.running.values()].find((value) => value.row.roomId === roomId);
-    if (!entry) return;
+    if (!entry) {
+      if (!reconciled) throw new Error(RESERVATION_CLEANUP_FAILED);
+      return;
+    }
     entry.stopping = true;
     if (!entry.cleanup?.saved && entry.row.status !== 'READY' && entry.row.status !== 'FAILED') {
       try {
@@ -314,9 +353,12 @@ export class BroadcastsService {
       }
     }
     await this.finish(entry, await this.childOutcome(entry));
+    if (!reconciled) throw new Error(RESERVATION_CLEANUP_FAILED);
   }
 
   async failInterrupted(roomId: string): Promise<void> {
+    // Membership suspension awaits this. Reservation cleanup must not block it.
+    await this.reconcileAbandoned(roomId);
     const entry = [...this.running.values()].find((value) => value.row.roomId === roomId);
     if (!entry) return;
     // Own the abort/cleanup so the child-exit callback cannot queue a competing graceful stop.
