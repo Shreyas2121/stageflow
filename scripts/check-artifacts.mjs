@@ -50,13 +50,28 @@ if (!args.length || args.includes('--api')) {
     );
   const require = createRequire(join(root, 'apps/api/package.json'));
   const { LiveRepository } = require(join(dist, 'live/live.repository.js'));
+  const { ChatRepository } = require(join(dist, 'chat/chat.repository.js'));
   const { roomPrefix, liveKeys } = require(join(dist, 'live/live.keys.js'));
   new LiveRepository({}); // Loads every compiled Lua asset without connecting to a service.
+  const chatSource = join(root, 'apps/api/src/chat/scripts');
+  const chatLua = (await readdir(chatSource)).filter((name) => name.endsWith('.lua')).sort();
+  assert.deepEqual(chatLua, ['accept.lua', 'history.lua', 'setPaused.lua']);
+  assert.deepEqual(
+    (await readdir(join(dist, 'chat/scripts'))).filter((name) => name.endsWith('.lua')).sort(),
+    chatLua,
+  );
+  for (const name of chatLua)
+    assert.deepEqual(
+      await readFile(join(dist, 'chat/scripts', name)),
+      await readFile(join(chatSource, name)),
+      name,
+    );
+  new ChatRepository({});
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 9);
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, fourteen Lua files match source, no emitted tests.',
+    'API artifacts: production modules load, fourteen live and three chat Lua files match source, no emitted tests.',
   );
 }
 

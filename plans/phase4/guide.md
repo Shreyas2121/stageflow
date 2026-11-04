@@ -1,6 +1,6 @@
 # Guide — V2 Phase 4, commit by commit
 
-**Status:** in progress. V2P4-C01 is verified. V2P4-C02 through V2P4-C05 are planned.\
+**Status:** in progress. V2P4-C01 is committed and V2P4-C02 is verified. V2P4-C03 through V2P4-C05 are planned.\
 **Last updated:** 2026-11-04.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.5`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -44,9 +44,9 @@ Keep the mesh cap, the negotiation reducer, device replacement, reconnect, and t
 
 ## 2. V2P4-C01 — Shared chat contract
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): parse a room chat message`\
-**Actual commit:**
+**Actual commit:** `74692c53b6219f39645a773d56f79f2e59c914d9`
 
 **Why:** The API and the page need one message shape and one set of bounds before either side stores text. Covers the parser half of CHAT-02.
 
@@ -82,7 +82,7 @@ pnpm lint
 
 ## 3. V2P4-C02 — Redis accept path
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-chat): accept chat in one Redis script`\
 **Actual commit:**
 
@@ -119,6 +119,8 @@ pnpm lint
 Missing Redis leaves this slice unverified and named.
 
 **Done when:** The script tests pass and the slice is committed.
+
+**Verification result (2026-11-04):** `pnpm --filter @stageflow/api test` passed against Redis (205 tests), `pnpm typecheck` passed, and `pnpm lint` passed. Eleven chat repository tests cover script cache fallback, concurrent ordering and duplicate retries, sender identity, bounded dedup and history, pause, stale transports, rate windows, user-rate capacity, TTL refresh, and repeated deletion. Tests use isolated `sf:itest:*` keys, injected time, and small limits. The API build and `node scripts/check-artifacts.mjs --api` passed: fourteen live scripts and three independent chat scripts match source, and `liveKeys` still has nine entries. No browser or physical observation is claimed.
 
 **Handoff:** The gateway has no chat events. Room shutdown does not call `delete` yet.
 
