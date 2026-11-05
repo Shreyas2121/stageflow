@@ -21,12 +21,8 @@ import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
 import { DemoRegistry, type DemoAudio, type DemoFactory } from './demo-registry';
 import { LocalMedia, type DeviceChoices, type InputKind } from './local-media';
-import {
-  audioOutputSupported,
-  selectedOutputId,
-  subscribeAudioOutput,
-  type OutputRouteResult,
-} from './output-route';
+import { InCallDeviceController, deviceSwitchError } from './in-call-devices';
+import type { OutputRouteResult } from './output-route';
 import { PeerManager, type RemoteStreams, type TrackSource } from './peer-manager';
 import { RecoveryController } from './recovery-controller';
 import { audienceFor, roleTransition, type StageMembership } from './role-transition';
@@ -111,7 +107,7 @@ export class RoomSession {
   private readonly onEnded: () => void;
   private readonly open: typeof openSignaling;
   private readonly createPeers: NonNullable<RoomSessionOptions['createPeers']>;
-  private readonly enumerateDevices: () => Promise<MediaDeviceInfo[]>;
+  private readonly deviceController: InCallDeviceController;
   private readonly speaker: RoomSpeaker;
   private readonly listeners = new Set<() => void>();
 
@@ -120,19 +116,16 @@ export class RoomSession {
   private readonly broadcastSession: BroadcastSession;
   private readonly stageVideos = new Map<string, HTMLVideoElement>();
   private unsubscribe: (() => void) | null = null;
-  private unsubscribeOutput: (() => void) | null = null;
   private attached = false;
   private pageHidden = false;
   private locallyTornDown = false;
   private generation = 0;
-  private deviceReplacement: Promise<void> = Promise.resolve();
-  private readonly inputPending = { camera: 0, microphone: 0 };
-  private deviceGeneration = 0;
   private prepareToken = 0;
   private settled: StageMembership | null = null;
   private endedNotified = false;
   private readonly recovery: RecoveryController;
   private resumedWithoutCapture = false;
+  private snapshot: ReturnType<RoomSession['readSnapshot']> | null = null;
 
   private readonly state: {
     phase: ConnectionPhase;
@@ -141,15 +134,8 @@ export class RoomSession {
     sharePending: boolean;
     ready: boolean;
     error: string;
-    speakerError: string;
-    choices: DeviceChoices;
-    speakerId: string;
-    devices: MediaDeviceInfo[];
-    sinkSupported: boolean;
     isAudioMuted: boolean;
     isVideoOff: boolean;
-    cameraUnavailable: boolean;
-    microphoneUnavailable: boolean;
     streams: RemoteStreams;
     peerManager: PeerManager | null;
     activeParticipantId: string | null;
@@ -164,15 +150,8 @@ export class RoomSession {
     sharePending: false,
     ready: false,
     error: '',
-    speakerError: '',
-    choices: { cameraId: '', microphoneId: '' },
-    speakerId: selectedOutputId(),
-    devices: [],
-    sinkSupported: audioOutputSupported(),
     isAudioMuted: false,
     isVideoOff: false,
-    cameraUnavailable: false,
-    microphoneUnavailable: false,
     streams: new Map(),
     peerManager: null,
     activeParticipantId: null,
@@ -188,14 +167,39 @@ export class RoomSession {
     this.token = options.token;
     this.onEnded = options.onEnded;
     this.media = options.media ?? new LocalMedia();
-    this.media.setEndedListener((kind) => this.markInputLost(kind));
     this.open = options.openSignaling ?? openSignaling;
     this.createPeers =
       options.createPeers ??
       ((media, connection, publish, onError) =>
         new PeerManager(media, connection, publish, onError));
-    this.enumerateDevices =
-      options.enumerateDevices ?? (() => navigator.mediaDevices.enumerateDevices());
+    this.deviceController = new InCallDeviceController(
+      this.media,
+      {
+        active: () => !this.pageHidden && this.state.phase !== 'leaving',
+        canReplace: () => this.canReplaceDevice(),
+        muted: (kind) => (kind === 'microphone' ? this.mutedCapture() : this.videoOffCapture()),
+        applyFlags: () => this.applyLocalFlags(),
+        replaceSender: (kind, track) => this.replaceSender(kind, track),
+        committed: () => {
+          this.state.error = '';
+          this.syncSpeaker();
+          this.syncBroadcast();
+          this.emit();
+        },
+        disableInput: (kind) => {
+          this.forceRevision = useRoomStore.getState().snapshot?.revision ?? this.forceRevision;
+          if (kind === 'microphone') this.forcedAudio = true;
+          else this.forcedVideo = true;
+        },
+        inputLost: (kind) => this.onInputLost(kind),
+        setError: (message) => {
+          this.state.error = message;
+          this.emit();
+        },
+      },
+      options.enumerateDevices,
+    );
+    this.deviceController.subscribe(() => this.emit());
     this.broadcastSession = new BroadcastSession({
       token: this.token,
       createRecorder: options.createRecorder ?? ((recorder) => new StageRecorder(recorder)),
@@ -316,19 +320,19 @@ export class RoomSession {
     return this.state.error;
   }
   get speakerError(): string {
-    return this.state.speakerError;
+    return this.deviceController.getSnapshot().speakerError;
   }
   get choices(): DeviceChoices {
-    return this.state.choices;
+    return this.deviceController.getSnapshot().choices;
   }
   get speakerId(): string {
-    return this.state.speakerId;
+    return this.deviceController.getSnapshot().speakerId;
   }
   get devices(): MediaDeviceInfo[] {
-    return this.state.devices;
+    return this.deviceController.getSnapshot().devices;
   }
   get sinkSupported(): boolean {
-    return this.state.sinkSupported;
+    return this.deviceController.getSnapshot().sinkSupported;
   }
   get isAudioMuted(): boolean {
     return this.state.isAudioMuted;
@@ -337,16 +341,16 @@ export class RoomSession {
     return this.state.isVideoOff;
   }
   get cameraUnavailable(): boolean {
-    return this.state.cameraUnavailable;
+    return this.deviceController.getSnapshot().cameraUnavailable;
   }
   get microphoneUnavailable(): boolean {
-    return this.state.microphoneUnavailable;
+    return this.deviceController.getSnapshot().microphoneUnavailable;
   }
   get replacingCamera(): boolean {
-    return this.inputPending.camera > 0;
+    return this.deviceController.getSnapshot().replacingCamera;
   }
   get replacingMicrophone(): boolean {
-    return this.inputPending.microphone > 0;
+    return this.deviceController.getSnapshot().replacingMicrophone;
   }
   get streams(): RemoteStreams {
     return this.state.streams;
@@ -394,61 +398,56 @@ export class RoomSession {
     );
   }
 
-  subscribe(listener: () => void): () => void {
+  readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  readonly getSnapshot = () => (this.snapshot ??= this.readSnapshot());
 
   attach(): void {
     if (this.attached) return;
     this.attached = true;
     this.unsubscribe = useRoomStore.subscribe(() => this.syncFromStore());
-    this.unsubscribeOutput = subscribeAudioOutput((result) => {
-      if (this.pageHidden || this.state.phase === 'leaving') return;
-      this.state.sinkSupported = result.supported;
-      this.state.speakerId = result.deviceId;
-      this.state.speakerError = result.ok ? '' : result.message;
-      this.emit();
-    });
+    this.deviceController.attach();
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', this.onPageHide);
       window.addEventListener('pageshow', this.onPageShow);
     }
-    this.deviceEvents()?.addEventListener('devicechange', this.onDeviceChange);
   }
 
   dispose(): void {
     if (!this.attached) return;
     this.attached = false;
-    this.deviceGeneration += 1;
+    this.deviceController.dispose();
     if (typeof window !== 'undefined') {
       window.removeEventListener('pagehide', this.onPageHide);
       window.removeEventListener('pageshow', this.onPageShow);
     }
-    this.deviceEvents()?.removeEventListener('devicechange', this.onDeviceChange);
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.unsubscribeOutput?.();
-    this.unsubscribeOutput = null;
     this.closeSession();
     this.state.phase = 'lobby';
     this.emit();
   }
 
-  async prepare(video: HTMLVideoElement, nextChoices = this.state.choices): Promise<void> {
+  async prepare(
+    video: HTMLVideoElement,
+    nextChoices = this.deviceController.getSnapshot().choices,
+  ): Promise<void> {
     if (this.pageHidden || this.state.phase === 'recovering') return;
     if (this.catalogAttendee && !this.state.needsCaptureConsent) return;
     if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
     this.locallyTornDown = false;
     const token = ++this.prepareToken;
-    this.deviceGeneration += 1;
     const generation = this.generation;
     const promoted = this.state.phase === 'joined' && this.state.needsCaptureConsent;
     this.state.preparing = true;
     this.state.ready = false;
     this.state.error = '';
-    this.state.speakerError = '';
-    this.state.choices = nextChoices;
+    this.deviceController.beginPreparation(nextChoices);
     this.emit();
     try {
       this.applyLocalFlags();
@@ -458,15 +457,13 @@ export class RoomSession {
         return;
       }
       if (!prepared) return;
-      const deviceRequest = ++this.deviceGeneration;
-      const devices = await this.enumerateDevices();
+      await this.deviceController.enumerateForPreparation();
       if (token !== this.prepareToken || generation !== this.generation) return;
-      if (deviceRequest === this.deviceGeneration) this.state.devices = devices;
-      const route = await this.media.setSpeaker(this.state.speakerId);
+      await this.deviceController.setSpeaker(
+        this.speakerId,
+        () => token === this.prepareToken && generation === this.generation,
+      );
       if (token !== this.prepareToken || generation !== this.generation) return;
-      this.state.sinkSupported = route.supported;
-      this.state.speakerId = route.deviceId;
-      this.state.speakerError = route.ok ? '' : route.message;
       this.state.ready = this.media.ready;
       this.applyLocalFlags();
       if (this.state.phase === 'joined' && this.media.ready) {
@@ -521,14 +518,8 @@ export class RoomSession {
     }
   }
 
-  async setSpeaker(deviceId: string): Promise<void> {
-    const generation = this.generation;
-    const route = await this.media.setSpeaker(deviceId);
-    if (generation !== this.generation) return;
-    this.state.sinkSupported = route.supported;
-    this.state.speakerId = route.deviceId;
-    this.state.speakerError = route.ok ? '' : route.message;
-    this.emit();
+  setSpeaker(deviceId: string): Promise<void> {
+    return this.deviceController.setSpeaker(deviceId);
   }
 
   async join(): Promise<void> {
@@ -577,7 +568,7 @@ export class RoomSession {
       this.chat.connect(active);
       this.media.releaseLobby();
       this.syncFromStore();
-      void this.refreshDevices();
+      void this.deviceController.refresh();
     } catch (failure) {
       if (generation !== this.generation || (active && this.connection !== active)) return;
       active?.close();
@@ -651,19 +642,7 @@ export class RoomSession {
   }
 
   replaceDevice(kind: InputKind, deviceId: string): Promise<void> {
-    this.inputPending[kind] += 1;
-    this.emit();
-    const run = this.deviceReplacement
-      .then(() => this.finishDeviceReplacement(kind, deviceId))
-      .finally(() => {
-        this.inputPending[kind] -= 1;
-        this.emit();
-      });
-    this.deviceReplacement = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
+    return this.deviceController.replace(kind, deviceId);
   }
 
   toggleHand(): void {
@@ -857,7 +836,7 @@ export class RoomSession {
     this.state.phase = 'joined';
     this.chat.connect(active);
     this.syncFromStore();
-    void this.refreshDevices();
+    void this.deviceController.refresh();
   }
 
   private finishRecoveryFailure(message: string): void {
@@ -877,7 +856,9 @@ export class RoomSession {
     try {
       await this.replaceDevice(
         kind,
-        kind === 'camera' ? this.state.choices.cameraId : this.state.choices.microphoneId,
+        kind === 'camera'
+          ? this.deviceController.getSnapshot().choices.cameraId
+          : this.deviceController.getSnapshot().choices.microphoneId,
       );
       if (
         generation !== this.generation ||
@@ -893,8 +874,7 @@ export class RoomSession {
         );
     } catch (failure) {
       if (generation === this.generation && this.connection === active)
-        this.state.error =
-          failure instanceof Error ? failure.message : this.deviceSwitchError(kind);
+        this.state.error = failure instanceof Error ? failure.message : deviceSwitchError(kind);
     } finally {
       if (generation === this.generation) {
         this.activationPending = false;
@@ -926,8 +906,7 @@ export class RoomSession {
     this.closePeers();
     this.speaker.close();
     this.media.stop();
-    this.state.cameraUnavailable = false;
-    this.state.microphoneUnavailable = false;
+    this.deviceController.reset();
     this.settled = null;
     this.state.ready = false;
     this.state.preparing = false;
@@ -1013,8 +992,7 @@ export class RoomSession {
     this.state.needsCaptureConsent = false;
     this.state.ready = false;
     this.media.stop();
-    this.state.cameraUnavailable = false;
-    this.state.microphoneUnavailable = false;
+    this.deviceController.reset();
     this.closePeers();
     this.speaker.close();
     if (wasSharing && this.connection) {
@@ -1066,94 +1044,11 @@ export class RoomSession {
     );
   }
 
-  private async finishDeviceReplacement(kind: InputKind, deviceId: string): Promise<void> {
-    if (!this.canReplaceDevice()) return;
-    const generation = this.generation;
-    this.applyLocalFlags();
-    let track: MediaStreamTrack | null;
-    try {
-      track = await this.media.replaceInput(kind, deviceId);
-    } catch (failure) {
-      if (generation !== this.generation || !this.canReplaceDevice()) return;
-      this.state.error = failure instanceof Error ? failure.message : this.deviceSwitchError(kind);
-      this.emit();
-      return;
-    }
-    if (!track || generation !== this.generation || !this.canReplaceDevice()) {
-      if (track) this.media.abortInput(track);
-      return;
-    }
-    this.applyHeldFlag(kind, track);
-    const screen = this.media.screenTrack();
-    if (kind === 'camera' && screen?.readyState === 'live') {
-      this.commitReplacedInput(kind, track, deviceId);
-      return;
-    }
-    const previous =
-      kind === 'microphone' ? this.media.microphoneTrack() : this.media.cameraTrack();
-    try {
-      await this.replaceSender(kind, track);
-    } catch (failure) {
-      if (generation !== this.generation || !this.canReplaceDevice()) {
-        this.media.abortInput(track);
-        return;
-      }
-      await this.rollbackSender(kind, track, previous, failure);
-      return;
-    }
-    if (generation !== this.generation || !this.canReplaceDevice()) {
-      this.media.abortInput(track);
-      return;
-    }
-    this.commitReplacedInput(kind, track, deviceId);
-  }
-
-  private commitReplacedInput(kind: InputKind, track: MediaStreamTrack, deviceId: string): void {
-    this.media.commitInput(kind, track);
-    if (kind === 'microphone') this.state.microphoneUnavailable = false;
-    else this.state.cameraUnavailable = false;
-    this.state.choices =
-      kind === 'camera'
-        ? { cameraId: deviceId, microphoneId: this.state.choices.microphoneId }
-        : { cameraId: this.state.choices.cameraId, microphoneId: deviceId };
-    this.state.error = '';
-    this.syncSpeaker();
-    this.syncBroadcast();
-    this.emit();
-  }
-
   private async replaceSender(kind: InputKind, track: MediaStreamTrack | null): Promise<void> {
     const peers = this.peers;
     if (!peers) return;
     if (kind === 'microphone') await peers.replaceAudioTrack(track);
     else await peers.replaceVideoTrack(track);
-  }
-
-  private async rollbackSender(
-    kind: InputKind,
-    track: MediaStreamTrack,
-    previous: MediaStreamTrack | null,
-    failure: unknown,
-  ): Promise<void> {
-    try {
-      await this.replaceSender(kind, previous);
-    } catch {
-      this.media.abortInput(track);
-      this.forceRevision = useRoomStore.getState().snapshot?.revision ?? this.forceRevision;
-      if (kind === 'microphone') this.forcedAudio = true;
-      else this.forcedVideo = true;
-      this.applyLocalFlags();
-      this.state.error = this.disabledDeviceError(kind);
-      this.emit();
-      return;
-    }
-    this.media.abortInput(track);
-    this.state.error = failure instanceof Error ? failure.message : this.deviceSwitchError(kind);
-    this.emit();
-  }
-
-  private applyHeldFlag(kind: InputKind, track: MediaStreamTrack): void {
-    track.enabled = kind === 'microphone' ? !this.mutedCapture() : !this.videoOffCapture();
   }
 
   private mutedCapture(): boolean {
@@ -1162,7 +1057,7 @@ export class RoomSession {
     return (
       waiting ||
       this.audioLocked ||
-      this.state.microphoneUnavailable ||
+      this.deviceController.getSnapshot().microphoneUnavailable ||
       (self?.isAudioMuted ?? this.state.isAudioMuted)
     );
   }
@@ -1173,87 +1068,19 @@ export class RoomSession {
     return (
       waiting ||
       this.videoLocked ||
-      this.state.cameraUnavailable ||
+      this.deviceController.getSnapshot().cameraUnavailable ||
       (self?.isVideoOff ?? this.state.isVideoOff)
     );
   }
 
-  private markInputLost(kind: InputKind): void {
-    if (!this.attached || this.pageHidden || this.state.phase === 'leaving') return;
-    if (kind === 'microphone' ? this.state.microphoneUnavailable : this.state.cameraUnavailable) {
-      return;
-    }
-    if (kind === 'microphone') {
-      this.state.microphoneUnavailable = true;
-      this.state.isAudioMuted = true;
-    } else {
-      this.state.cameraUnavailable = true;
-      this.state.isVideoOff = true;
-    }
+  private onInputLost(kind: InputKind): void {
+    if (kind === 'microphone') this.state.isAudioMuted = true;
+    else this.state.isVideoOff = true;
     this.applyLocalFlags();
     this.emit();
     if (this.state.phase !== 'joined' || !this.state.onStage) return;
     const patch = kind === 'microphone' ? { isAudioMuted: true } : { isVideoOff: true };
     void this.send((active) => active.media(patch));
-  }
-
-  private readonly onDeviceChange = (): void => {
-    if (!this.attached || this.pageHidden || this.state.phase === 'leaving') return;
-    void this.refreshDevices();
-  };
-
-  private deviceEvents(): MediaDevices | null {
-    if (typeof navigator === 'undefined' || navigator.mediaDevices == null) return null;
-    const devices = navigator.mediaDevices;
-    if (typeof devices.addEventListener !== 'function') return null;
-    return devices;
-  }
-
-  private async refreshDevices(): Promise<void> {
-    const generation = this.generation;
-    const request = ++this.deviceGeneration;
-    let devices: MediaDeviceInfo[];
-    try {
-      devices = await this.enumerateDevices();
-    } catch {
-      return;
-    }
-    if (
-      !this.attached ||
-      this.pageHidden ||
-      generation !== this.generation ||
-      request !== this.deviceGeneration
-    ) {
-      return;
-    }
-    this.state.devices = devices;
-    this.noteMissingDevices(devices);
-    this.emit();
-  }
-
-  private noteMissingDevices(devices: MediaDeviceInfo[]): void {
-    if (this.inputMissing('camera', devices)) this.markInputLost('camera');
-    if (this.inputMissing('microphone', devices)) this.markInputLost('microphone');
-  }
-
-  private inputMissing(kind: InputKind, devices: MediaDeviceInfo[]): boolean {
-    const id = kind === 'camera' ? this.state.choices.cameraId : this.state.choices.microphoneId;
-    // An empty id is the browser default. Only its ended event is loss.
-    if (!id) return false;
-    const deviceKind = kind === 'camera' ? 'videoinput' : 'audioinput';
-    return !devices.some((device) => device.kind === deviceKind && device.deviceId === id);
-  }
-
-  private deviceSwitchError(kind: InputKind): string {
-    return kind === 'microphone'
-      ? 'Unable to switch your microphone. Try again.'
-      : 'Unable to switch your camera. Try again.';
-  }
-
-  private disabledDeviceError(kind: InputKind): string {
-    return kind === 'microphone'
-      ? 'Unable to switch your microphone. The microphone is off until you choose another.'
-      : 'Unable to switch your camera. The camera is off until you choose another.';
   }
 
   private forceMute({ kind, locked }: StageForceMute): void {
@@ -1335,7 +1162,23 @@ export class RoomSession {
   }
 
   private emit(): void {
+    this.snapshot = null;
     for (const listener of this.listeners) listener();
+  }
+
+  private readSnapshot() {
+    return Object.freeze({
+      ...this.state,
+      ...this.deviceController.getSnapshot(),
+      mediaPending: this.mediaPending,
+      audioLocked: this.audioLocked,
+      videoLocked: this.videoLocked,
+      audience: this.audience,
+      catalogAttendee: this.catalogAttendee,
+      demoCount: this.demoCount,
+      demoStarting: this.demoStarting,
+      broadcastActive: this.broadcastActive,
+    });
   }
 
   private readonly onPageHide = (): void => {

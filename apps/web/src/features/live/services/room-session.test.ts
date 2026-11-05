@@ -353,6 +353,39 @@ describe('RoomSession', () => {
     return (name: 'pagehide' | 'pageshow') => target.dispatchEvent(new Event(name));
   }
 
+  it('exposes a cached room snapshot until membership or device state changes', async () => {
+    const h = open();
+    const initial = h.session.getSnapshot();
+    expect(h.session.getSnapshot()).toBe(initial);
+    expect(initial.phase).toBe('lobby');
+    expect(Object.isFrozen(initial)).toBe(true);
+    const changed = vi.fn();
+    const unsubscribe = h.session.subscribe(changed);
+    h.session.toggleAudio();
+    const muted = h.session.getSnapshot();
+    expect(muted).not.toBe(initial);
+    expect(muted.isAudioMuted).toBe(true);
+    expect(initial.isAudioMuted).toBe(false);
+    expect(h.session.getSnapshot()).toBe(muted);
+    vi.spyOn(h.media, 'setSpeaker').mockResolvedValueOnce({
+      ok: true,
+      supported: true,
+      deviceId: 'allowed-speaker',
+      message: '',
+    });
+    await h.session.setSpeaker('allowed-speaker');
+    const routed = h.session.getSnapshot();
+    expect(routed.speakerId).toBe('allowed-speaker');
+    expect(routed.sinkSupported).toBe(true);
+    expect(muted.speakerId).toBe('');
+    expect(h.session.getSnapshot()).toBe(routed);
+    expect(changed).toHaveBeenCalled();
+    unsubscribe();
+    changed.mockClear();
+    h.session.toggleAudio();
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it('discards permission that resolves after page exit and keeps restored capture disabled', async () => {
     const page = pageLifecycle();
     const h = open();
@@ -1934,6 +1967,33 @@ describe('RoomSession', () => {
     expect(consent.media.replaceInput).not.toHaveBeenCalled();
     expect(consent.media.prepareCalls).toBe(0);
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('discards queued device requests from before a media-off resume', async () => {
+    vi.useFakeTimers();
+    const h = open({ freshConnections: true });
+    await joinRecoverable(h);
+    let release!: (track: MediaStreamTrack) => void;
+    h.media.replaceInput.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = h.session.replaceDevice('microphone', 'old-microphone');
+    const queued = h.session.replaceDevice('camera', 'old-camera');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.media.replaceInput).toHaveBeenCalledOnce();
+    h.callbacks()!.onDisconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.session.phase).toBe('joined');
+    const obsolete = liveTrack('audio');
+    release(obsolete);
+    await Promise.all([first, queued]);
+    expect(obsolete.stop).toHaveBeenCalledOnce();
+    expect(h.media.replaceInput).toHaveBeenCalledOnce();
+    expect(h.session.replacingCamera).toBe(false);
+    expect(h.session.replacingMicrophone).toBe(false);
   });
 
   it('marks only the requested kind busy until that replacement settles', async () => {

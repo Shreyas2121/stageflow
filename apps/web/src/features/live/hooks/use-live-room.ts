@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
 import { RoomSession } from '../services/room-session';
 
@@ -16,8 +16,7 @@ export function useLiveRoom(
         onEnded,
       }),
   );
-  const [, notify] = useState(0);
-  useEffect(() => live.subscribe(() => notify((value) => value + 1)), [live]);
+  useSyncExternalStore(live.subscribe, live.getSnapshot);
   useEffect(() => {
     live.attach();
     return () => live.dispose();
