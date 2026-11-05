@@ -287,7 +287,7 @@ Read the edited README against phase Sections 5 and 6.
 - Recorded C04's Chrome 156 headless unset-Google registration/login observations and controlled enabled/return flows. A real Google browser round-trip was not run. The C03 FFmpeg 6.0 smoke result and the standard release run's Redis MONITOR race/retry are named separately; previous historical failures are preserved. Open V1/V2 media, physical-device and native-picker observations remain open.
 - `pnpm exec prettier --check README.md plans/phase2.md plans/phase2/guide.md plans/README.md` and `git diff --check` passed. All 58 local links/anchors and seven referenced Git commits validated. `pnpm check:affected --plan --files README.md plans/phase2.md plans/phase2/guide.md plans/README.md` selected formatting only. This slice changes documentation only; no application suite, browser, or service restart was run.
 
-**Handoff:** V3 phase 3 is replay visibility and deletion. Do not write `plans/phase3.md` until that phase is requested.
+**Handoff:** V3 phase 3 is specified in [../phase3.md](../phase3.md). It adds replay visibility and deletion. That file does not authorize implementation.
 
 ## 7. Final slice hash record (2026-11-05)
 

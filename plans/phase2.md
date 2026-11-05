@@ -160,7 +160,7 @@ The next phase may rely on these once the slices are committed:
 - Unset Google leaves email, password, guest, and promotion behavior unchanged.
 - A configured Google sign-in can create a host the room list already understands, because it is a normal `is_guest = false` row and a normal host token.
 
-V3 phase 3 may add replay visibility and deletion for registered owners. A Google-only host is a registered owner. Do not write `plans/phase3.md` until that phase is requested.
+V3 phase 3 is specified in [phase3.md](phase3.md). It adds replay visibility and deletion for registered owners. A Google-only host is a registered owner. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
 

@@ -1,9 +1,10 @@
 # StageFlow — V3 Master Plan
 
 **Direction:** Persistent hosts and organized local sessions.\
-**Status:** V3 Phase 1 is complete. V3 Phase 2 is specified in `plans/phase2.md` and is not implemented. Partial and unverified V1 and V2 acceptance ids stay open.\
-**Plan version:** `3.0.0-draft.3`\
+**Status:** V3 Phases 1 and 2 are complete. V3 Phase 3 is specified in `plans/phase3.md` and is not implemented. Partial and unverified V1 and V2 acceptance ids stay open.\
+**Plan version:** `3.0.0-draft.4`\
 **Date:** 2026-11-05\
+**Revision note (3.0.0-draft.4):** V3 Phase 2, optional Google sign-in, is complete. V3 Phase 3, replay visibility and deletion, has a contract and guide. No visibility or deletion code is included in that planning change.\
 **Revision note (3.0.0-draft.3):** V3 Phase 2, optional Google sign-in, has a contract and guide. Phase 1 identity remains the shipped account behavior. No Google code is included in that planning change.\
 **Revision note (3.0.0-draft.2):** V3 Phase 1, host identity, has a contract and guide. The V2 phase files now live in `plans/V2/`. No identity code is included in that planning change.\
 **Revision note (3.0.0-draft.1):** Records the approved V3 scope. Identity, scheduling, waiting-room admission, replay privacy, replay deletion, and moderated Q&A are specified here. No application code, phase file, or guide is authorized by this document alone.\
@@ -29,7 +30,7 @@ For V3 work, use this chain:
 
 - This document overrides V1 and V2 only for the explicit changes in Section 5. Every other engineering and media invariant continues to apply.
 - `idea.md` is the original sketch. Its R2 upload, multi-bitrate ladder, BullMQ VOD worker, and email-password-only world stay out. V3 does not revive them.
-- V1 history is under `plans/V1/`. V2 history is under `plans/V2/`. Phase 1 is complete. The active V3 phase is `plans/phase2.md` and `plans/phase2/guide.md`. Write a later phase only when that phase is requested.
+- V1 history is under `plans/V1/`. V2 history is under `plans/V2/`. Phases 1 and 2 are complete. The active V3 phase is `plans/phase3.md` and `plans/phase3/guide.md`. Write a later phase only when that phase is requested.
 - Write one phase contract and one guide, after inspecting the repository. Do not pre-generate the other guides.
 - This file is not permission to implement. Implementation starts when the user requests a V3 phase.
 - Keep slices small and verified. Commit each slice before the next one, using V1's local git discipline. Planning does not require a commit. Do not push or change git config.
@@ -374,6 +375,6 @@ Outstanding V1 and V2 physical observations stay unverified until they are actua
 
 ## 15. Next execution request
 
-V3 Phase 2 is specified and not implemented. V3 Phase 1 is complete.
+V3 Phase 3 is specified and not implemented. V3 Phases 1 and 2 are complete.
 
-> Read `MASTER_PLAN_V3.md`, `plans/phase2.md`, and `plans/phase2/guide.md`. Implement V3P2-C01 through V3P2-C05 in order when implementation is requested. Keep email/password accounts, the guest session, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Do not write `plans/phase3.md` in that work. Leave the open V2 acceptance ids open. Google stays optional: the unset configuration must pass.
+> Read `MASTER_PLAN_V3.md`, `plans/phase3.md`, and `plans/phase3/guide.md`. Implement V3P3-C01 through V3P3-C05 in order when implementation is requested. Keep email/password accounts, optional Google, the guest session, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Do not write `plans/phase4.md` in that work. Leave the open V2 acceptance ids open. Existing replays stay link-visible until a registered owner changes one.
