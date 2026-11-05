@@ -1,7 +1,7 @@
 # V2 Phase 4 — Room chat
 
 **Status:** delivered; acceptance partial. V2P4-C01 through V2P4-C05 are committed. CHAT-01 through CHAT-03 are verified within the recorded scope. CHAT-04 remains partial: the server time is on the page, and playback is still open.\
-**Last updated:** 2026-11-04.\
+**Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.5`, Sections 1, 5, 8, 9, 10, 11, and 12 (CHAT-01 through CHAT-04). Unchanged mesh, lock, device, reconnect, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9` and in the V2-P2 and V2-P3 contracts.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns V2P4-C01 through V2P4-C05. Those ids are not the V1 commits in [V1/phase4/guide.md](../V1/phase4/guide.md). This file owns the rules those commits must satisfy.\
 **Requirement IDs:** CHAT-01, CHAT-02, CHAT-03, CHAT-04.
@@ -88,6 +88,8 @@ The room snapshot does not contain messages or the pause flag. History is `chat:
 
 Live delivery is `chat:message` to the socket.io room after the script commits. The sender's ack returns the same message. The client applies a sequence at most once. A live sequence below or equal to the applied history is ignored. A live sequence more than one past the applied history fetches that gap once. If the gap was trimmed, the panel shows the retention sentence.
 
+During backfill, the client reconciles the retained boundary from every page and checks coverage using both history and buffered live/ack messages. A missing range before the newest observed `oldestSequence` shows the retention sentence. An incomplete range still inside retention shows a retryable history error and keeps the applied sequence and buffered messages. Only a covered range, including explicitly reported trimmed holes, advances the applied sequence. Later pages' newer `latestSequence` values do not advance it past the first page's target. A range fully covered by buffered messages needs no retention warning.
+
 Join fetches history after the join ack. Resume drops every in-flight send to failed, then fetches history. It does not send those lines again. An explicit Retry uses the original request id.
 
 ### 5.3 Pause, rate, and capacity
@@ -136,6 +138,8 @@ A missing browser or Redis leaves only that method unverified. Tests pass `now` 
 **V2P5-C03 chat observation (2026-11-04):** A real API webinar line showed the server `sentAt` in a `time` element, `dateTime` `2026-11-04T07:23:45.898Z`. Pause disabled the composer. Resume kept the accepted lines and the unsent draft `Uncertain draft`. Promotion captured only after **Enable camera and microphone**. Playback was not run. P3-A03, P3-A05, and P3-A06 stay open.
 
 **Implementation gap found during C05 review:** Master Section 9.1 requires a visible server timestamp. `ChatMessage.sentAt` is stored, but `apps/web/src/features/chat/chat-panel.tsx` currently renders only sender name, role, and text. Timestamp display is missing implementation, not a passed or merely unobserved browser check. It remains a follow-up; C05 changes documentation only and does not waive the requirement.
+
+**V2R-C05 maintenance verification (2026-11-05):** Web tests passed (333 across 27 files), including 24 chat session tests. Five new regressions failed against the preceding implementation before the fix. Coverage includes retention advancing during backfill, an empty page at the exact oldest boundary, fully covered retained bounds, concurrent live/ack delivery, initial join delivery, empty/rejected/timed-out pages with a retryable watermark, malformed noncontiguous coverage, suspension with a late reply, and bounded 500-message history/live buffers. Web typecheck, lint, build, and the web artifact check passed. Server history DTOs and Lua metadata semantics are unchanged. This maintenance adds no browser, playback, or physical/native-picker observation; CHAT-04 and the earlier acceptance gaps retain their recorded scope.
 
 ## 7. Verification commands
 

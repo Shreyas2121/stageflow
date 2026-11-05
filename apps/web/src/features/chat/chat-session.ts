@@ -33,6 +33,7 @@ type ChatState = {
 
 const BUSY = 'Chat is busy. Try again shortly.';
 const UNSENT = 'The acknowledgement was not confirmed. Retry when chat is available.';
+const HISTORY_UNAVAILABLE = 'Unable to load chat. Try again.';
 
 /** Owns text and acknowledgements independently of stage/media operations. */
 export class ChatSession {
@@ -181,43 +182,71 @@ export class ChatSession {
         return;
       }
       let messages = latest.messages;
-      let retentionGap = this.state.retentionGap || latest.retentionGap;
-      if (baseline !== null) {
-        while (
-          messages[0] &&
-          messages[0].sequence > baseline + 1 &&
-          messages[0].sequence > (latest.oldestSequence ?? 0)
-        ) {
-          const beforeSequence = messages[0].sequence;
-          const older = await transport.chatHistory({
-            beforeSequence,
-            limit: CHAT_HISTORY_MAX_LIMIT,
-          });
-          if (epoch !== this.epoch) return;
-          if (!older.ok) {
-            this.update({ error: older.message });
+      let oldestSequence = latest.oldestSequence;
+      let retentionGap = latest.retentionGap;
+      // A first join starts at the recent page, including any earlier live delivery.
+      const firstSequence = Math.min(messages[0]?.sequence ?? Infinity, ...this.buffered.keys());
+      const fromSequence = baseline ?? (Number.isFinite(firstSequence) ? firstSequence - 1 : 0);
+      // Later pages can advertise newer messages; only validate this fixed range here.
+      const target = Math.max(fromSequence, latest.latestSequence ?? 0);
+      while (
+        messages[0] &&
+        messages[0].sequence > fromSequence + 1 &&
+        messages[0].sequence > (oldestSequence ?? 0)
+      ) {
+        const beforeSequence = messages[0].sequence;
+        const older = await transport.chatHistory({
+          beforeSequence,
+          limit: CHAT_HISTORY_MAX_LIMIT,
+        });
+        if (epoch !== this.epoch) return;
+        if (!older.ok) {
+          this.update({ error: older.message });
+          return;
+        }
+        if (older.oldestSequence !== null)
+          oldestSequence = Math.max(oldestSequence ?? 0, older.oldestSequence);
+        retentionGap ||= older.retentionGap;
+        if (!older.messages.length) break;
+        if (older.messages[0]!.sequence >= beforeSequence) {
+          this.update({ error: HISTORY_UNAVAILABLE });
+          return;
+        }
+        messages = [...older.messages, ...messages].slice(-CHAT_MESSAGE_RETENTION);
+        if (messages.length >= CHAT_MESSAGE_RETENTION) break;
+      }
+      const covered = [...messages, ...this.buffered.values()]
+        .filter((message) => message.sequence <= target)
+        .sort((a, b) => a.sequence - b.sequence);
+      let through = fromSequence;
+      for (const message of covered) {
+        if (message.sequence <= through) continue;
+        if (message.sequence > through + 1) {
+          // Skip only missing sequences known to have fallen out of retention.
+          if (oldestSequence === null || message.sequence > oldestSequence) {
+            this.update({ error: HISTORY_UNAVAILABLE });
             return;
           }
-          retentionGap ||= older.retentionGap;
-          if (!older.messages.length) break;
-          messages = [...older.messages, ...messages];
-          if (messages.length >= CHAT_MESSAGE_RETENTION) break;
-        }
-        if (latest.oldestSequence !== null && latest.oldestSequence > baseline + 1)
           retentionGap = true;
+        }
+        through = message.sequence;
       }
-      this.merge(messages);
-      this.appliedThrough = Math.max(baseline ?? 0, latest.latestSequence ?? 0);
+      if (through < target) {
+        this.update({ error: HISTORY_UNAVAILABLE });
+        return;
+      }
+      this.merge(covered);
+      this.appliedThrough = through;
       for (const sequence of this.buffered.keys()) {
         if (sequence <= this.appliedThrough) this.buffered.delete(sequence);
       }
       this.update({
-        retentionGap,
+        retentionGap: this.state.retentionGap || retentionGap,
         ...(pauseVersion === this.pauseVersion ? { paused: latest.paused } : {}),
       });
       applied = true;
     } catch {
-      if (epoch === this.epoch) this.update({ error: 'Unable to load chat. Try again.' });
+      if (epoch === this.epoch) this.update({ error: HISTORY_UNAVAILABLE });
     } finally {
       if (epoch === this.epoch) {
         this.update({ loading: false });

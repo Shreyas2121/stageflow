@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatHistoryAck, ChatMessage, ChatSendAck } from '@stageflow/shared';
+import {
+  CHAT_MESSAGE_RETENTION,
+  type ChatHistoryAck,
+  type ChatMessage,
+  type ChatSendAck,
+} from '@stageflow/shared';
 import { ChatSession, type ChatTransport } from './chat-session';
 
 function message(sequence: number, text = `Line ${sequence}`): ChatMessage {
@@ -109,11 +114,37 @@ describe('ChatSession', () => {
     await settle();
     transport.chatHistory
       .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
-      .mockResolvedValueOnce(history([message(1), message(2), message(3)], { latestSequence: 5 }));
+      .mockResolvedValueOnce(history([message(2), message(3)], { latestSequence: 5 }));
     session.receive(message(5));
     await settle();
     expect(transport.chatHistory).toHaveBeenLastCalledWith({ beforeSequence: 4, limit: 100 });
     expect(session.getSnapshot().messages.map((item) => item.sequence)).toEqual([1, 2, 3, 4, 5]);
+    expect(session.getSnapshot().retentionGap).toBe(false);
+    session.receive(message(6));
+    expect(session.getSnapshot().messages.at(-1)).toEqual(message(6));
+    expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it('fills from an early live delivery when the initial recent page starts later', async () => {
+    const { session, transport } = harness();
+    const latest = deferred<ChatHistoryAck>();
+    transport.chatHistory
+      .mockReturnValueOnce(latest.promise)
+      .mockResolvedValueOnce(
+        history([message(2), message(3)], { oldestSequence: 2, latestSequence: 5 }),
+      );
+    session.connect(transport);
+    session.receive(message(2));
+    latest.resolve(history([message(4), message(5)], { oldestSequence: 2 }));
+    await settle();
+    expect(session.getSnapshot().messages).toEqual([
+      message(2),
+      message(3),
+      message(4),
+      message(5),
+    ]);
+    expect(session.getSnapshot().retentionGap).toBe(false);
+    expect(transport.chatHistory).toHaveBeenLastCalledWith({ beforeSequence: 4, limit: 100 });
   });
 
   it('exposes a trimmed hole and keeps lines already on the page', async () => {
@@ -126,6 +157,213 @@ describe('ChatSession', () => {
     await settle();
     expect(session.getSnapshot().retentionGap).toBe(true);
     expect(session.getSnapshot().messages.map((item) => item.sequence)).toEqual([1, 8, 9]);
+  });
+
+  it('detects retention advancing during backfill and advances past the exposed gap', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    transport.chatHistory
+      .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
+      .mockResolvedValueOnce(history([message(3)], { oldestSequence: 3, latestSequence: 7 }));
+    session.receive(message(5));
+    await settle();
+    expect(session.getSnapshot().retentionGap).toBe(true);
+    expect(session.getSnapshot().messages).toEqual([
+      message(1),
+      message(3),
+      message(4),
+      message(5),
+    ]);
+    expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+
+    // The completed range ends at the first page's target, not a later page's metadata.
+    session.receive(message(2));
+    session.receive(message(6));
+    session.receive(message(7));
+    expect(session.getSnapshot().messages.map((item) => item.sequence)).toEqual([1, 3, 4, 5, 6, 7]);
+    expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it('detects an empty page at the exact oldest boundary without a server gap flag', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    transport.chatHistory
+      .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
+      .mockResolvedValueOnce(history([], { oldestSequence: 4, latestSequence: 6 }));
+    session.receive(message(5));
+    await settle();
+    expect(transport.chatHistory).toHaveBeenLastCalledWith({ beforeSequence: 4, limit: 100 });
+    expect(session.getSnapshot()).toMatchObject({ retentionGap: true, error: '', loading: false });
+    session.receive(message(6));
+    expect(session.getSnapshot().messages.map((item) => item.sequence)).toEqual([1, 4, 5, 6]);
+    expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it('uses concurrent live messages and acknowledgements to cover a trimmed history range', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    const older = deferred<ChatHistoryAck>();
+    const sent = deferred<ChatSendAck>();
+    transport.chatHistory
+      .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
+      .mockReturnValueOnce(older.promise);
+    transport.chatSend.mockReturnValueOnce(sent.promise);
+    session.receive(message(5));
+    await settle();
+    session.setDraft('Line 2');
+    session.sendDraft();
+    session.receive(message(3));
+    session.receive(message(6));
+    sent.resolve({ ok: true, message: message(2) });
+    await settle();
+    older.resolve(history([message(3)], { oldestSequence: 3, latestSequence: 6 }));
+    await settle();
+    expect(session.getSnapshot()).toMatchObject({ retentionGap: false, error: '', attempts: [] });
+    expect(session.getSnapshot().messages).toEqual(
+      Array.from({ length: 6 }, (_, i) => message(i + 1)),
+    );
+    expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['empty', 'rejected', 'timeout'] as const)(
+    'keeps an interrupted range retryable when the backfill result is %s',
+    async (result) => {
+      const { session, transport } = harness();
+      transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+      session.connect(transport);
+      await settle();
+      transport.chatHistory.mockResolvedValueOnce(
+        history([message(4), message(5)], { oldestSequence: 1 }),
+      );
+      if (result === 'empty')
+        transport.chatHistory.mockResolvedValueOnce(
+          history([], { oldestSequence: 1, latestSequence: 5 }),
+        );
+      else if (result === 'rejected')
+        transport.chatHistory.mockResolvedValueOnce({
+          ok: false,
+          error: 'chat_busy',
+          message: 'Try again.',
+        });
+      else transport.chatHistory.mockRejectedValueOnce(new Error('timeout'));
+      session.receive(message(5));
+      await settle();
+      expect(session.getSnapshot()).toMatchObject({
+        retentionGap: false,
+        loading: false,
+        messages: [message(1)],
+      });
+      expect(session.getSnapshot().error).not.toBe('');
+      expect(transport.chatHistory).toHaveBeenCalledTimes(3);
+
+      const retry = deferred<ChatHistoryAck>();
+      transport.chatHistory.mockReturnValueOnce(retry.promise);
+      session.receive(message(2));
+      expect(session.getSnapshot().messages).toEqual([message(1), message(2)]);
+      expect(transport.chatHistory).toHaveBeenCalledTimes(4);
+      retry.resolve(history([message(3), message(4)], { oldestSequence: 1, latestSequence: 4 }));
+      await settle();
+      expect(session.getSnapshot()).toMatchObject({
+        retentionGap: false,
+        error: '',
+        loading: false,
+      });
+      expect(session.getSnapshot().messages).toEqual(
+        Array.from({ length: 5 }, (_, i) => message(i + 1)),
+      );
+    },
+  );
+
+  it('rejects a noncontiguous history range without advancing or losing buffered messages', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    transport.chatHistory.mockResolvedValueOnce(
+      history([message(2), message(4)], { oldestSequence: 1 }),
+    );
+    session.receive(message(5));
+    await settle();
+    expect(session.getSnapshot()).toMatchObject({ retentionGap: false, messages: [message(1)] });
+    expect(session.getSnapshot().error).not.toBe('');
+    transport.chatHistory.mockResolvedValueOnce(
+      history([message(2), message(3), message(4)], { oldestSequence: 1 }),
+    );
+    await session.refresh();
+    expect(session.getSnapshot().messages).toEqual(
+      Array.from({ length: 5 }, (_, i) => message(i + 1)),
+    );
+    expect(session.getSnapshot().retentionGap).toBe(false);
+  });
+
+  it('ignores an obsolete backfill reply after suspension and fills the range on reconnect', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    const older = deferred<ChatHistoryAck>();
+    transport.chatHistory
+      .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
+      .mockReturnValueOnce(older.promise);
+    session.receive(message(5));
+    await settle();
+    session.suspend();
+    older.resolve(history([], { oldestSequence: 4, latestSequence: 5 }));
+    await settle();
+    expect(session.getSnapshot()).toMatchObject({
+      phase: 'recovering',
+      retentionGap: false,
+      messages: [message(1)],
+    });
+    transport.chatHistory
+      .mockResolvedValueOnce(history([message(4), message(5)], { oldestSequence: 1 }))
+      .mockResolvedValueOnce(history([message(1), message(2), message(3)], { latestSequence: 5 }));
+    session.connect(transport);
+    await settle();
+    expect(session.getSnapshot().messages).toEqual(
+      Array.from({ length: 5 }, (_, i) => message(i + 1)),
+    );
+    expect(session.getSnapshot().retentionGap).toBe(false);
+  });
+
+  it('keeps history and live buffers bounded and preserves an overflow warning during backfill', async () => {
+    const { session, transport } = harness();
+    transport.chatHistory.mockResolvedValueOnce(history([message(1)]));
+    session.connect(transport);
+    await settle();
+    const latest = deferred<ChatHistoryAck>();
+    const retained = Array.from({ length: CHAT_MESSAGE_RETENTION }, (_, i) => message(i + 502));
+    transport.chatHistory
+      .mockReturnValueOnce(latest.promise)
+      .mockImplementation(async ({ beforeSequence, limit = 50 }) =>
+        history(
+          retained.filter((item) => item.sequence < (beforeSequence ?? Infinity)).slice(-limit),
+          {
+            oldestSequence: 502,
+            latestSequence: 1001,
+          },
+        ),
+      );
+    session.receive(message(1001));
+    for (let sequence = 1002; sequence <= 1501; sequence++) session.receive(message(sequence));
+    expect(session.getSnapshot().retentionGap).toBe(true);
+    latest.resolve(history(retained.slice(-50), { oldestSequence: 502, latestSequence: 1001 }));
+    await settle();
+    expect(transport.chatHistory).toHaveBeenCalledTimes(7);
+    expect(session.getSnapshot()).toMatchObject({ retentionGap: true, loading: false, error: '' });
+    expect(session.getSnapshot().messages).toEqual(
+      Array.from({ length: CHAT_MESSAGE_RETENTION }, (_, i) => message(i + 1002)),
+    );
+    session.receive(message(1502));
+    expect(session.getSnapshot().messages).toHaveLength(CHAT_MESSAGE_RETENTION);
+    expect(session.getSnapshot().messages.at(-1)).toEqual(message(1502));
+    expect(transport.chatHistory).toHaveBeenCalledTimes(7);
   });
 
   it('honors an explicit retention gap in history', async () => {
