@@ -1,30 +1,13 @@
-import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useId, useSyncExternalStore } from 'react';
 import { Button } from '../../components/ui/button';
 import type { ChatSession } from './chat-session';
-import { formatChatTime } from './format-chat-time';
+import { ChatTranscript } from './chat-transcript';
 
 export function ChatPanel({ session, host }: { session: ChatSession; host: boolean }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const sendLimitReached = session.sendLimitReached;
   const textareaId = useId();
   const sendLimitId = useId();
-  const logId = useId();
-  const log = useRef<HTMLDivElement>(null);
-  const atLatest = useRef(true);
-  const lastSequence = useRef(0);
-  const [unread, setUnread] = useState(0);
-
-  useLayoutEffect(() => {
-    const element = log.current;
-    const latest = state.messages.at(-1)?.sequence ?? 0;
-    const added = state.messages.filter(
-      (message) => message.sequence > lastSequence.current,
-    ).length;
-    lastSequence.current = latest;
-    if (!element || !added) return;
-    if (atLatest.current) element.scrollTop = element.scrollHeight;
-    else setUnread((count) => count + added);
-  }, [state.messages]);
 
   if (!session.visible) return null;
   return (
@@ -70,68 +53,7 @@ export function ChatPanel({ session, host }: { session: ChatSession; host: boole
           Loading recent messages…
         </p>
       )}
-      <div
-        id={logId}
-        ref={log}
-        role="region"
-        aria-label="Chat messages"
-        tabIndex={0}
-        className="mt-4 max-h-96 min-h-32 overflow-y-auto overscroll-contain"
-        onScroll={() => {
-          const element = log.current;
-          if (!element) return;
-          atLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
-          if (atLatest.current) setUnread(0);
-        }}
-      >
-        <ol className="m-0 list-none space-y-4 p-0">
-          {state.messages.map((message) => {
-            const time = formatChatTime(message.sentAt, Date.now());
-            return (
-              <li key={message.sequence}>
-                <p className="m-0 text-xs text-muted wrap-anywhere">
-                  <span className="font-semibold text-ink">{message.displayName}</span>{' '}
-                  <span>
-                    {message.role === 'HOST'
-                      ? 'Host'
-                      : message.role === 'SPEAKER'
-                        ? 'Speaker'
-                        : 'Attendee'}
-                  </span>
-                  {time && (
-                    <>
-                      {' '}
-                      <time dateTime={time.dateTime}>{time.text}</time>
-                    </>
-                  )}
-                </p>
-                <p className="mt-1 mb-0 text-sm whitespace-pre-wrap wrap-anywhere">
-                  {message.text}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
-        {!state.loading && state.messages.length === 0 && (
-          <p className="text-sm text-muted">No messages yet.</p>
-        )}
-      </div>
-      <div role="status" aria-live="polite">
-        {unread > 0 && (
-          <Button
-            type="button"
-            className="mt-3"
-            aria-controls={logId}
-            onClick={() => {
-              if (log.current) log.current.scrollTop = log.current.scrollHeight;
-              atLatest.current = true;
-              setUnread(0);
-            }}
-          >
-            {unread} new {unread === 1 ? 'message' : 'messages'}
-          </Button>
-        )}
-      </div>
+      <ChatTranscript messages={state.messages} loading={state.loading} />
       {state.attempts.map((attempt) => (
         <div key={attempt.requestId} className="mt-3 rounded-control border border-line p-3">
           <p className="m-0 text-sm whitespace-pre-wrap wrap-anywhere">{attempt.text}</p>
