@@ -258,4 +258,4 @@ Read the edited README against phase Sections 5 and 6.
 
 `pnpm exec prettier --check README.md MASTER_PLAN_V3.md plans/phase3.md plans/phase3/guide.md plans/README.md` passed. All 70 local Markdown link targets across those five files exist. The affected plan selects formatting only. README was compared with phase Sections 5 and 6; LIB-01 through LIB-04 are verified using the recorded API, filesystem, migration, and C04 browser evidence. C05 ran no application suites, browser, migration, or smoke; existing V1/V2 and physical acceptance gaps stay open. C01 through C04 hashes are recorded. C05's actual hash is recorded above in the prescribed follow-up commit.
 
-**Handoff:** V3 phase 4 is scheduled rooms and waiting-room admission. Do not write `plans/phase4.md` until that phase is requested.
+**Handoff:** V3 phase 4 is specified in [../phase4.md](../phase4.md). It adds scheduled rooms and waiting-room admission. That file does not authorize implementation.

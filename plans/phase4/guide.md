@@ -1,0 +1,291 @@
+# Guide — V3 Phase 4, commit by commit
+
+**Status:** planned. No slice is implemented.\
+**Last updated:** 2026-11-05.\
+**Phase contract:** [../phase4.md](../phase4.md).\
+**Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
+**Deliverable:** A registered host can schedule a room, hold early joiners off stage, and start or cancel it, in six commits. This is the only V3 Phase 4 guide. Its commit ids are not the V1 Phase 4 commits in [../V1/phase4/guide.md](../V1/phase4/guide.md) or the V2 Phase 4 commits in [../V2/phase4/guide.md](../V2/phase4/guide.md).
+
+## 1. Execution rules
+
+Read the phase contract before editing code. Planning-time `HEAD` was `ed93ee7a2463`. Recheck the worktree.
+
+When implementation is authorized:
+
+1. Reinspect the workspace. If a slice is already present, verify it and continue. Do not duplicate it.
+2. Run V3P4-C01 through V3P4-C06 in order. Stop after the requested slice.
+3. Each slice leaves `pnpm typecheck`, `pnpm lint`, and the tests introduced so far passing.
+4. After the focused commands, inspect `pnpm check:affected --plan --files <changed-paths>` and run the checks it selects.
+5. After verification, commit that slice under V1 master Section 1.4 before starting the next one. Do not push or change git config. Leave `Actual commit` blank inside the slice commit, then record the real hash. The last slice's hash is `docs(v3-phase4): record the final slice hash`.
+6. SCH-03 uses real Redis. Do not replace that race with a mock of the stage set.
+7. A missing browser leaves the browser halves of SCH-01, SCH-02, SCH-04, and SCH-05 unverified and named. A missing disposable Postgres leaves the migration run unverified. Neither gap authorizes skipping the unit checks or deleting developer data.
+
+Keep guest create, register, login, promotion, Google sign-in, replay visibility, deletion, demo peers after Start, the mesh, reconnect for seated members, chat, and the broadcast pipeline. Do not add Q&A.
+
+### 1.1 Commit index
+
+| Order | ID       | Proposed message                                            | Acceptance             |
+| ----- | -------- | ----------------------------------------------------------- | ---------------------- |
+| 1     | V3P4-C01 | `feat(api-rooms): record scheduled fields on a room`        | SCH-01 storage         |
+| 2     | V3P4-C02 | `feat(api-rooms): let a host schedule a room`               | SCH-01 create          |
+| 3     | V3P4-C03 | `feat(api-live): hold early joiners off stage`              | SCH-02                 |
+| 4     | V3P4-C04 | `feat(api-live): start, admit, and cancel a scheduled room` | SCH-03, SCH-04, SCH-05 |
+| 5     | V3P4-C05 | `feat(web-room): schedule a room and wait without media`    | SCH-01 through SCH-05  |
+| 6     | V3P4-C06 | `docs(readme): describe scheduled rooms and admission`      | README limits          |
+
+### 1.2 Files to inspect before editing
+
+- `packages/shared/src/contracts.ts`, `stage.ts`, `stage.test.ts`, and `signaling.ts`
+- `apps/web/src/features/rooms/api.ts`
+- `apps/api/src/rooms/room.entity.ts`, `rooms.service.ts`, and `rooms.service.test.ts`
+- `apps/api/src/database/data-source.ts`
+- `apps/api/src/migrations/1794096000000-AddBroadcastVisibility.ts`
+- `scripts/smoke-broadcast.mjs`
+- `apps/api/src/live/live.keys.ts`, `live.repository.ts`, `live.service.ts`, and `scripts/common.lua`
+- `apps/api/src/live/scripts/join.lua`, `leave.lua`, `promote.lua`, `demote.lua`, `expire.lua`, and `tryBeginBroadcast.lua`
+- `apps/api/src/live/signaling.messages.ts` and `signaling.gateway.ts`
+- `apps/api/src/chat/chat.repository.test.ts`
+- `apps/web/src/pages/HomePage.tsx` and `RoomPage.tsx`
+- `apps/web/src/features/live/components/live-room.tsx` and `green-room.tsx`
+- `apps/web/src/app/entry-graph.test.ts`
+- `README.md`
+
+## 2. V3P4-C01 — Record the schedule fields
+
+**Status:** planned\
+**Proposed commit message:** `feat(api-rooms): record scheduled fields on a room`\
+**Actual commit:**
+
+**Why:** Create and the lobby need a stored status, start instant, and admission flag before either one changes join. Covers the storage half of SCH-01.
+
+**Depends on:** The existing room catalog.
+
+**Files:**
+
+- `packages/shared/src/contracts.ts`
+- `packages/shared/src/contracts.test.ts`
+- `apps/web/src/features/rooms/api.ts`
+- `apps/api/src/migrations/1794182400000-AddRoomSchedule.ts`
+- `apps/api/src/database/data-source.ts`
+- `apps/api/src/rooms/room.entity.ts`
+- `apps/api/src/rooms/rooms.service.ts`
+- `scripts/smoke-broadcast.mjs`
+- Room fixtures that construct `RoomResponse`
+
+**Implementation:**
+
+1. Add `SCHEDULED` to `RoomStatus`. Add `scheduledStartAt: string | null` and `requireAdmission: boolean` to `RoomResponse`. Parse a start instant with the same `YYYY-MM-DDTHH:mm:ss.sssZ` rule as a broadcast timestamp, including a past instant.
+2. Add the column and status check from phase Section 5.1. Register the migration after `AddBroadcastVisibility1794096000000` and append its name to the smoke list. Existing rows stay `LIVE` or `ENDED`.
+3. Map both columns on `Room`. `toResponse` includes them. Create still inserts `LIVE`, a null start, and `requireAdmission: false`. Do not accept the new body fields yet.
+4. Update `parseRoom` and every in-repo `RoomResponse` fixture. Search for `hostDisplayName`.
+5. Tests prove a migrated row and a newly saved immediate room. Create with only `title` and `mode` is unchanged.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/shared test
+pnpm --filter @stageflow/api test
+pnpm --filter @stageflow/web test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** The catalog carries the new fields, and no client can create a `SCHEDULED` room yet.
+
+## 3. V3P4-C02 — Host scheduling
+
+**Status:** planned\
+**Proposed commit message:** `feat(api-rooms): let a host schedule a room`\
+**Actual commit:**
+
+**Why:** The host needs to create the room and share its slug before anyone can wait in it. Covers the create half of SCH-01.
+
+**Depends on:** V3P4-C01.
+
+**Files:**
+
+- `packages/shared/src/contracts.ts`
+- `apps/api/src/rooms/rooms.service.ts`
+- `apps/api/src/rooms/rooms.service.test.ts`
+- The nearest rooms HTTP test
+
+**Implementation:**
+
+1. Add `schedule_not_allowed`, `invalid_schedule`, and `invalid_admission` to `ApiErrorBody['error']`. Add a create-body parser for optional `status`, `scheduledStartAt`, and `requireAdmission`.
+2. Apply phase Section 5.1. A guest body with any of those three fields returns 403 and inserts nothing. A registered body that omits them still inserts `LIVE`.
+3. Persist `SCHEDULED` only with a valid instant. Persist `requireAdmission` only for a meeting. Do not start the room because the instant is past, and do not add a timer.
+4. Tests cover a past instant, a guest body, a webinar with admission, a `LIVE` body that includes a time, and an immediate host create. Include a Google-only host with `isGuest: false` and a null email. Do not call Google.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/shared test
+pnpm --filter @stageflow/api test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** A registered host can create `SCHEDULED`, a guest still creates `LIVE`, and the scheduled row does not become `LIVE` by itself.
+
+## 4. V3P4-C03 — Off-stage waiting
+
+**Status:** planned\
+**Proposed commit message:** `feat(api-live): hold early joiners off stage`\
+**Actual commit:**
+
+**Why:** Early joiners need a membership the host can see without taking a stage seat or a resume credential. Covers SCH-02.
+
+**Depends on:** V3P4-C02.
+
+**Files:**
+
+- `packages/shared/src/stage.ts`
+- `packages/shared/src/stage.test.ts`
+- `packages/shared/src/signaling.ts`
+- `apps/api/src/live/live.keys.ts`
+- `apps/api/src/live/scripts/common.lua`
+- `apps/api/src/live/scripts/join.lua`
+- `apps/api/src/live/scripts/leave.lua`
+- `apps/api/src/live/live.service.ts`
+- `apps/api/src/live/live.integration.test.ts`
+- `apps/api/src/live/signaling.messages.ts`
+- `apps/api/src/chat/chat.repository.test.ts`
+
+**Implementation:**
+
+1. Add role `WAITING` and `waitingParticipantIds` to the pure stage state and the room snapshot. Add `waiting_full` to `StageError`, `SignalingError`, and `signaling.messages.ts`. The reducer and `join.lua` follow phase Section 5.2.
+2. Add the waiting key as the tenth `liveKeys` entry. In `common.lua`, read and write `KEYS[10]` the same way the other sets are saved. Keep `local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)`. Do not move `KEYS[6]` through `KEYS[9]`. Include the waiting key in `finish` expiry, `clearRoom`, and `deleteRoom`.
+3. A `SCHEDULED` non-host join becomes `WAITING` and is not on stage. The host join is `HOST` and is in neither set. Do not store a resume digest for either. `LIVE` admission behavior stays until C04. A `LIVE` meeting still returns `host_not_present` when no host is present.
+4. On a `SCHEDULED` room, host leave and waiter leave remove that membership and do not end the room. `disconnect` for those memberships leaves immediately and does not schedule reconnect grace. A `LIVE` host leave still ends the room.
+5. Cap the waiting set at 100. Tests use the reducer for order and the real Redis integration for the 101st joiner, a drop, and a rejoin at the back. Assert `liveKeys` length 10 and that index 5 is still the broadcast key. Assert `tryBeginBroadcast.lua` still uses `KEYS[6]`.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/shared test
+pnpm --filter @stageflow/api test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** A scheduled joiner is visible in the waiting list, absent from the stage, and gone without grace when the socket drops.
+
+## 5. V3P4-C04 — Start, admit, and cancel
+
+**Status:** planned\
+**Proposed commit message:** `feat(api-live): start, admit, and cancel a scheduled room`\
+**Actual commit:**
+
+**Why:** The host needs one atomic way to open the stage, admit a chosen waiter, or end the scheduled room. Covers SCH-03, SCH-04, and the server half of SCH-05.
+
+**Depends on:** V3P4-C03. Pass `requireAdmission` on the room object the Lua scripts already receive. Do not import a new cycle between LiveModule and RoomsModule.
+
+**Files:**
+
+- `packages/shared/src/stage.ts`
+- `packages/shared/src/signaling.ts`
+- `apps/api/src/live/scripts/start.lua`
+- `apps/api/src/live/scripts/admit.lua`
+- `apps/api/src/live/scripts/removeWaiter.lua`
+- `apps/api/src/live/scripts/cancel.lua`
+- `apps/api/src/live/scripts/join.lua`, `leave.lua`, `demote.lua`, and `expire.lua`
+- `apps/api/src/live/live.repository.ts`
+- `apps/api/src/live/live.service.ts`
+- `apps/api/src/live/signaling.gateway.ts`
+- `apps/api/src/live/signaling.messages.ts`
+- `apps/api/src/live/live.integration.test.ts`
+
+**Implementation:**
+
+1. Add socket commands for Start, Admit, Remove, and Cancel. Add `already_started`, `not_scheduled`, `not_waiting`, `admission_off`, and `demo_not_ready` to the stage error, the signaling error, and the message table. Use the sentences in phase Section 5.3.
+2. The shared reducer owns the seat decision. The Lua scripts mirror it. Meeting admission off fills the oldest waiters up to four, counting every stage id. Meeting admission on seats only the host at Start, and Admit moves one chosen waiter. A full stage leaves that waiter in the set. Webinar Start seats the host and changes every waiter to `ATTENDEE` without a stage seat. Promote still returns `stage_full` at four.
+3. Handle the commands inside the existing per-room queue. Start runs the script while Postgres is `SCHEDULED`, publishes `LIVE`, then updates Postgres only where the status is still `SCHEDULED`. A repeated Start does not add a second host seat. Cancel updates Postgres to `ENDED` first, then clears memberships and the waiting key. It does not insert a broadcast.
+4. The join, leave, demote, and expire scripts admit the oldest meeting waiter only when admission is off and a seat was actually freed. Suspend keeps the reservation, so it admits nobody. Join seats remaining waiters before a new meeting joiner can take a free seat.
+5. Reject a synthetic join unless the room is `LIVE` and the host is on stage. Tests on real Redis cover five early meeting joiners, a suspended seat, two concurrent Admit commands, webinar release, cancel with no broadcast row, and a past `scheduledStartAt` that remains `SCHEDULED`.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/shared test
+pnpm --filter @stageflow/api test
+pnpm typecheck
+pnpm lint
+```
+
+**Done when:** Start, Admit, and Cancel match phase Section 5.3, and a concurrent fill never leaves five ids in the stage set.
+
+## 6. V3P4-C05 — Schedule form and waiting panel
+
+**Status:** planned\
+**Proposed commit message:** `feat(web-room): schedule a room and wait without media`\
+**Actual commit:**
+
+**Why:** The host and the early joiner need the controls, and the joiner must not enter the green room. Covers the browser halves of SCH-01 through SCH-05.
+
+**Depends on:** V3P4-C04.
+
+**Files:**
+
+- `apps/web/src/pages/HomePage.tsx`
+- `apps/web/src/features/rooms/room-list.tsx`
+- `apps/web/src/pages/RoomPage.tsx`
+- `apps/web/src/features/live/components/live-room.tsx`
+- `apps/web/src/features/live/components/waiting-room.tsx`
+- `apps/web/src/features/live/hooks/use-live-room.ts`
+- `apps/web/src/app/entry-graph.test.ts`
+
+**Implementation:**
+
+1. For a registered host, add **Schedule meeting**, **Schedule webinar**, a UTC start field, and **Require host admission** on a meeting. Guest home keeps **Create meeting** and **Create webinar** only. Submit the C02 body. Show `SCHEDULED` and the UTC instant on the library row. Keep the invitation control.
+2. Add a waiting panel. A `SCHEDULED` room, and a participant whose role is `WAITING`, render that panel instead of `GreenRoom`. Its join sends the socket join and does not construct local media or a peer connection. Show the waiting ids in snapshot order and the names beside them.
+3. The host sees **Start**, **Remove**, and **Cancel room**. The first cancel click reveals **Cancel this room** and **Keep waiting**. **Admit** is shown only when the room is a `LIVE` meeting and `requireAdmission` is true. When the snapshot places this participant on stage, the existing green room asks for consent before capture. A webinar attendee keeps the current attendee path.
+4. Render **Spawn demo peer** only when the host is on stage. Keep `hls`, `LiveRoom`, and chat out of the home page. The entry-graph test still forbids `hls` on home. A source test for the waiting panel forbids `getUserMedia` and `RTCPeerConnection`.
+5. In the browser, as a registered host, schedule a meeting with a past UTC time and confirm it stays scheduled. Join from a second window and confirm the waiting copy, no camera prompt, and no peer connection. Start and confirm the host is first. Cover admission on with Admit, a scheduled webinar attendee, Cancel before start, and a guest immediate create. Record the browser. If no browser is available, leave that half unverified and named. Do not mark a physical-device observation verified.
+
+**Verification:**
+
+```powershell
+pnpm --filter @stageflow/web test
+pnpm typecheck
+pnpm lint
+```
+
+Then check the home form, the waiting panel, and Start in the browser.
+
+**Done when:** A guest still creates a live room, an early joiner waits without media, and the host can start or cancel from the room.
+
+## 7. V3P4-C06 — README
+
+**Status:** planned\
+**Proposed commit message:** `docs(readme): describe scheduled rooms and admission`\
+**Actual commit:**
+
+**Why:** The README has to say that the advertised time does not start the room and that waiting is off stage.
+
+**Depends on:** V3P4-C05.
+
+**Files:**
+
+- `README.md`
+- `plans/phase4.md`
+- `plans/phase4/guide.md`
+- `plans/README.md`
+
+**Implementation:**
+
+1. Say that a registered host can schedule a meeting or webinar, that a past or future time does not start it, and that guest create remains immediate `LIVE`.
+2. Say that early joiners wait without capture or a peer connection, that admission off fills four seats including suspensions, and that admission on seats the next person only through Admit. Say that a scheduled webinar releases waiters as attendees. Say that Cancel ends the room before start and creates no broadcast.
+3. Point this behavior at `plans/phase4.md` and this guide. Leave the phase 1, phase 2, and phase 3 links in place.
+4. Record the C05 browser result. Do not mark open V2 ids passed.
+
+**Verification:**
+
+```powershell
+pnpm exec prettier --check README.md plans/phase4.md plans/phase4/guide.md plans/README.md
+```
+
+Read the edited README against phase Sections 5 and 6.
+
+**Done when:** The README matches the schedule and waiting limits and this guide records C01 through C05. C06's hash is recorded in the follow-up `docs(v3-phase4): record the final slice hash`.
+
+**Handoff:** V3 phase 5 is moderated Q&A and the canvas lower-third. Do not write `plans/phase5.md` until that phase is requested.

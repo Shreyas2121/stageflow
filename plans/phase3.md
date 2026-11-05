@@ -163,7 +163,7 @@ The next phase may rely on these once the slices are committed:
 - A deleted attempt is gone from the catalog. Its directory is gone. The room remains.
 - An abandoned `DELETING` row stays unplayable until the owner retries. Nothing sweeps it.
 
-V3 phase 4 may add scheduled rooms and waiting-room admission. Do not write `plans/phase4.md` until that phase is requested.
+V3 phase 4 is specified in [phase4.md](phase4.md). It adds scheduled rooms and waiting-room admission. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
 
