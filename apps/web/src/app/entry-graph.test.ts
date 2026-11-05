@@ -32,6 +32,12 @@ describe('home entry', () => {
       /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
     );
     expect(source('main.tsx').toLowerCase()).not.toContain('hls');
+    for (const file of ['features/rooms/room-history.tsx', 'features/rooms/room-list.tsx']) {
+      expect(source(file).toLowerCase()).not.toContain('hls');
+      expect(source(file)).not.toMatch(
+        /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+      );
+    }
   });
 
   it('keeps the room and the replay behind dynamic imports', () => {

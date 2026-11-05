@@ -36,7 +36,7 @@ export function RoomList({
       {items.length > 0 && (
         <ul className="m-0 grid list-none gap-3 p-0">
           {items.map((room) => (
-            <RoomRow key={room.id} room={room} session={session} />
+            <RoomRow key={room.id} room={room} session={session} isHost={isHost} />
           ))}
         </ul>
       )}
@@ -49,7 +49,15 @@ export function RoomList({
   );
 }
 
-function RoomRow({ room, session }: { room: RoomResponse; session: GuestSessionResponse }) {
+function RoomRow({
+  room,
+  session,
+  isHost,
+}: {
+  room: RoomResponse;
+  session: GuestSessionResponse;
+  isHost: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [invitation, setInvitation] = useState('');
@@ -115,7 +123,7 @@ function RoomRow({ room, session }: { room: RoomResponse; session: GuestSessionR
       )}
       {open && (
         <div id={panelId}>
-          <RoomHistory session={session} slug={room.slug} title={room.title} />
+          <RoomHistory session={session} slug={room.slug} title={room.title} isHost={isHost} />
         </div>
       )}
     </li>

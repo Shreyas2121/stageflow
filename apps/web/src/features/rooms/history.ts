@@ -22,3 +22,21 @@ export function mergeById<T extends { id: string }>(groups: readonly (readonly T
   }
   return items;
 }
+
+/** Keep page cursors and ordering while replacing or removing this replay in loaded pages. */
+export function updateBroadcastPages<T extends { pages: Array<{ items: BroadcastResponse[] }> }>(
+  data: T | undefined,
+  id: string,
+  replacement: BroadcastResponse | null,
+): T | undefined {
+  if (!data) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.flatMap((item) =>
+        item.id === id ? (replacement ? [replacement] : []) : [item],
+      ),
+    })),
+  };
+}

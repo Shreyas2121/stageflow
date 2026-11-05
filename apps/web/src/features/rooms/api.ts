@@ -5,6 +5,7 @@ import {
   parseRoomTitle,
   parseDisplayName,
   type BroadcastResponse,
+  type BroadcastVisibility,
   type CreateRoomRequest,
   type RoomResponse,
 } from '@stageflow/shared';
@@ -145,5 +146,35 @@ export function listBroadcasts(
     token,
     parseBroadcastPage,
     { signal },
+  );
+}
+
+export function setBroadcastVisibility(
+  id: string,
+  visibility: BroadcastVisibility,
+  token: string,
+  signal?: AbortSignal,
+): Promise<BroadcastResponse> {
+  return authenticatedRequest(
+    `/broadcasts/${encodeURIComponent(id)}/visibility`,
+    token,
+    parseBroadcast,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visibility }),
+      signal,
+    },
+  );
+}
+
+export function deleteBroadcast(id: string, token: string, signal?: AbortSignal): Promise<void> {
+  return authenticatedRequest(
+    `/broadcasts/${encodeURIComponent(id)}`,
+    token,
+    (body) => {
+      if (body !== undefined) throw new Error('Expected an empty delete response');
+    },
+    { method: 'DELETE', signal },
   );
 }

@@ -2,7 +2,7 @@ import { encodeHistoryCursor } from '@stageflow/shared';
 import { skipToken } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useSessionStore } from '../session/session-store';
-import { listBroadcasts, listRooms } from './api';
+import { deleteBroadcast, setBroadcastVisibility, listBroadcasts, listRooms } from './api';
 import { roomBroadcastsQueryOptions, roomsQueryOptions } from './query-options';
 
 const userId = '550e8400-e29b-41d4-a716-446655440000';
@@ -146,4 +146,70 @@ describe('guest catalog pages', () => {
     expect(roomsQueryOptions(null).queryFn).toBe(skipToken);
     expect(roomBroadcastsQueryOptions(null, slug).queryFn).toBe(skipToken);
   });
+});
+
+it('posts only visibility and validates the returned catalog', async () => {
+  vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:4000/api');
+  const response = { ...broadcast(), visibility: 'HOST' };
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(response))
+    .mockResolvedValueOnce(Response.json({ ...response, visibility: 'host' }));
+  vi.stubGlobal('fetch', fetchMock);
+  try {
+    await expect(setBroadcastVisibility(broadcastId, 'HOST', token)).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:4000/api/broadcasts/${broadcastId}/visibility`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visibility: 'HOST' }),
+      }),
+    );
+    await expect(setBroadcastVisibility(broadcastId, 'HOST', token)).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+  } finally {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  }
+});
+
+it('accepts an empty 204 delete and preserves mutation failure messages and token-match cleanup', async () => {
+  vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:4000/api');
+  useSessionStore.setState({ session: { token, userId, displayName: 'Ava' } });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    .mockResolvedValueOnce(
+      Response.json(
+        {
+          error: 'broadcast_delete_failed',
+          message: 'The replay could not be deleted. Try again.',
+        },
+        { status: 500 },
+      ),
+    )
+    .mockResolvedValueOnce(
+      Response.json({ error: 'unauthorized', message: 'Sign in again.' }, { status: 401 }),
+    );
+  vi.stubGlobal('fetch', fetchMock);
+  try {
+    await expect(deleteBroadcast(broadcastId, token)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:4000/api/broadcasts/${broadcastId}`,
+      expect.objectContaining({ method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }),
+    );
+    await expect(deleteBroadcast(broadcastId, token)).rejects.toMatchObject({
+      code: 'broadcast_delete_failed',
+      message: 'The replay could not be deleted. Try again.',
+    });
+    expect(useSessionStore.getState().session?.token).toBe(token);
+    await expect(deleteBroadcast(broadcastId, token)).rejects.toMatchObject({ status: 401 });
+    expect(useSessionStore.getState().session).toBeNull();
+  } finally {
+    useSessionStore.setState({ session: null });
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  }
 });

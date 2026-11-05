@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** in progress. C01 through C03 are committed. C04 and C05 remain planned.\
+**Status:** in progress. C01 through C03 are committed. C04 library controls are verified and awaiting commit. C05 remains planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -177,7 +177,7 @@ Regressions live in `replay-mutations.test.ts`, `hls-path.test.ts`, `broadcasts.
 
 ## 5. V3P3-C04 — Library controls
 
-**Status:** planned\
+**Status:** verified, awaiting commit\
 **Proposed commit message:** `feat(web-library): hide and delete a finished replay`\
 **Actual commit:**
 
@@ -212,6 +212,12 @@ pnpm lint
 Then check the recordings list and the replay page in the browser.
 
 **Done when:** A guest still plays a link replay, a hidden replay is not found for that guest, and the owner can hide and delete from the library.
+
+**Verification record (2026-11-05):** Focused room API/history, HTTP client, and entry-graph tests passed (30 tests). Full web tests passed (481); workspace typecheck/lint passed. The affected plan selected API and web checks because browser deletion also needed DELETE in the API CORS method list. The JSON client now accepts empty 204 responses while typed parsers still validate their bodies. `pnpm check` passed shared 310, API 425, web 481, both builds, and repository formatting; artifact checks and live/broadcast smokes passed. The broadcast smoke used the existing temporary FFmpeg 6.0 executable recorded under C01. After the final session-token guard, all web tests, workspace typecheck/lint, web build/artifacts, and the browser probe passed again.
+
+Chromium `156.0.8078.4` headless on Windows used the real compiled Nest API, disposable PostgreSQL database, unique Redis namespace, Vite on random loopback ports, and a temporary DATA_ROOT. Seeded READY LINK/HOST rows and playlists plus an in-flight row verified guest LINK playback with decoded frames and advancing time, normal not-found for guest HOST, and registered-owner HOST playback. The owner hid and shared a replay, observed the guest lose and regain playback, confirmed the first delete click and Cancel sent no DELETE, and deleted the row/directory while preserving the room. An injected HTTP 500 verified history refetch, row retention, and the API failure sentence. The in-flight row had no controls. A real cross-origin DELETE returned 204; a direct OPTIONS probe allowed DELETE. Desktop/mobile screenshots were inspected, the 390px layout had no horizontal overflow, and there were no uncaught page errors. Two browser recordings and screenshots are retained under `C:/Users/rasai/AppData/Local/Temp/sf-v3p3-c04-nBuSiE/`; `result.json` lists the checks and video paths. Probe API, Vite, browser, database, namespace keys, and temporary media were cleaned up.
+
+LIB-01 is verified for replay privacy. These seeded browser playlists do not verify the host recorder/FFmpeg pipeline, audible output, physical devices, native pickers, or any open V1/V2 acceptance id. C05 documentation remains planned.
 
 ## 6. V3P3-C05 — README
 

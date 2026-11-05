@@ -13,16 +13,19 @@ export async function request<T>(
   try {
     signal.throwIfAborted();
     const response = await fetch(url, { ...options, signal });
-    const body: unknown = await response.json().catch(() => {
-      signal.throwIfAborted();
-      if (response.ok)
-        throw new ApiError(
-          'StageFlow returned an invalid response.',
-          response.status,
-          'invalid_response',
-        );
-      return null;
-    });
+    const body: unknown =
+      response.status === 204
+        ? undefined
+        : await response.json().catch(() => {
+            signal.throwIfAborted();
+            if (response.ok)
+              throw new ApiError(
+                'StageFlow returned an invalid response.',
+                response.status,
+                'invalid_response',
+              );
+            return null;
+          });
     signal.throwIfAborted();
     if (!response.ok) {
       const record = typeof body === 'object' && body !== null ? body : {};
