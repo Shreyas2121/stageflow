@@ -21,6 +21,9 @@ export type TrackSource = {
   screenTrack: () => MediaStreamTrack | null;
 };
 
+type MediaKind = 'audio' | 'video';
+const MEDIA_KINDS = ['audio', 'video'] as const;
+
 type Peer = {
   pc: RTCPeerConnection;
   stream: MediaStream;
@@ -29,6 +32,8 @@ type Peer = {
   queuedBytes: number;
   queueTimer: ReturnType<typeof setTimeout> | undefined;
   work: Promise<void>;
+  tracks: Record<MediaKind, MediaStreamTrack | null>;
+  transceivers: Record<MediaKind, RTCRtpTransceiver | null>;
 };
 
 function candidateBytes(candidate: StageIceCandidate | null): number {
@@ -150,6 +155,8 @@ export class PeerManager {
         queuedBytes: 0,
         queueTimer: undefined,
         work: Promise.resolve(),
+        tracks: { audio: null, video: null },
+        transceivers: { audio: null, video: null },
         flags: {
           polite: selfParticipantId < id,
           makingOffer: false,
@@ -160,20 +167,26 @@ export class PeerManager {
         },
       };
       this.peers.set(id, peer);
-      // addTrack creates sendrecv transceivers that can be reused after glare rollback.
-      // Explicit addTransceiver transceivers cannot be reassociated with an incoming offer:
-      // https://www.w3.org/TR/webrtc/#dom-rtcpeerconnection-addtransceiver
-      // Assign both captured tracks before installing the negotiation handler.
       const audio = this.media.microphoneTrack();
       const screen = this.media.screenTrack();
       const video = screen?.readyState === 'live' ? screen : this.media.cameraTrack();
       const localStream = new MediaStream(
         [audio, video].filter((track): track is MediaStreamTrack => track !== null),
       );
-      if (audio) pc.addTrack(audio, localStream);
-      else pc.addTransceiver('audio', { direction: 'sendrecv' });
-      if (video) pc.addTrack(video, localStream);
-      else pc.addTransceiver('video', { direction: 'sendrecv' });
+      peer.tracks = { audio, video };
+      for (const kind of MEDIA_KINDS) {
+        const track = peer.tracks[kind];
+        if (track) {
+          // addTrack-created transceivers can associate with an incoming offer, including glare.
+          const sender = pc.addTrack(track, localStream);
+          peer.transceivers[kind] = pc.getTransceivers().find((item) => item.sender === sender)!;
+        } else if (!peer.flags.polite) {
+          peer.transceivers[kind] = pc.addTransceiver(kind, { direction: 'sendrecv' });
+        }
+        // The polite endpoint adopts missing kinds from the initial offer. An explicit
+        // addTransceiver here cannot associate with that offer and would leave an extra pair:
+        // https://www.w3.org/TR/webrtc/#rtcrtptransceiver-interface
+      }
       pc.onnegotiationneeded = () => {
         // Let the impolite endpoint start a new pair. This avoids two initial ICE
         // gatherings racing a rollback; inbound glare decisions still belong to the reducer.
@@ -253,10 +266,33 @@ export class PeerManager {
       await this.flushCandidates(id, peer);
       if (!this.alive(id, peer)) return;
       if (action === 'accept-offer') {
+        await this.adoptOfferedTransceivers(id, peer);
+        if (!this.alive(id, peer)) return;
         await peer.pc.setLocalDescription();
         if (this.alive(id, peer)) await this.sendDescription(id, peer);
       }
     });
+  }
+
+  private async adoptOfferedTransceivers(id: string, peer: Peer): Promise<void> {
+    for (const kind of MEDIA_KINDS) {
+      if (!this.alive(id, peer)) return;
+      if (peer.transceivers[kind]) continue;
+      const matches = peer.pc
+        .getTransceivers()
+        .filter((item) => item.mid !== null && item.receiver.track.kind === kind);
+      const [transceiver] = matches;
+      if (!transceiver || matches.length !== 1) {
+        throw new Error(`Expected one offered ${kind} transceiver`);
+      }
+      peer.transceivers[kind] = transceiver;
+      // Reserve sending in the answer even with no capture, so later explicit activation
+      // only needs replaceTrack rather than another offer/answer exchange.
+      transceiver.direction = 'sendrecv';
+      if (transceiver.sender.track !== peer.tracks[kind]) {
+        await transceiver.sender.replaceTrack(peer.tracks[kind]);
+      }
+    }
   }
 
   candidate({ fromParticipantId: id, candidate }: RelayedIceCandidate): void {
@@ -347,13 +383,11 @@ export class PeerManager {
     await this.replaceKind('audio', track);
   }
 
-  private async replaceKind(
-    kind: 'audio' | 'video',
-    track: MediaStreamTrack | null,
-  ): Promise<void> {
+  private async replaceKind(kind: MediaKind, track: MediaStreamTrack | null): Promise<void> {
     const results = await Promise.allSettled(
-      [...this.peers.values()].map(async ({ pc }) => {
-        const transceiver = pc.getTransceivers().find((item) => item.receiver.track.kind === kind);
+      [...this.peers.values()].map(async (peer) => {
+        peer.tracks[kind] = track;
+        const transceiver = peer.transceivers[kind];
         if (transceiver) await transceiver.sender.replaceTrack(track);
       }),
     );

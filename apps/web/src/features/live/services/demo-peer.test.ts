@@ -102,7 +102,13 @@ describe('DemoPeer cleanup', () => {
       'RTCPeerConnection',
       class {
         close = vi.fn();
-        addTrack = vi.fn();
+        private transceivers: { sender: { track: MediaStreamTrack } }[] = [];
+        addTrack = vi.fn((track: MediaStreamTrack) => {
+          const sender = { track };
+          this.transceivers.push({ sender });
+          return sender;
+        });
+        getTransceivers = () => this.transceivers;
         constructor() {
           pcs.push(this);
         }

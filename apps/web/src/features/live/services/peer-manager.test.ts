@@ -20,16 +20,42 @@ class Stream {
   }
 }
 const connections: FakeConnection[] = [];
-function senderFor(track: MediaStreamTrack) {
+function senderFor(track: MediaStreamTrack | null) {
   const sender = {
     track,
-    replaceTrack: vi.fn(async (next: MediaStreamTrack) => {
+    replaceTrack: vi.fn(async (next: MediaStreamTrack | null) => {
       sender.track = next;
     }),
   };
   return sender;
 }
-type Transceiver = { sender: ReturnType<typeof senderFor>; receiver: { track: { kind: string } } };
+type Transceiver = {
+  sender: ReturnType<typeof senderFor>;
+  receiver: { track: { kind: string } };
+  mid: string | null;
+  direction: RTCRtpTransceiverDirection;
+  currentDirection: RTCRtpTransceiverDirection | null;
+  stopped: boolean;
+  origin: 'addTrack' | 'addTransceiver' | 'remote';
+};
+
+function transceiverFor(kind: string, origin: Transceiver['origin']): Transceiver {
+  return {
+    sender: senderFor(null),
+    receiver: { track: { kind } },
+    mid: null,
+    direction: origin === 'remote' ? 'recvonly' : 'sendrecv',
+    currentDirection: null,
+    stopped: false,
+    origin,
+  };
+}
+
+function mediaSdp(kinds: readonly string[] = ['audio', 'video']): string {
+  return kinds
+    .map((kind, index) => `m=${kind} 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:${index}\r\n`)
+    .join('');
+}
 class FakeConnection {
   signalingState = 'stable';
   connectionState = 'new';
@@ -41,17 +67,15 @@ class FakeConnection {
   constructor() {
     connections.push(this);
   }
-  addTrack = vi.fn((mediaTrack: MediaStreamTrack): Transceiver => {
-    const transceiver = {
-      sender: senderFor(mediaTrack),
-      receiver: { track: { kind: mediaTrack.kind } },
-    };
+  addTrack = vi.fn((mediaTrack: MediaStreamTrack) => {
+    const transceiver = transceiverFor(mediaTrack.kind, 'addTrack');
+    transceiver.sender.track = mediaTrack;
     this.transceivers.push(transceiver);
-    return transceiver;
+    return transceiver.sender;
   });
-  addTransceiver = vi.fn((kind: string): Transceiver => {
-    const mediaTrack = track(kind === 'audio' ? 'audio' : 'video');
-    const transceiver = { sender: senderFor(mediaTrack), receiver: { track: { kind } } };
+  addTransceiver = vi.fn((kind: string, init?: RTCRtpTransceiverInit): Transceiver => {
+    const transceiver = transceiverFor(kind, 'addTransceiver');
+    transceiver.direction = init?.direction ?? 'sendrecv';
     this.transceivers.push(transceiver);
     return transceiver;
   });
@@ -59,13 +83,48 @@ class FakeConnection {
     return this.transceivers;
   }
   setLocalDescription = vi.fn(async () => {
-    const type = this.remoteDescription?.type === 'offer' ? 'answer' : 'offer';
+    const type = this.signalingState === 'have-remote-offer' ? 'answer' : 'offer';
+    this.transceivers.forEach((transceiver, index) => {
+      if (type === 'offer') transceiver.mid ??= String(index);
+      else if (transceiver.mid !== null) transceiver.currentDirection = transceiver.direction;
+    });
     this.localDescription = { type, sdp: 'test' };
     this.signalingState = type === 'offer' ? 'have-local-offer' : 'stable';
   });
   setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+    if (description.type === 'offer') {
+      // Setting a colliding offer rolls back provisional local associations.
+      if (this.signalingState === 'have-local-offer') {
+        for (const transceiver of this.transceivers) {
+          if (!transceiver.currentDirection) transceiver.mid = null;
+        }
+      }
+      const sections =
+        description.sdp?.split(/(?=m=)/).filter((section) => section.startsWith('m=')) ?? [];
+      for (const section of sections) {
+        const kind = /^m=(audio|video) /.exec(section)?.[1];
+        const mid = /a=mid:([^\r\n]+)/.exec(section)?.[1];
+        if (!kind || !mid) continue;
+        let transceiver = this.transceivers.find((item) => item.mid === mid);
+        // Only disassociated addTrack-created transceivers may answer a new m-line.
+        transceiver ??= this.transceivers.find(
+          (item) =>
+            item.mid === null && item.origin === 'addTrack' && item.receiver.track.kind === kind,
+        );
+        if (!transceiver) {
+          transceiver = transceiverFor(kind, 'remote');
+          this.transceivers.push(transceiver);
+        }
+        transceiver.mid = mid;
+      }
+    }
     this.remoteDescription = description;
     this.signalingState = description.type === 'offer' ? 'have-remote-offer' : 'stable';
+    if (description.type === 'answer') {
+      for (const transceiver of this.transceivers) {
+        if (transceiver.mid !== null) transceiver.currentDirection = transceiver.direction;
+      }
+    }
   });
   close() {
     this.connectionState = 'closed';
@@ -203,6 +262,209 @@ describe('PeerManager screen sharing and initial negotiation', () => {
         description: { type: 'offer', sdp: 'test' },
       }),
     );
+  });
+});
+
+describe('PeerManager media-off transceiver ownership', () => {
+  function withoutCapture(
+    audio: MediaStreamTrack | null = null,
+    video: MediaStreamTrack | null = null,
+  ) {
+    manager.close();
+    manager = new PeerManager(
+      { microphoneTrack: () => audio, cameraTrack: () => video, screenTrack: () => null },
+      signaling,
+      () => undefined,
+      (message) => errors.push(message),
+    );
+  }
+
+  it('models the distinct incoming-offer association of addTrack and addTransceiver', async () => {
+    const pc = new FakeConnection();
+    const explicit = pc.addTransceiver('audio');
+    const captured = pc.addTrack(camera);
+    await pc.setRemoteDescription({ type: 'offer', sdp: mediaSdp() });
+    expect(pc.getTransceivers()).toHaveLength(3);
+    expect(explicit.mid).toBeNull();
+    expect(pc.getTransceivers().find((item) => item.sender === captured)?.mid).toBe('1');
+    expect(pc.getTransceivers().find((item) => item.mid === '0')?.origin).toBe('remote');
+  });
+
+  it("adopts the polite endpoint's offered pair and enables later capture on those same senders", async () => {
+    withoutCapture();
+    manager.sync('a', ['a', 'z'], []);
+    const pc = connections[0]!;
+    manager.description({
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
+      description: { type: 'offer', sdp: mediaSdp() },
+    });
+    await settle();
+    const negotiated = pc.getTransceivers().filter((item) => item.mid !== null);
+    expect(pc.getTransceivers()).toHaveLength(2);
+    expect(negotiated).toHaveLength(2);
+    expect(negotiated.map((item) => item.direction)).toEqual(['sendrecv', 'sendrecv']);
+    expect(negotiated.map((item) => item.sender.track)).toEqual([null, null]);
+    await manager.replaceAudioTrack(microphone);
+    await manager.replaceVideoTrack(camera);
+    expect(negotiated.map((item) => item.sender.track)).toEqual([microphone, camera]);
+    expect(pc.getTransceivers()).toEqual(negotiated);
+    expect(pc.setLocalDescription).toHaveBeenCalledTimes(1);
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps explicit activation made before the polite endpoint receives its offer', async () => {
+    withoutCapture();
+    manager.sync('a', ['a', 'z'], []);
+    const pc = connections[0]!;
+    await manager.replaceAudioTrack(microphone);
+    await manager.replaceVideoTrack(camera);
+    manager.description({
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
+      description: { type: 'offer', sdp: mediaSdp() },
+    });
+    await settle();
+    expect(pc.getTransceivers()).toHaveLength(2);
+    expect(pc.getTransceivers().map((item) => item.sender.track)).toEqual([microphone, camera]);
+    expect(pc.getTransceivers().every((item) => item.mid !== null)).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  it.each(['audio', 'video'] as const)(
+    'associates captured %s and adopts only the missing kind',
+    async (kind) => {
+      withoutCapture(kind === 'audio' ? microphone : null, kind === 'video' ? camera : null);
+      manager.sync('a', ['a', 'z'], []);
+      const pc = connections[0]!;
+      const captured = pc.getTransceivers()[0]!;
+      manager.description({
+        fromParticipantId: 'z',
+        toParticipantId: 'a',
+        description: { type: 'offer', sdp: mediaSdp() },
+      });
+      await settle();
+      expect(pc.getTransceivers()).toHaveLength(2);
+      expect(pc.getTransceivers()).toContain(captured);
+      expect(captured.mid).not.toBeNull();
+      expect(
+        pc.getTransceivers().every((item) => item.mid !== null && item.direction === 'sendrecv'),
+      ).toBe(true);
+      await manager.replaceAudioTrack(microphone);
+      await manager.replaceVideoTrack(camera);
+      expect(
+        pc.getTransceivers().find((item) => item.receiver.track.kind === 'audio')?.sender.track,
+      ).toBe(microphone);
+      expect(
+        pc.getTransceivers().find((item) => item.receiver.track.kind === 'video')?.sender.track,
+      ).toBe(camera);
+      expect(pc.setLocalDescription).toHaveBeenCalledTimes(1);
+      expect(errors).toEqual([]);
+    },
+  );
+
+  it('keeps adopted ownership through a polite glare rollback', async () => {
+    withoutCapture();
+    manager.sync('a', ['a', 'z'], []);
+    const pc = connections[0]!;
+    const incoming = {
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
+      description: { type: 'offer' as const, sdp: mediaSdp() },
+    };
+    manager.description(incoming);
+    await settle();
+    const owned = pc.getTransceivers().slice();
+    pc.onnegotiationneeded?.();
+    await settle();
+    expect(pc.signalingState).toBe('have-local-offer');
+    manager.description(incoming);
+    await settle();
+    expect(pc.signalingState).toBe('stable');
+    expect(pc.getTransceivers()).toEqual(owned);
+    await manager.replaceAudioTrack(microphone);
+    await manager.replaceVideoTrack(camera);
+    expect(owned.map((item) => item.sender.track)).toEqual([microphone, camera]);
+    expect(pc.setLocalDescription).toHaveBeenCalledTimes(3);
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects ambiguous offered kinds instead of choosing an arbitrary sender', async () => {
+    withoutCapture();
+    manager.sync('a', ['a', 'z'], []);
+    const pc = connections[0]!;
+    manager.description({
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
+      description: { type: 'offer', sdp: mediaSdp(['audio', 'audio', 'video']) },
+    });
+    await settle();
+    expect(errors).toEqual(['Unable to connect stage media. Leave and join again to retry.']);
+    expect(pc.setLocalDescription).not.toHaveBeenCalled();
+    expect(
+      pc.getTransceivers().every((item) => item.sender.replaceTrack.mock.calls.length === 0),
+    ).toBe(true);
+  });
+
+  it('stops adoption after a peer is closed during pending explicit activation', async () => {
+    withoutCapture();
+    manager.sync('a', ['a', 'z'], []);
+    const pc = connections[0]!;
+    await manager.replaceAudioTrack(microphone);
+    const setRemote = pc.setRemoteDescription.getMockImplementation()!;
+    let release!: () => void;
+    pc.setRemoteDescription.mockImplementationOnce(async (description) => {
+      await setRemote(description);
+      pc.getTransceivers()[0]!.sender.replaceTrack.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+    });
+    manager.description({
+      fromParticipantId: 'z',
+      toParticipantId: 'a',
+      description: { type: 'offer', sdp: mediaSdp() },
+    });
+    await vi.waitFor(() => expect(release).toBeDefined());
+    manager.close();
+    release();
+    await settle();
+    expect(pc.setLocalDescription).not.toHaveBeenCalled();
+    expect(pc.getTransceivers()[1]!.sender.replaceTrack).not.toHaveBeenCalled();
+    expect(errors).toEqual([]);
+  });
+
+  it('owns the impolite media-off pair before offering and replaces it without adding senders', async () => {
+    withoutCapture();
+    manager.sync('z', ['a', 'z'], []);
+    const pc = connections[0]!;
+    const owned = pc.getTransceivers().slice();
+    expect(owned.map((item) => item.sender.track)).toEqual([null, null]);
+    pc.onnegotiationneeded?.();
+    await settle();
+    await manager.replaceAudioTrack(microphone);
+    await manager.replaceVideoTrack(camera);
+    await manager.replaceAudioTrack(null);
+    await manager.replaceVideoTrack(null);
+    expect(pc.getTransceivers()).toEqual(owned);
+    expect(owned.map((item) => item.sender.track)).toEqual([null, null]);
+    expect(pc.addTransceiver).toHaveBeenCalledTimes(2);
+    expect(pc.setLocalDescription).toHaveBeenCalledTimes(1);
+    expect(errors).toEqual([]);
+  });
+
+  it('replaces the owned sender even if an unrelated same-kind transceiver precedes it', async () => {
+    manager.sync('z', ['a', 'z'], []);
+    const pc = connections[0]!;
+    const owned = pc.getTransceivers().slice();
+    const unrelated = transceiverFor('audio', 'remote');
+    pc.transceivers.unshift(unrelated);
+    const next = track('audio');
+    await manager.replaceAudioTrack(next);
+    expect(owned[0]!.sender.track).toBe(next);
+    expect(unrelated.sender.replaceTrack).not.toHaveBeenCalled();
   });
 });
 
