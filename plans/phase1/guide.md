@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** in progress. V3P1-C01 supplies the shared parsers. V3P1-C02 through V3P1-C06 are planned.\
+**Status:** in progress. V3P1-C01 and V3P1-C02 supply shared parsers, credential storage, and versioned tokens. V3P1-C03 through V3P1-C06 are planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -51,9 +51,9 @@ Keep the guest create route, demo peers, the mesh, reconnect, chat, and the broa
 
 ## 2. V3P1-C01 — Email and password parsers
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): parse a host email and password`\
-**Actual commit:**
+**Actual commit:** `9cfa046c068bf66ff9ac2da3c4c38f2fb28a802f`
 
 **Why:** Register, login, promote, and password change need one email rule and one password rule before either app grows a route. Covers the parser half of ID-01.
 
@@ -96,7 +96,7 @@ pnpm lint
 
 ## 3. V3P1-C02 — Password hash and token claims
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-auth): store a host password and version tokens`\
 **Actual commit:**
 
@@ -114,7 +114,10 @@ pnpm lint
 - `apps/api/src/database/data-source.ts`
 - `apps/api/src/sessions/sessions.service.ts`
 - `apps/api/src/sessions/sessions.service.test.ts`
+- `apps/api/src/users/user.integration.test.ts`
+- `apps/api/src/database/catalog-cursor.integration.test.ts`
 - `scripts/smoke-broadcast.mjs`
+- `scripts/smoke-live.mjs`
 
 **Implementation:**
 
@@ -125,6 +128,7 @@ pnpm lint
 5. `verifyToken` applies phase Section 5.3. Missing `sv` is `0`. Missing `guest` matches only a guest row. A boolean `guest` must match `isGuest`. A non-integer `sv` is `unauthorized`.
 6. Update the pending-guest test. The released user includes `sessionVersion: 0` and `isGuest: true`. Expect `signAsync` to receive the guest claims and `expiresIn: '12h'`.
 7. Add verify cases: a guest token with no `sv` and no `guest` still loads a version-0 guest; `sv: 1` on a version-0 user fails; `guest: false` on a guest fails; `guest: true` on a host fails; a missing user fails. Build those tokens with the same `JwtService` settings the app uses, or a test `JwtService` with the test secret. Do not log the secret.
+8. Keep the existing catalog integration's migration assertion synchronized. Give the live smoke's in-memory guest rows `isGuest: true` and `sessionVersion: 0`; its legacy tokens continue to exercise backward compatibility. Add a disposable-database regression for existing guest defaults, nullable unique emails, hidden password selection, and migration rollback. Never migrate the developer database.
 
 **Verification:**
 
@@ -135,6 +139,19 @@ pnpm lint
 ```
 
 **Done when:** Existing guest verification still passes, the new claims are signed, and the migration is registered. Register and login routes are still absent.
+
+**Verification record (2026-11-05):**
+
+- The focused API command covering `src/sessions/password.test.ts`, `src/sessions/sessions.service.test.ts`, `src/users/user.integration.test.ts`, and `src/database/catalog-cursor.integration.test.ts` passed all 39 cases in four files.
+- `pnpm --filter @stageflow/api test`, invoked by the release graph, passed all 274 tests in 25 files. Workspace `pnpm typecheck` and `pnpm lint` passed.
+- The affected-check planner selected `pnpm check:release` plus the separate audit gate. The release run passed all 49 tooling, 309 shared, 428 web, and 274 API tests, both app builds, repository formatting, and artifact checks. It stopped at the live smoke because two later chat-user fixtures were missing the new guest fields. After correcting all four in-memory users, `pnpm smoke:live` passed, as did a fresh `pnpm lint:config`.
+- A separate `pnpm smoke:broadcast` attempt failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`. The complete release gate and broadcast path remain unverified. Migration execution is independently verified by the disposable PostgreSQL tests; this gap does not close any V1/V2 acceptance ID.
+- `pnpm install --frozen-lockfile` passed with pnpm `12.9.1`. `pnpm audit:check` passed with no production advisories and only the existing explicit, unexpired development exceptions.
+- Prettier passed on all 16 changed files, and local links in the changed phase records resolve. C01's recorded commit hash is included in this slice under the existing ledger rule.
+- The catalog fixture applied all four registered migrations once to its random disposable database, then applied none. The credential fixture inserted a guest before the new migration and verified backfilled null credentials/version 0, new guest defaults, the unique non-null email index, hidden normal password-hash selection, and the down migration. Each fixture dropped only its owned database; the developer database was not migrated.
+- Real HS256 tokens cover matching host/guest claims, legacy version-0 guests, missing claims, version mismatches, malformed claims, missing users, expiry, and algorithm rejection. The pending-guest regression asserts the new claims and explicit 12-hour signing option. The module default remains 12 hours.
+- The catalog migration assertion and live smoke's in-memory guest rows were updated alongside the planned broadcast migration assertion. Password helpers use `bcryptjs` `3.0.3` at cost 12; the regression checks the stored format and both matching and different passwords.
+- Register/login routes, password change, promotion, logout, and browser acceptance remain planned. ID-02 and ID-04 have only their token coverage verified by this slice; no complete acceptance ID is closed.
 
 ## 4. V3P1-C03 — Register and login
 

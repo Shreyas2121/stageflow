@@ -107,6 +107,7 @@ beforeAll(async () => {
     'CreateUsersAndRooms1730332800000',
     'CreateBroadcasts1793577600000',
     'IndexRoomsByHost1793664000000',
+    'AddHostCredentials1793923200000',
   ]);
   expect(await source.runMigrations()).toEqual([]);
   await source.query(

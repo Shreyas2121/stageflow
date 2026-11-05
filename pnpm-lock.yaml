@@ -226,6 +226,9 @@ importers:
       '@stageflow/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      bcryptjs:
+        specifier: ^3.0.3
+        version: 3.0.3
       express:
         specifier: 5.2.1
         version: 5.2.1(supports-color@8.1.1)
@@ -1348,6 +1351,10 @@ packages:
   baseline-browser-mapping@2.11.34:
     resolution: {integrity: sha512-Aqr8mA1kIvyJ3UY5YAY7ib8LSo1DmDMbMnVqGPtsKW1LxaFQFwn9Eb3yvq2fUKJsRvaXjnAV7R5osqETapzNiA==}
     engines: {node: '>=6.0.0'}
+    hasBin: true
+
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
     hasBin: true
 
   bl@4.1.0:
@@ -4276,6 +4283,8 @@ snapshots:
   base64id@2.0.0: {}
 
   baseline-browser-mapping@2.11.34: {}
+
+  bcryptjs@3.0.3: {}
 
   bl@4.1.0:
     dependencies:

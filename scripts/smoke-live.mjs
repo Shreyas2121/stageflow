@@ -76,8 +76,8 @@ try {
     signOptions: { algorithm: 'HS256', expiresIn: '5m' },
   });
   const sessions = new SessionsService({ findOneBy: async ({ id }) => users.get(id) ?? null }, jwt);
-  const host = { id: randomUUID(), displayName: 'Smoke host' };
-  const guest = { id: randomUUID(), displayName: 'Smoke guest' };
+  const host = { id: randomUUID(), displayName: 'Smoke host', isGuest: true, sessionVersion: 0 };
+  const guest = { id: randomUUID(), displayName: 'Smoke guest', isGuest: true, sessionVersion: 0 };
   users.set(host.id, host);
   users.set(guest.id, guest);
   const rooms = new Map();
@@ -355,8 +355,8 @@ try {
   oversized.emit('room:join', { padding: 'x'.repeat(socketOptions.maxHttpBufferSize + 1) });
   await oversizedClosed;
 
-  const ava = { id: randomUUID(), displayName: 'Ava' };
-  const sam = { id: randomUUID(), displayName: 'Sam' };
+  const ava = { id: randomUUID(), displayName: 'Ava', isGuest: true, sessionVersion: 0 };
+  const sam = { id: randomUUID(), displayName: 'Sam', isGuest: true, sessionVersion: 0 };
   users.set(ava.id, ava);
   users.set(sam.id, sam);
   const avaSocket = await connect(ava),

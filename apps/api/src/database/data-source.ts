@@ -8,6 +8,7 @@ import { Broadcast } from '../broadcasts/broadcast.entity';
 import { CreateUsersAndRooms1730332800000 } from '../migrations/1730332800000-CreateUsersAndRooms';
 import { CreateBroadcasts1793577600000 } from '../migrations/1793577600000-CreateBroadcasts';
 import { IndexRoomsByHost1793664000000 } from '../migrations/1793664000000-IndexRoomsByHost';
+import { AddHostCredentials1793923200000 } from '../migrations/1793923200000-AddHostCredentials';
 
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
@@ -19,6 +20,7 @@ export const databaseOptions: DataSourceOptions = {
     CreateUsersAndRooms1730332800000,
     CreateBroadcasts1793577600000,
     IndexRoomsByHost1793664000000,
+    AddHostCredentials1793923200000,
   ],
   synchronize: false,
   migrationsRun: false,

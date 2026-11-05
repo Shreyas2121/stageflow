@@ -26,7 +26,10 @@ export class SessionsService {
     if (typeof token !== 'string' || !token) throw unauthorized;
     let payload: unknown;
     try {
-      payload = await this.jwt.verifyAsync<{ sub?: unknown }>(token, { algorithms: ['HS256'] });
+      payload = await this.jwt.verifyAsync<{ sub?: unknown; sv?: unknown; guest?: unknown }>(
+        token,
+        { algorithms: ['HS256'] },
+      );
     } catch {
       throw unauthorized;
     }
@@ -39,8 +42,18 @@ export class SessionsService {
     ) {
       throw unauthorized;
     }
+    const sessionVersion = 'sv' in payload ? payload.sv : 0;
+    if (!Number.isInteger(sessionVersion)) throw unauthorized;
     const user = await this.users.findOneBy({ id: payload.sub });
-    if (!user) throw unauthorized;
+    if (
+      !user ||
+      sessionVersion !== user.sessionVersion ||
+      ('guest' in payload
+        ? typeof payload.guest !== 'boolean' || payload.guest !== user.isGuest
+        : !user.isGuest)
+    ) {
+      throw unauthorized;
+    }
     return user;
   }
 
@@ -54,7 +67,10 @@ export class SessionsService {
       const user = await this.users.save(
         this.users.create({ displayName: parsed.value, isGuest: true }),
       );
-      const token = await this.jwt.signAsync({ sub: user.id });
+      const token = await this.jwt.signAsync(
+        { sub: user.id, sv: user.sessionVersion, guest: true },
+        { expiresIn: '12h' },
+      );
       return { token, userId: user.id, displayName: user.displayName };
     } finally {
       this.pendingGuests--;
