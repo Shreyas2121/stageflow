@@ -1,7 +1,7 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** planned. No slice is implemented.\
-**Last updated:** 2026-11-04.\
+**Status:** in progress. V3P1-C01 supplies the shared parsers. V3P1-C02 through V3P1-C06 are planned.\
+**Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
 **Deliverable:** A guest can become a host, and that host can log in again and see the same rooms, in six commits. This is the only V3 Phase 1 guide. Its commit ids are not the V1 Phase 1 commits in [../V1/phase1/guide.md](../V1/phase1/guide.md) or the V2 Phase 1 commits in [../V2/phase1/guide.md](../V2/phase1/guide.md).
@@ -51,7 +51,7 @@ Keep the guest create route, demo peers, the mesh, reconnect, chat, and the broa
 
 ## 2. V3P1-C01 — Email and password parsers
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(shared): parse a host email and password`\
 **Actual commit:**
 
@@ -82,6 +82,17 @@ pnpm lint
 ```
 
 **Done when:** The parsers accept and reject the cases above, and no API route exists for them yet.
+
+**Verification record (2026-11-05):**
+
+- `pnpm --filter @stageflow/shared test -- src/account.test.ts` passed all 46 account cases.
+- `pnpm --filter @stageflow/shared test` passed all 309 tests in 11 files.
+- `pnpm typecheck` and `pnpm lint` passed across the workspace.
+- `pnpm check:affected --plan --files packages/shared/src/account.ts packages/shared/src/account.test.ts packages/shared/src/contracts.ts packages/shared/src/index.ts` selected `pnpm check:release`. That run passed all 49 tooling, 309 shared, 428 web, and 237 API tests, workspace typecheck/lint, both app builds, repository formatting, artifact checks, and `pnpm smoke:live`.
+- `pnpm check:release` failed at its final `pnpm smoke:broadcast` step: `spawn ffmpeg ENOENT` while probing `ffmpeg -version`. No FFmpeg version, broadcast result, or migration-run result was obtained. This does not close any open V1/V2 acceptance gap.
+- Prettier passed on all seven changed files. Local links in the changed phase records resolve; the phase contract's two archived-guide links were corrected.
+- Coverage includes email normalization and the 254/255-character boundary, every ASCII control character before/within/after an address or password, unchanged password spaces, the 72-byte UTF-8 boundary, and the eight-code-point minimum with astral characters.
+- ID-01's parser coverage is verified. Account API routes and browser flows remain planned for later slices; ID-02 through ID-04 are not marked verified. No API route was added.
 
 ## 3. V3P1-C02 — Password hash and token claims
 

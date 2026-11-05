@@ -1,9 +1,9 @@
 # V3 Phase 1 — Host identity
 
-**Status:** planned. No slice is implemented.\
-**Last updated:** 2026-11-04.\
+**Status:** in progress. V3P1-C01 supplies the shared parsers. Account API routes and browser flows are planned.\
+**Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.2`, Sections 1, 3, 4, 5, 6, and 12 (ID-01 through ID-04). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9` and `MASTER_PLAN_V2.md` version `2.0.0-draft.9`.\
-**Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V3P1-C01 through V3P1-C06. Those ids are not the V1 commits in [../V1/phase1/guide.md](../V1/phase1/guide.md) or the V2 commits in [../V2/phase1/guide.md](../V2/phase1/guide.md).\
+**Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V3P1-C01 through V3P1-C06. Those ids are not the V1 commits in [V1/phase1/guide.md](V1/phase1/guide.md) or the V2 commits in [V2/phase1/guide.md](V2/phase1/guide.md).\
 **Requirement IDs:** ID-01, ID-02, ID-03, ID-04.
 
 ## 1. Outcome
@@ -144,12 +144,16 @@ Home still must not import `hls.js`, the live room, or chat.
 
 ## 6. Acceptance matrix
 
-| ID    | Observable result                                                                                                            | Method                                         | Status  |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------- |
-| ID-01 | A new account can register, log in from a fresh session, and see its own rooms. A wrong password does not change a row       | API regressions and a browser login            | planned |
-| ID-02 | Logout clears the stored session. The token from before a password change fails, and the returned token works                | Token-version regressions and a browser logout | planned |
-| ID-03 | Promotion keeps that user id's rooms, rejects a taken email, and rejects a live membership without changing the guest        | Service regressions and a browser promotion    | planned |
-| ID-04 | Guest create, join, and the guest list copy still work. The same display name in a new guest session does not show the rooms | Existing guest checks and a browser guest path | planned |
+| ID    | Observable result                                                                                                            | Method                                         | Status                 |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------- |
+| ID-01 | A new account can register, log in from a fresh session, and see its own rooms. A wrong password does not change a row       | API regressions and a browser login            | partial (parsers only) |
+| ID-02 | Logout clears the stored session. The token from before a password change fails, and the returned token works                | Token-version regressions and a browser logout | planned                |
+| ID-03 | Promotion keeps that user id's rooms, rejects a taken email, and rejects a live membership without changing the guest        | Service regressions and a browser promotion    | planned                |
+| ID-04 | Guest create, join, and the guest list copy still work. The same display name in a new guest session does not show the rooms | Existing guest checks and a browser guest path | planned                |
+
+V3P1-C01 verification (2026-11-05): the 46 account parser cases and all 309 shared tests passed. Workspace typecheck and lint passed. Email normalization, invalid shapes, control characters, password spaces, UTF-8 byte limits, and the code-point minimum are covered. Register/login API and browser acceptance remain planned. See the [C01 verification record](phase1/guide.md#2-v3p1-c01--email-and-password-parsers). No ID is fully verified by this slice.
+
+The affected-check planner selected `pnpm check:release`. Tooling, both app test suites and builds, repository formatting, artifact checks, and the live socket smoke passed. The final broadcast smoke failed at the FFmpeg version probe with `spawn ffmpeg ENOENT`; broadcast and migration execution remain unverified. Existing V1/V2 acceptance gaps stay open.
 
 ## 7. Verification commands
 

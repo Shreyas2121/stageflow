@@ -31,6 +31,13 @@ export type ApiErrorBody = {
   statusCode: number;
   error:
     | 'invalid_display_name'
+    | 'invalid_email'
+    | 'invalid_password'
+    | 'email_taken'
+    | 'not_guest'
+    | 'not_registered'
+    | 'membership_active'
+    | 'wrong_password'
     | 'invalid_title'
     | 'invalid_mode'
     | 'invalid_page'
