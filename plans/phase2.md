@@ -1,6 +1,6 @@
 # V3 Phase 2 — Optional Google sign-in
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. V3P2-C01's optional configuration is verified. C02 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.3`, Sections 4, 6.4, and 12 (ID-05 and ID-06). Email and password accounts stay as shipped in `plans/phase1.md`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V3P2-C01 through V3P2-C05. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md) or the V2 commits in [V2/phase2/guide.md](V2/phase2/guide.md).\
@@ -126,10 +126,10 @@ A real Google browser round-trip is recorded only when the three settings and a 
 
 ## 6. Acceptance matrix
 
-| ID    | Observable result                                                                                                                     | Method                                                                | Status  |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------- |
-| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | planned |
-| ID-06 | A fake exchange creates a separate host, does not attach an equal email, and links only for the current host when the subject is free | Service regressions. A real Google browser pass is optional and named | planned |
+| ID    | Observable result                                                                                                                     | Method                                                                | Status                                                          |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | partial: C01 config verified; routes and browser remain planned |
+| ID-06 | A fake exchange creates a separate host, does not attach an equal email, and links only for the current host when the subject is free | Service regressions. A real Google browser pass is optional and named | planned                                                         |
 
 ## 7. Verification commands
 
@@ -163,3 +163,13 @@ The next phase may rely on these once the slices are committed:
 V3 phase 3 may add replay visibility and deletion for registered owners. A Google-only host is a registered owner. Do not write `plans/phase3.md` until that phase is requested.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
+
+## 10. Implementation record
+
+### V3P2-C01 — Optional Google configuration (2026-11-05)
+
+The API accepts the trimmed Google trio only when all settings are empty or all are set, derives `GOOGLE_ENABLED`, and validates the callback URL. The shared error union includes the five planned Google/password codes, and `.env.example` leaves all three settings empty. No Google route exists yet.
+
+All 46 config tests, 309 shared tests, and 371 API tests passed, as did workspace typecheck/lint and frozen installation. The affected-check planner selected `pnpm check:release`: 49 tooling tests, all package tests (including 456 web tests), both builds, formatting, artifact checks, and the live socket smoke passed. The final broadcast smoke failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`; no FFmpeg version or broadcast result was obtained. The [C01 verification record](phase2/guide.md#2-v3p2-c01--optional-google-configuration) records the commands and the shared-test timeout followed by a passing standalone rerun.
+
+Only ID-05's config half is verified. Its route and browser halves, ID-06, and a real Google browser round-trip remain unverified. Existing V1/V2 acceptance gaps stay open. C02 through C05 were not started.

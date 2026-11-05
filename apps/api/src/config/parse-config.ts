@@ -22,6 +22,24 @@ const serviceUrl = (protocol: RegExp) =>
       }
     }, 'Must have a hostname and no fragment.');
 const ip = z.string().refine((value) => Boolean(isIP(value)), 'Must be an IP address.');
+const googleRedirectUri = z
+  .string()
+  .trim()
+  .default('')
+  .refine((value) => {
+    if (!value) return true;
+    try {
+      const parsed = new URL(value);
+      return (
+        /^https?:$/.test(parsed.protocol) &&
+        Boolean(parsed.hostname) &&
+        !/[?#@]/.test(value) &&
+        parsed.pathname === '/api/sessions/google/callback'
+      );
+    } catch {
+      return false;
+    }
+  }, 'Must be an HTTP(S) URL with no userinfo, query, or fragment and path /api/sessions/google/callback.');
 const iceUrl = (protocol: RegExp) =>
   z
     .string()
@@ -68,6 +86,9 @@ export const apiConfigSchema = databaseSchema
       }
     }, 'Must be one exact HTTP(S) origin with no path, credentials, or trailing slash.'),
     REDIS_URL: serviceUrl(/^rediss?$/),
+    GOOGLE_CLIENT_ID: z.string().trim().default(''),
+    GOOGLE_CLIENT_SECRET: z.string().trim().default(''),
+    GOOGLE_REDIRECT_URI: googleRedirectUri,
     PORT: integer(4000, 1, 65535),
     HOST: ip.default('127.0.0.1'),
     FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
@@ -118,6 +139,17 @@ export const apiConfigSchema = databaseSchema
       });
     }
     if (
+      Boolean(config.GOOGLE_CLIENT_ID) !== Boolean(config.GOOGLE_CLIENT_SECRET) ||
+      Boolean(config.GOOGLE_CLIENT_ID) !== Boolean(config.GOOGLE_REDIRECT_URI)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['GOOGLE_CLIENT_ID'],
+        message:
+          'Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI together.',
+      });
+    }
+    if (
       Boolean(config.TURN_URL) !== Boolean(config.TURN_USERNAME) ||
       Boolean(config.TURN_URL) !== Boolean(config.TURN_CREDENTIAL)
     ) {
@@ -130,6 +162,7 @@ export const apiConfigSchema = databaseSchema
   })
   .transform((config) => ({
     ...config,
+    GOOGLE_ENABLED: Boolean(config.GOOGLE_CLIENT_ID),
     LIVE_NAMESPACE: config.LIVE_NAMESPACE ?? `sf_${config.NODE_ENV}`,
   }));
 

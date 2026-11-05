@@ -25,6 +25,92 @@ it('validates through one Zod schema and infers parsed defaults', () => {
   expect(parsed.LIVE_NAMESPACE).toBe('sf_development');
   expect(parseConfig({ ...valid, NODE_ENV: 'test' }).LIVE_NAMESPACE).toBe('sf_test');
 });
+describe('optional Google configuration', () => {
+  const google = {
+    GOOGLE_CLIENT_ID: 'test-google-client',
+    GOOGLE_CLIENT_SECRET: 'test-google-secret',
+    GOOGLE_REDIRECT_URI: 'http://localhost:4000/api/sessions/google/callback',
+  };
+
+  it.each([
+    {},
+    { GOOGLE_CLIENT_ID: '', GOOGLE_CLIENT_SECRET: '', GOOGLE_REDIRECT_URI: '' },
+    { GOOGLE_CLIENT_ID: '  ', GOOGLE_CLIENT_SECRET: '\t ', GOOGLE_REDIRECT_URI: ' \n' },
+  ])('keeps Google disabled when all settings are empty or absent: %j', (settings) => {
+    expect(parseConfig({ ...valid, NODE_ENV: 'test', ...settings })).toMatchObject({
+      GOOGLE_CLIENT_ID: '',
+      GOOGLE_CLIENT_SECRET: '',
+      GOOGLE_REDIRECT_URI: '',
+      GOOGLE_ENABLED: false,
+    });
+  });
+
+  it.each([google.GOOGLE_REDIRECT_URI, 'https://stageflow.example/api/sessions/google/callback'])(
+    'trims a complete trio and enables Google for %s',
+    (redirect) => {
+      expect(
+        parseConfig({
+          ...valid,
+          GOOGLE_CLIENT_ID: `  ${google.GOOGLE_CLIENT_ID}  `,
+          GOOGLE_CLIENT_SECRET: `  ${google.GOOGLE_CLIENT_SECRET}  `,
+          GOOGLE_REDIRECT_URI: `  ${redirect}  `,
+        }),
+      ).toMatchObject({ ...google, GOOGLE_REDIRECT_URI: redirect, GOOGLE_ENABLED: true });
+    },
+  );
+
+  it.each(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI'] as const)(
+    'rejects a partial trio with %s missing or alone',
+    (key) => {
+      const message =
+        'Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI together.';
+      for (const empty of [undefined, '', '  ']) {
+        expect(() => parseConfig({ ...valid, ...google, [key]: empty })).toThrow(message);
+      }
+      expect(() => parseConfig({ ...valid, [key]: google[key] })).toThrow(message);
+    },
+  );
+
+  it.each([
+    'not-a-url',
+    'ftp://stageflow.example/api/sessions/google/callback',
+    'https://user:password@stageflow.example/api/sessions/google/callback',
+    'https://user@stageflow.example/api/sessions/google/callback',
+    'https://@stageflow.example/api/sessions/google/callback',
+    `${google.GOOGLE_REDIRECT_URI}?next=/`,
+    `${google.GOOGLE_REDIRECT_URI}?`,
+    `${google.GOOGLE_REDIRECT_URI}#return`,
+    `${google.GOOGLE_REDIRECT_URI}#`,
+    'http://localhost:4000/',
+    'http://localhost:4000/api/sessions/google/start',
+    `${google.GOOGLE_REDIRECT_URI}/`,
+  ])('rejects a redirect outside the callback contract: %s', (redirect) => {
+    expect(() => parseConfig({ ...valid, ...google, GOOGLE_REDIRECT_URI: redirect })).toThrow(
+      'GOOGLE_REDIRECT_URI',
+    );
+  });
+
+  it('keeps Google credentials and redirect userinfo out of diagnostics', () => {
+    try {
+      parseConfig({
+        ...valid,
+        ...google,
+        GOOGLE_REDIRECT_URI:
+          'https://private-user:private-password@stageflow.example/api/sessions/google/callback',
+      });
+      throw new Error('Should reject');
+    } catch (error) {
+      expect(String(error)).toContain('GOOGLE_REDIRECT_URI');
+      for (const secret of [
+        google.GOOGLE_CLIENT_ID,
+        google.GOOGLE_CLIENT_SECRET,
+        'private-password',
+      ]) {
+        expect(String(error)).not.toContain(secret);
+      }
+    }
+  });
+});
 describe('invalid configuration', () => {
   it.each([
     ['PORT', 'NaN'],

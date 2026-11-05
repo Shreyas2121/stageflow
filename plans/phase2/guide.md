@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. V3P2-C01's optional configuration is verified. C02 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -48,7 +48,7 @@ Keep guest create, register, login, promotion, demo peers, the mesh, reconnect, 
 
 ## 2. V3P2-C01 — Optional Google configuration
 
-**Status:** planned\
+**Status:** verified; awaiting implementation commit\
 **Proposed commit message:** `feat(api-config): accept an optional Google trio`\
 **Actual commit:**
 
@@ -81,6 +81,17 @@ pnpm lint
 ```
 
 **Done when:** The default test environment still parses with Google disabled, and no Google route exists yet.
+
+**Verification record (2026-11-05):**
+
+- Execution started at `361f822` with a clean worktree, Node `22.23.2`, and pnpm `12.9.1`. `pnpm install --frozen-lockfile` passed without a lockfile change.
+- `pnpm --filter @stageflow/api test -- src/config/parse-config.test.ts` passed all 46 config tests. Coverage includes absent, empty, and whitespace-only settings; trimmed complete HTTP/HTTPS trios; every missing member and singleton; invalid protocols, userinfo, queries, fragments, and callback paths; and diagnostics that omit secret values. Parsed `GOOGLE_ENABLED` is derived from the validated trio.
+- `pnpm --filter @stageflow/shared test` passed all 309 tests in 11 files. Its first run alongside the API suite timed out in the existing 50,000-chunk broadcast ledger test; the standalone rerun passed without a source or timeout change.
+- `pnpm --filter @stageflow/api test` passed all 371 tests in 27 files, including Redis and disposable PostgreSQL integration. `pnpm typecheck` and `pnpm lint` passed across the workspace.
+- `pnpm check:affected --plan --files apps/api/src/config/parse-config.ts apps/api/src/config/parse-config.test.ts packages/shared/src/contracts.ts .env.example plans/phase2.md plans/phase2/guide.md plans/README.md` selected `pnpm check:release`. That run passed all 49 tooling, 309 shared, 456 web, and 371 API tests, workspace typecheck/lint, both builds, repository formatting, artifact checks, and `pnpm smoke:live`.
+- `pnpm check:release` failed at its final `pnpm smoke:broadcast` step: `spawn ffmpeg ENOENT` while probing `ffmpeg -version`. No FFmpeg version or broadcast result was obtained. This missing prerequisite does not close any existing V1/V2 gap.
+- Changed-file Prettier checks and `git diff --check` passed. All 22 local links in the three changed phase documents resolve, including the C01 record's heading anchor.
+- ID-05's config half is verified. Google routes, identity decisions, and browser controls remain for C02 through C04. No Google route was added, no Google exchange or browser round-trip ran, and existing V1/V2 acceptance gaps remain open.
 
 ## 3. V3P2-C02 — Subject column and account decisions
 
