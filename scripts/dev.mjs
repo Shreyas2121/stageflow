@@ -138,14 +138,14 @@ export function listDescendantPids(rootPid) {
 }
 
 function waitForExit(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if (hasExited(child)) return Promise.resolve();
   return new Promise((resolve) => {
     child.once('exit', () => resolve());
   });
 }
 
 function hasExited(child) {
-  return !child || child.exitCode !== null || child.signalCode !== null;
+  return !child?.pid || child.exitCode !== null || child.signalCode !== null;
 }
 
 function treeExited(child, watched) {
@@ -221,6 +221,7 @@ export async function runDev(mode = 'all', options = {}) {
   const wantsApi = mode === 'api' || mode === 'all';
   const wantsWeb = mode === 'web' || mode === 'all';
   let stopping = false;
+  let shutdownPromise = null;
   let restarting = false;
   let pendingRestart = false;
   let acceptRestarts = false;
@@ -246,15 +247,6 @@ export async function runDev(mode = 'all', options = {}) {
       },
     }));
 
-  function spawnNode(script, args, cwd, stdio) {
-    return spawn(process.execPath, [script, ...args], {
-      cwd,
-      env: process.env,
-      windowsHide: true,
-      stdio,
-    });
-  }
-
   function announceRecovery() {
     if (recoveryAnnounced) return;
     recoveryAnnounced = true;
@@ -268,7 +260,7 @@ export async function runDev(mode = 'all', options = {}) {
       if (needsOwnerRecovery) announceRecovery();
       return;
     }
-    const shutdown = {
+    const shutdownSettings = {
       channel: devShutdownPath(randomUUID()),
       token: randomBytes(16).toString('hex'),
     };
@@ -286,17 +278,22 @@ export async function runDev(mode = 'all', options = {}) {
       cwd: apiDir,
       env: {
         ...process.env,
-        STAGEFLOW_DEV_SHUTDOWN: shutdown.channel,
-        STAGEFLOW_DEV_SHUTDOWN_TOKEN: shutdown.token,
+        STAGEFLOW_DEV_SHUTDOWN: shutdownSettings.channel,
+        STAGEFLOW_DEV_SHUTDOWN_TOKEN: shutdownSettings.token,
       },
       windowsHide: true,
       stdio,
     });
-    child.stageflowShutdown = shutdown;
+    child.stageflowShutdown = shutdownSettings;
     apiChild = child;
     options.onApi?.(child);
+    child.on('error', (error) => {
+      if (stopping || apiChild !== child) return;
+      console.error(`[stageflow] API dev server failed to start: ${error.message}`);
+      void shutdown(1);
+    });
     child.on('exit', (code) => {
-      if (stopping || restarting || apiChild !== child) return;
+      if (stopping || apiChild !== child) return;
       console.error(`[stageflow] API dev server exited (${code ?? 'signal'}).`);
       void shutdown(code ?? 1);
     });
@@ -339,6 +336,11 @@ export async function runDev(mode = 'all', options = {}) {
     };
     readLines(child.stdout, (line) => echo(line, (text) => process.stdout.write(text)));
     readLines(child.stderr, (line) => echo(line, (text) => process.stderr.write(text)));
+    child.on('error', (error) => {
+      if (stopping || compilerChild !== child) return;
+      console.error(`[stageflow] API compiler failed to start: ${error.message}`);
+      void shutdown(1);
+    });
     child.on('exit', (code) => {
       if (stopping || compilerChild !== child) return;
       console.error(`[stageflow] API compiler exited (${code ?? 'signal'}).`);
@@ -347,7 +349,18 @@ export async function runDev(mode = 'all', options = {}) {
   }
 
   function startWeb() {
-    webChild = spawnNode(viteBin, [], webDir, 'inherit');
+    const command = options.webCommand ?? [process.execPath, viteBin];
+    webChild = spawn(command[0], command.slice(1), {
+      cwd: webDir,
+      env: process.env,
+      windowsHide: true,
+      stdio: options.webStdio ?? 'inherit',
+    });
+    webChild.on('error', (error) => {
+      if (stopping) return;
+      console.error(`[stageflow] Web dev server failed to start: ${error.message}`);
+      void shutdown(1);
+    });
     webChild.on('exit', (code) => {
       if (stopping) return;
       console.error(`[stageflow] Web dev server exited (${code ?? 'signal'}).`);
@@ -417,32 +430,35 @@ export async function runDev(mode = 'all', options = {}) {
     void shutdown(0);
   };
 
-  async function shutdown(code = 0) {
-    if (stopping) return;
+  function shutdown(code = 0) {
+    if (shutdownPromise) return shutdownPromise;
     stopping = true;
     acceptRestarts = false;
     clearTimeout(restartTimer);
     distWatcher?.close();
-    try {
-      await stopApi();
-      if (compilerChild) {
-        const compiler = compilerChild;
-        compilerChild = null;
-        killTree(compiler);
-        await Promise.race([waitForExit(compiler), delay(5_000)]);
+    shutdownPromise = (async () => {
+      try {
+        await stopApi();
+        if (compilerChild) {
+          const compiler = compilerChild;
+          compilerChild = null;
+          killTree(compiler);
+          await Promise.race([waitForExit(compiler), delay(5_000)]);
+        }
+        if (webChild) {
+          const web = webChild;
+          webChild = null;
+          killTree(web);
+          await Promise.race([waitForExit(web), delay(5_000)]);
+        }
+        await shared.stop();
+      } finally {
+        process.off('SIGINT', onSigint);
+        process.off('SIGTERM', onSigterm);
+        if (options.exitOnStop !== false) process.exit(code);
       }
-      if (webChild) {
-        const web = webChild;
-        webChild = null;
-        killTree(web);
-        await Promise.race([waitForExit(web), delay(5_000)]);
-      }
-      await shared.stop();
-    } finally {
-      process.off('SIGINT', onSigint);
-      process.off('SIGTERM', onSigterm);
-      if (options.exitOnStop !== false) process.exit(code);
-    }
+    })();
+    return shutdownPromise;
   }
 
   process.on('SIGINT', onSigint);

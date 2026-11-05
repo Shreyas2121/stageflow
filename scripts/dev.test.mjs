@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -16,11 +16,13 @@ import {
   stopSupervised,
 } from './dev.mjs';
 import { devShutdownPath, requestDevShutdown, startShutdownServer } from './dev-shutdown.mjs';
+import { createSharedBuilder } from './shared-build.mjs';
 
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
 const Redis = require('ioredis');
 const fixturePath = fileURLToPath(new URL('./dev-owner-fixture.mjs', import.meta.url));
 const compilerPath = fileURLToPath(new URL('./dev-compiler-fixture.mjs', import.meta.url));
+const failurePath = fileURLToPath(new URL('./dev-failure-fixture.mjs', import.meta.url));
 
 function redisUrl() {
   if (process.env.REDIS_URL) return process.env.REDIS_URL;
@@ -288,6 +290,170 @@ async function waitGeneration(generations, index) {
   await generations[index].output.waitFor((lines) => lines.includes('ready'));
   return generations[index];
 }
+
+async function failureFixture(t, { failure, follower = false }) {
+  const root = mkdtempSync(join(tmpdir(), 'sf-dev-failure-'));
+  const sharedDir = join(root, 'packages/shared');
+  const source = join(sharedDir, 'src/index.ts');
+  mkdirSync(join(sharedDir, 'src'), { recursive: true });
+  writeFileSync(source, 'export const value = 1;\n');
+  writeFileSync(
+    join(sharedDir, 'tsconfig.build.json'),
+    JSON.stringify({
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'CommonJS',
+        rootDir: 'src',
+        outDir: 'dist',
+        declaration: true,
+        types: [],
+        skipLibCheck: true,
+      },
+      include: ['src'],
+    }),
+  );
+  let rebuilds = 0;
+  const writer = follower
+    ? await createSharedBuilder({ root, pollMs: 30 }).watchShared({
+        onRebuild: () => {
+          rebuilds++;
+        },
+      })
+    : null;
+  if (writer) await writer.ready;
+  const lock = join(root, 'node_modules/.cache/stageflow-shared-writer');
+  const child = spawn(process.execPath, [failurePath, root, failure], {
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const output = track(child);
+  const events = () =>
+    output.lines
+      .filter((line) => line.startsWith('fixture '))
+      .map((line) => JSON.parse(line.slice('fixture '.length)));
+  const exited = new Promise((done) => child.once('close', (code) => done(code)));
+  t.after(async () => {
+    if (alive(child.pid)) killTree(child);
+    for (const event of events()) {
+      if (event.pid && alive(event.pid)) killTree({ pid: event.pid });
+    }
+    await writer?.stop();
+    assert.ok(resolve(root).startsWith(resolve(tmpdir(), 'sf-dev-failure-')));
+    rmSync(root, { recursive: true, force: true });
+  });
+  return { child, output, events, exited, lock, source, writer, rebuilds: () => rebuilds };
+}
+
+for (const follower of [false, true]) {
+  for (const failure of ['early', 'ready']) {
+    test(
+      `unexpected API exit ${failure} stops siblings and the shared ${follower ? 'follower' : 'writer'}`,
+      { timeout: 30_000 },
+      async (t) => {
+        await withRedis(async ({ redis, namespace, foreign }) => {
+          await redis.set(`${namespace}:owner`, 'unrelated-owner');
+          const f = await failureFixture(t, { failure, follower });
+          if (failure === 'ready') {
+            await f.output.waitFor(() => f.events().some((event) => event.ready === 'api'));
+            f.child.stdin.write('crash\n');
+          }
+          assert.equal(await f.exited, 7, f.output.errors.join(''));
+          const events = f.events();
+          assert.deepEqual(
+            events.filter((event) => event.stopped),
+            [{ stopped: 'shared', owned: !follower }],
+          );
+          assert.deepEqual(
+            events
+              .filter((event) => event.role)
+              .map((event) => event.role)
+              .sort(),
+            ['api', 'compiler', 'web'],
+          );
+          for (const event of events.filter((event) => event.pid))
+            assert.equal(alive(event.pid), false, `Owned ${event.role} ${event.pid} survived`);
+          assert.equal(existsSync(f.lock), follower);
+          if (follower) {
+            const before = f.rebuilds();
+            writeFileSync(f.source, 'export const value = 2;\n');
+            const deadline = Date.now() + 8_000;
+            while (f.rebuilds() === before && Date.now() < deadline) await delay(30);
+            assert.ok(f.rebuilds() > before, 'The external shared writer must still rebuild');
+            await f.writer.waitForReady();
+          }
+          assert.equal(await redis.get(`${namespace}:owner`), 'unrelated-owner');
+          assert.equal(await redis.get(`${foreign}:owner`), 'kept-owner');
+          assert.doesNotMatch(f.output.errors.join(''), /TypeError|Force-stopping/);
+        });
+      },
+    );
+  }
+}
+
+for (const role of ['api', 'compiler', 'web']) {
+  test(
+    `${role} spawn failure cleans owned siblings and shared state`,
+    { timeout: 30_000 },
+    async (t) => {
+      const f = await failureFixture(t, { failure: `${role}-spawn` });
+      assert.equal(await f.exited, 1);
+      assert.deepEqual(
+        f.events().filter((event) => event.stopped),
+        [{ stopped: 'shared', owned: true }],
+      );
+      for (const event of f.events().filter((event) => event.pid))
+        assert.equal(alive(event.pid), false, `Owned ${event.role} ${event.pid} survived`);
+      assert.equal(existsSync(f.lock), false);
+      assert.match(f.output.errors.join(''), /ENOENT/);
+      assert.doesNotMatch(f.output.errors.join(''), /Unhandled 'error' event|Force-stopping/);
+    },
+  );
+}
+
+test('repeated stop calls await the same complete cleanup', { timeout: 10_000 }, async (t) => {
+  let release;
+  let started;
+  let stops = 0;
+  const cleanup = new Promise((resolve) => {
+    release = resolve;
+  });
+  const stopping = new Promise((resolve) => {
+    started = resolve;
+  });
+  const session = await runDev('web', {
+    exitOnStop: false,
+    webCommand: [process.execPath, '-e', 'setInterval(() => {}, 1000)'],
+    webStdio: 'ignore',
+    shared: {
+      owned: true,
+      ready: Promise.resolve(),
+      stop() {
+        stops++;
+        started();
+        return cleanup;
+      },
+    },
+  });
+  t.after(async () => {
+    release();
+    await session.stop();
+  });
+  const first = session.stop();
+  const second = session.stop();
+  assert.equal(first, second);
+  let finished = false;
+  void second.then(() => {
+    finished = true;
+  });
+  await stopping;
+  await Promise.resolve();
+  assert.equal(finished, false);
+  assert.equal(alive(session.web.pid), false);
+  release();
+  await second;
+  assert.equal(stops, 1);
+  assert.equal(finished, true);
+});
 
 test('two Nest watch restarts release the owner and every child', async () => {
   await withRedis(async ({ redis, namespace, foreign }) => {
