@@ -11,6 +11,8 @@ import { IndexRoomsByHost1793664000000 } from '../migrations/1793664000000-Index
 import { AddHostCredentials1793923200000 } from '../migrations/1793923200000-AddHostCredentials';
 import { AddGoogleSubject1794009600000 } from '../migrations/1794009600000-AddGoogleSubject';
 
+import { AddBroadcastVisibility1794096000000 } from '../migrations/1794096000000-AddBroadcastVisibility';
+
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
   url: parseDatabaseConfig(process.env).DATABASE_URL,
@@ -23,6 +25,7 @@ export const databaseOptions: DataSourceOptions = {
     IndexRoomsByHost1793664000000,
     AddHostCredentials1793923200000,
     AddGoogleSubject1794009600000,
+    AddBroadcastVisibility1794096000000,
   ],
   synchronize: false,
   migrationsRun: false,

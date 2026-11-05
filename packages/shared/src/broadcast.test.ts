@@ -113,6 +113,7 @@ function response(overrides: Partial<BroadcastResponse> = {}): BroadcastResponse
     id,
     roomId,
     status: 'READY',
+    visibility: 'LINK',
     playlistUrl,
     thumbnailUrl: null,
     errorMessage: null,
@@ -129,6 +130,7 @@ describe('public broadcast response', () => {
     expect(broadcastPlaylistUrl(id)).toBe(playlistUrl);
     expect(broadcastThumbnailUrl(id)).toBe(thumbnailUrl);
     expect(parseBroadcast(body)).toEqual(body);
+    expect(parseBroadcast(response({ visibility: 'HOST' }))?.visibility).toBe('HOST');
     expect(parseBroadcast(response({ thumbnailUrl }))).toEqual(response({ thumbnailUrl }));
     expect(
       parseBroadcast({
@@ -153,6 +155,10 @@ describe('public broadcast response', () => {
       'READY',
       response({ id: 'broadcast-1' }),
       response({ roomId: 'room' }),
+      { ...response(), visibility: undefined },
+      { ...response(), visibility: 'link' },
+      { ...response(), visibility: 'PUBLIC' },
+      { ...response(), status: 'DELETING' },
       { ...response(), status: 'DONE' },
       { ...response(), status: 'live' },
       response({ playlistUrl: 'https://cdn.example/live.m3u8' }),

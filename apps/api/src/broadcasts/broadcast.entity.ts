@@ -1,10 +1,14 @@
 import { Check, Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
-import type { BroadcastStatus } from '@stageflow/shared';
+import type { BroadcastStatus, BroadcastVisibility } from '@stageflow/shared';
 import { BaseEntity } from '../database/base.entity';
 import { Room } from '../rooms/room.entity';
 
 @Entity('broadcasts')
-@Check('broadcasts_status_check', `"status" IN ('STARTING', 'LIVE', 'STOPPING', 'READY', 'FAILED')`)
+@Check(
+  'broadcasts_status_check',
+  `"status" IN ('STARTING', 'LIVE', 'STOPPING', 'READY', 'FAILED', 'DELETING')`,
+)
+@Check('broadcasts_visibility_check', `"visibility" IN ('LINK', 'HOST')`)
 @Index('broadcasts_room_created_idx', ['roomId', 'createdAt'])
 export class Broadcast extends BaseEntity {
   @Column({ name: 'room_id', type: 'uuid' })
@@ -15,7 +19,10 @@ export class Broadcast extends BaseEntity {
   room: Room;
 
   @Column({ type: 'text', default: 'STARTING' })
-  status: BroadcastStatus;
+  status: BroadcastStatus | 'DELETING';
+
+  @Column({ type: 'text', default: 'LINK' })
+  visibility: BroadcastVisibility;
 
   @Column({ name: 'playlist_path', type: 'text', nullable: true })
   playlistPath: string | null;

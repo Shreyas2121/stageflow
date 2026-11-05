@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { databaseOptions } from '../database/data-source';
 import { AddHostCredentials1793923200000 } from '../migrations/1793923200000-AddHostCredentials';
 import { AddGoogleSubject1794009600000 } from '../migrations/1794009600000-AddGoogleSubject';
+import { Broadcast } from '../broadcasts/broadcast.entity';
 import { User } from './user.entity';
 
 const adminUrl = process.env.DATABASE_URL;
@@ -12,6 +13,8 @@ const databaseName = `sf_credentials_${randomUUID().replaceAll('-', '')}`;
 const databaseUrl = new URL(adminUrl);
 databaseUrl.pathname = `/${databaseName}`;
 const legacyGuestId = randomUUID();
+const legacyRoomId = randomUUID();
+const legacyBroadcastId = randomUUID();
 let created = false;
 let admin: DataSource | undefined;
 let dataSource: DataSource | undefined;
@@ -29,7 +32,7 @@ beforeAll(async () => {
   dataSource = new DataSource({
     ...databaseOptions,
     url: databaseUrl.href,
-    migrations: databaseOptions.migrations.slice(0, -2),
+    migrations: databaseOptions.migrations.slice(0, 3),
     extra,
   });
   await dataSource.initialize();
@@ -38,12 +41,21 @@ beforeAll(async () => {
     legacyGuestId,
     'Legacy guest',
   ]);
+  await dataSource.query(
+    `INSERT INTO rooms (id, slug, title, mode, status, host_id) VALUES ($1, 'LegacyCast01', 'Legacy replay', 'WEBINAR', 'ENDED', $2)`,
+    [legacyRoomId, legacyGuestId],
+  );
+  await dataSource.query(`INSERT INTO broadcasts (id, room_id, status) VALUES ($1, $2, 'READY')`, [
+    legacyBroadcastId,
+    legacyRoomId,
+  ]);
   await dataSource.destroy();
   dataSource = new DataSource({ ...databaseOptions, url: databaseUrl.href, extra });
   await dataSource.initialize();
   expect((await dataSource.runMigrations()).map((migration) => migration.name)).toEqual([
     'AddHostCredentials1793923200000',
     'AddGoogleSubject1794009600000',
+    'AddBroadcastVisibility1794096000000',
   ]);
   expect(await dataSource.runMigrations()).toEqual([]);
 }, 30_000);
@@ -150,4 +162,28 @@ it('enforces unique non-null Google subjects while preserving null password iden
     users.save(users.create({ displayName: 'Other', googleSubject: subject })),
   ).rejects.toMatchObject({ driverError: { code: '23505' } });
   expect(await users.findOneByOrFail({ id: legacyGuestId })).toMatchObject({ googleSubject: null });
+});
+
+it('backfills replay visibility, defaults new saved rows to LINK, and checks stored values', async () => {
+  const broadcasts = database().getRepository(Broadcast);
+  expect(await broadcasts.findOneByOrFail({ id: legacyBroadcastId })).toMatchObject({
+    visibility: 'LINK',
+    status: 'READY',
+  });
+  const saved = await broadcasts.save(broadcasts.create({ roomId: legacyRoomId }));
+  expect(saved.visibility).toBe('LINK');
+  expect(await broadcasts.findOneByOrFail({ id: saved.id })).toMatchObject({ visibility: 'LINK' });
+  for (const visibility of [null, 'link', 'PUBLIC']) {
+    await expect(
+      database().query('UPDATE broadcasts SET visibility = $1 WHERE id = $2', [
+        visibility,
+        saved.id,
+      ]),
+    ).rejects.toMatchObject({ driverError: { code: visibility === null ? '23502' : '23514' } });
+  }
+  await broadcasts.update(saved.id, { status: 'DELETING', visibility: 'HOST' });
+  expect(await broadcasts.findOneByOrFail({ id: saved.id })).toMatchObject({
+    status: 'DELETING',
+    visibility: 'HOST',
+  });
 });

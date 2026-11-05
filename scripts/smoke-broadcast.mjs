@@ -299,6 +299,7 @@ try {
     'IndexRoomsByHost1793664000000',
     'AddHostCredentials1793923200000',
     'AddGoogleSubject1794009600000',
+    'AddBroadcastVisibility1794096000000',
   ];
   assert.deepEqual(
     migrations.map((m) => m.name),

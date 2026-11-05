@@ -28,6 +28,7 @@ async function fixture(stdin = new PassThrough(), uploads?: UploadAllowance) {
     create: (value: unknown) => value,
     save: vi.fn(async (row: Broadcast) => {
       if (!row.id) {
+        row.visibility ??= 'LINK';
         row.id = randomUUID();
         row.createdAt = new Date();
         rows.push(row);
@@ -119,6 +120,8 @@ it('inserts STARTING and reserves before spawn, then marks LIVE and publishes', 
   const f = await fixture();
   expect(await f.start()).toEqual({ ok: true });
   expect(f.events).toEqual(['STARTING', 'reserve', 'LIVE']);
+  expect(f.rows[0]?.visibility).toBe('LINK');
+  expect(f.repository.save.mock.calls[0]?.[0].visibility).toBe('LINK');
   expect(f.repository.findOne).not.toHaveBeenCalled();
   expect(f.repository.findOneBy).not.toHaveBeenCalled();
   expect(await f.service.snapshot(f.rows[0]!.roomId, f.rows[0]!.id)).toMatchObject({

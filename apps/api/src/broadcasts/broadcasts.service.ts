@@ -59,6 +59,7 @@ export type BroadcastPage = {
 };
 
 function catalog(row: Broadcast): BroadcastResponse {
+  if (row.status === 'DELETING') throw new Error('A delete claim is not a catalog entry.');
   const thumbnailUrl =
     row.thumbnailPath === `broadcasts/${row.id}/thumbnail.jpg`
       ? broadcastThumbnailUrl(row.id)
@@ -67,6 +68,7 @@ function catalog(row: Broadcast): BroadcastResponse {
     id: row.id,
     roomId: row.roomId,
     status: row.status,
+    visibility: row.visibility,
     playlistUrl: row.playlistPath ? broadcastPlaylistUrl(row.id) : null,
     thumbnailUrl,
     errorMessage: row.errorMessage,
@@ -112,7 +114,7 @@ export class BroadcastsService {
   }
 
   private projection(row: Broadcast | null): RoomSnapshot['broadcast'] {
-    return row
+    return row && row.status !== 'DELETING'
       ? {
           id: row.id,
           status: row.status,

@@ -1,6 +1,6 @@
 # V3 Phase 3 — Replay visibility and deletion
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. C01 records replay visibility; C02 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.4`, Sections 4, 8, and 12 (LIB-01 through LIB-04). Identity stays as shipped in `plans/phase1.md` and `plans/phase2.md`.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V3P3-C01 through V3P3-C05. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md) or the V2 commits in [V2/phase3/guide.md](V2/phase3/guide.md).\
@@ -166,3 +166,9 @@ The next phase may rely on these once the slices are committed:
 V3 phase 4 may add scheduled rooms and waiting-room admission. Do not write `plans/phase4.md` until that phase is requested.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
+
+## 10. Implementation evidence
+
+### V3P3-C01 ? Stored visibility (2026-11-05)
+
+Shared 309, API 400, web 477, and tooling 49 tests passed, as did workspace typecheck/lint, both builds, formatting, artifact checks, and live smoke. Broadcast smoke passed with the existing temporary FFmpeg 6.0 executable after its initial PATH lookup failed. All six migrations ran on an owned disposable database, with an empty second run. Migration regressions verify legacy and newly saved LINK rows, visibility constraints, and internal DELETING storage. Snapshot projection omits DELETING and restart recovery leaves it unchanged. No route can set HOST yet. LIB-02 storage is verified; promotion and mutation refusals remain for C03. Browser and physical acceptance remain open.

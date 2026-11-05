@@ -19,6 +19,7 @@ function row(status: BroadcastStatus, roomId = randomUUID()): Broadcast {
     id: randomUUID(),
     roomId,
     status,
+    visibility: 'LINK',
     playlistPath: status === 'READY' ? 'broadcasts/ready/index.m3u8' : null,
     thumbnailPath: null,
     errorMessage: status === 'FAILED' ? 'original error' : null,
@@ -36,7 +37,7 @@ function fixture(rows: Broadcast[] = []) {
   const repository = {
     update: vi.fn(
       async (
-        where: { status: FindOperator<BroadcastStatus[]> },
+        where: { status: FindOperator<Broadcast['status'][]> },
         patch: Pick<Broadcast, 'status' | 'errorMessage' | 'endedAt'>,
       ) => {
         for (const row of rows) {
@@ -156,6 +157,7 @@ it('lists only the requested room, newest first, and returns serialized catalog 
     id: ready.id,
     roomId,
     status: 'READY',
+    visibility: 'LINK',
     playlistUrl: `/api/broadcasts/${ready.id}/hls/index.m3u8`,
     thumbnailUrl: `/api/broadcasts/${ready.id}/thumbnail.jpg`,
     errorMessage: null,
@@ -299,6 +301,7 @@ it('returns one broadcast and rejects malformed or unknown ids and unknown rooms
     id: live.id,
     roomId: live.roomId,
     status: 'LIVE',
+    visibility: 'LINK',
     playlistUrl: null,
     thumbnailUrl: null,
     errorMessage: null,
@@ -319,4 +322,13 @@ it('returns one broadcast and rejects malformed or unknown ids and unknown rooms
     response: { statusCode: 404 },
   });
   expect(repository.find).not.toHaveBeenCalled();
+});
+
+it('does not project a delete claim or recover it as an in-flight attempt', async () => {
+  const deleting = { ...row('READY'), status: 'DELETING' as const };
+  const { service, repository } = fixture([deleting]);
+  Object.assign(repository, { findOne: vi.fn(async () => deleting) });
+  expect(await service.snapshot(deleting.roomId, deleting.id)).toBeNull();
+  await service.failInFlight();
+  expect(deleting.status).toBe('DELETING');
 });

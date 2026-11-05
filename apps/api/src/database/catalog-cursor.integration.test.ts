@@ -109,6 +109,7 @@ beforeAll(async () => {
     'IndexRoomsByHost1793664000000',
     'AddHostCredentials1793923200000',
     'AddGoogleSubject1794009600000',
+    'AddBroadcastVisibility1794096000000',
   ]);
   expect(await source.runMigrations()).toEqual([]);
   await source.query(

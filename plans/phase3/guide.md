@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. C01 records replay visibility; C02 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -50,7 +50,7 @@ Keep guest create, register, login, promotion, Google sign-in, demo peers, the m
 
 ## 2. V3P3-C01 — Record link visibility
 
-**Status:** planned\
+**Status:** verified, awaiting commit\
 **Proposed commit message:** `feat(api-broadcast): record link visibility on replays`\
 **Actual commit:**
 
@@ -88,6 +88,8 @@ pnpm lint
 ```
 
 **Done when:** Existing playback still works, every catalog object includes `visibility`, and no route can set `HOST` yet.
+
+**Verification record (2026-11-05):** Shared 309, API 400, and web 477 tests passed. Workspace typecheck and lint passed. The affected plan selected `check:release`: tooling 49 tests, both builds, repository formatting, artifact checks, and live smoke passed. Broadcast smoke initially failed because `ffmpeg` was absent from PATH, then passed with `FFMPEG_PATH=C:/Users/rasai/AppData/Local/Temp/stageflow-ffmpeg-b6.0/ffmpeg.exe` (FFmpeg 6.0). Its disposable database applied all six migrations and a second run was empty; real WebM/HLS encoding, decoded audio/video, startup recovery, and owned cleanup passed. The PostgreSQL regression also verifies legacy LINK backfill, a new saved LINK row, invalid visibility constraints, and the internal DELETING status. No browser or physical-device observation is claimed.
 
 ## 3. V3P3-C02 — Owner-only private playback
 

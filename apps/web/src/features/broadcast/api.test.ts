@@ -10,6 +10,7 @@ function catalog(overrides: Record<string, unknown> = {}) {
     id,
     roomId,
     status: 'READY',
+    visibility: 'LINK',
     playlistPath: `broadcasts/${id}/index.m3u8`,
     playlistUrl: `/api/broadcasts/${id}/hls/index.m3u8`,
     thumbnailUrl: null,
@@ -33,6 +34,7 @@ describe('broadcast catalog', () => {
     expect(parseBroadcast(catalog())).toMatchObject({
       id,
       status: 'READY',
+      visibility: 'LINK',
       playlistUrl: `/api/broadcasts/${id}/hls/index.m3u8`,
       errorMessage: null,
     });

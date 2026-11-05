@@ -1,5 +1,7 @@
 import { isUuid } from './identifiers';
 
+export type BroadcastVisibility = 'LINK' | 'HOST';
+
 export type BroadcastStatus = 'STARTING' | 'LIVE' | 'STOPPING' | 'READY' | 'FAILED';
 
 export type ChunkHistory = {
@@ -98,6 +100,7 @@ export type BroadcastResponse = {
   id: string;
   roomId: string;
   status: BroadcastStatus;
+  visibility: BroadcastVisibility;
   playlistUrl: string | null;
   thumbnailUrl: string | null;
   errorMessage: string | null;
@@ -185,6 +188,7 @@ export function parseBroadcast(value: unknown): BroadcastResponse | null {
     !isUuid(value.id) ||
     !isUuid(value.roomId) ||
     !isBroadcastStatus(value.status) ||
+    (value.visibility !== 'LINK' && value.visibility !== 'HOST') ||
     !isCatalogPlaylist(value.playlistUrl) ||
     !isCatalogThumbnail(value.id, value.thumbnailUrl) ||
     !isErrorMessage(value.errorMessage) ||
@@ -197,6 +201,7 @@ export function parseBroadcast(value: unknown): BroadcastResponse | null {
     id: value.id,
     roomId: value.roomId,
     status: value.status,
+    visibility: value.visibility,
     playlistUrl: value.playlistUrl,
     thumbnailUrl: value.thumbnailUrl,
     errorMessage: value.errorMessage,
