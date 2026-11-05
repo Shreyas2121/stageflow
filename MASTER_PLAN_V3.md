@@ -1,13 +1,14 @@
 # StageFlow — V3 Master Plan
 
 **Direction:** Persistent hosts and organized local sessions.\
-**Status:** V3 Phases 1 and 2 are complete. V3 Phase 3 is specified in `plans/phase3.md` and is not implemented. Partial and unverified V1 and V2 acceptance ids stay open.\
+**Status:** V3 Phases 1 through 3 are implemented. LIB-01 through LIB-04 are verified in `plans/phase3.md`. Partial and unverified V1 and V2 acceptance ids stay open.\
 **Plan version:** `3.0.0-draft.4`\
 **Date:** 2026-11-05\
 **Revision note (3.0.0-draft.4):** V3 Phase 2, optional Google sign-in, is complete. V3 Phase 3, replay visibility and deletion, has a contract and guide. No visibility or deletion code is included in that planning change.\
 **Revision note (3.0.0-draft.3):** V3 Phase 2, optional Google sign-in, has a contract and guide. Phase 1 identity remains the shipped account behavior. No Google code is included in that planning change.\
 **Revision note (3.0.0-draft.2):** V3 Phase 1, host identity, has a contract and guide. The V2 phase files now live in `plans/V2/`. No identity code is included in that planning change.\
 **Revision note (3.0.0-draft.1):** Records the approved V3 scope. Identity, scheduling, waiting-room admission, replay privacy, replay deletion, and moderated Q&A are specified here. No application code, phase file, or guide is authorized by this document alone.\
+**Implementation note (2026-11-05):** V3 Phase 3 now includes stored LINK/HOST visibility, owner-only playback, confined deletion, and home library controls. Its seeded browser replay checks do not close prior recorder, physical-device, audible-output, or native-picker observations. Product scope and plan version are unchanged.\
 **Inputs:** [Original idea](idea.md), [V1 master plan](MASTER_PLAN.md), [V2 master plan](MASTER_PLAN_V2.md), the current repository, and the approved V3 scope.\
 **Deployment:** Excluded. Delivery and acceptance stay local.
 
@@ -375,6 +376,6 @@ Outstanding V1 and V2 physical observations stay unverified until they are actua
 
 ## 15. Next execution request
 
-V3 Phase 3 is specified and not implemented. V3 Phases 1 and 2 are complete.
+V3 Phases 1 through 3 are implemented. Phase 3 records its verification and slice hashes in `plans/phase3.md` and `plans/phase3/guide.md`.
 
-> Read `MASTER_PLAN_V3.md`, `plans/phase3.md`, and `plans/phase3/guide.md`. Implement V3P3-C01 through V3P3-C05 in order when implementation is requested. Keep email/password accounts, optional Google, the guest session, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Do not write `plans/phase4.md` in that work. Leave the open V2 acceptance ids open. Existing replays stay link-visible until a registered owner changes one.
+> V3 Phase 4 is scheduled rooms and waiting-room admission. Write its contract and guide only when requested. Preserve identity, replay privacy/deletion, guest entry, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Keep the four-person stage and explicit capture consent. Existing V1/V2 acceptance gaps stay open.
