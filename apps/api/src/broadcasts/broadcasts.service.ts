@@ -1,3 +1,4 @@
+import { beforeHistoryCursor } from '../database/catalog-cursor';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -14,7 +15,7 @@ import {
 } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { In, Raw, Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
 import { readOrderingInstant } from '../database/ordering-instant';
@@ -73,18 +74,6 @@ function catalog(row: Broadcast): BroadcastResponse {
     endedAt: row.endedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-/** Next page of `created_at DESC, id DESC`. The id is compared as a UUID. */
-function beforeHistoryCursor(createdAt: string, id: string) {
-  return Raw(
-    (alias) => {
-      const dot = alias.lastIndexOf('.');
-      const table = `"${alias.slice(0, dot).replaceAll('"', '')}"`;
-      return `(${table}."created_at", ${table}."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))`;
-    },
-    { cursorCreatedAt: createdAt, cursorId: id },
-  );
 }
 
 @Injectable()

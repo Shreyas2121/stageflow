@@ -1,9 +1,9 @@
+import { useCatalogPages } from './catalog-paging';
+import { CatalogPagingControls } from './catalog-paging-controls';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
-import { useQueries } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '../../components/ui/button';
-import { mergeById } from './history';
 import { roomsQueryOptions } from './query-options';
 import { RoomHistory } from './room-history';
 
@@ -22,45 +22,11 @@ function invitationHref(slug: string): string {
 }
 
 export function RoomList({ session }: { session: GuestSessionResponse }) {
-  const [cursors, setCursors] = useState<Array<string | null>>([null]);
-  const queries = useQueries({
-    queries: cursors.map((cursor) => roomsQueryOptions(session, cursor)),
-  });
-  const items = mergeById(queries.flatMap((query) => (query.data ? [query.data.items] : [])));
-  let nextCursor: string | null = null;
-  for (let index = queries.length - 1; index >= 0; index -= 1) {
-    const data = queries[index]?.data;
-    if (!data) continue;
-    nextCursor = data.nextCursor;
-    break;
-  }
-  const latest = queries[queries.length - 1];
-  const first = queries[0];
-
-  function loadMore() {
-    if (latest?.isError) {
-      void latest.refetch();
-      return;
-    }
-    if (!nextCursor) return;
-    setCursors((current) => (current.includes(nextCursor) ? current : [...current, nextCursor]));
-  }
+  const page = useCatalogPages(roomsQueryOptions(session));
+  const { items } = page;
 
   return (
     <div className="mt-4">
-      {first?.isPending && (
-        <p className="text-sm text-muted" role="status">
-          Loading rooms…
-        </p>
-      )}
-      {first?.isError && (
-        <p className="text-sm text-danger wrap-anywhere" role="alert">
-          {first.error.message}
-        </p>
-      )}
-      {first?.isSuccess && items.length === 0 && (
-        <p className="text-sm text-muted">This guest session has no rooms.</p>
-      )}
       {items.length > 0 && (
         <ul className="m-0 grid list-none gap-3 p-0">
           {items.map((room) => (
@@ -68,21 +34,7 @@ export function RoomList({ session }: { session: GuestSessionResponse }) {
           ))}
         </ul>
       )}
-      {queries.length > 1 && latest?.isError && (
-        <p className="mt-3 text-sm text-danger wrap-anywhere" role="alert">
-          {latest.error.message}
-        </p>
-      )}
-      {nextCursor !== null && (
-        <Button
-          className="mt-3"
-          type="button"
-          disabled={Boolean(latest?.isPending)}
-          onClick={loadMore}
-        >
-          Load more
-        </Button>
-      )}
+      <CatalogPagingControls page={page} name="rooms" empty="This guest session has no rooms." />
     </div>
   );
 }

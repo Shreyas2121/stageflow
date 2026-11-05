@@ -2,6 +2,7 @@ import { queryOptions, skipToken, type QueryClient } from '@tanstack/react-query
 import type { GuestSessionResponse } from '@stageflow/shared';
 import { getRoom, listBroadcasts, listRooms } from './api';
 import { useSessionStore } from '../session/session-store';
+import { catalogQueryOptions } from './catalog-paging';
 
 export function roomQueryOptions(slug: string, session: GuestSessionResponse | null) {
   return queryOptions({
@@ -11,26 +12,18 @@ export function roomQueryOptions(slug: string, session: GuestSessionResponse | n
   });
 }
 
-export function roomsQueryOptions(session: GuestSessionResponse | null, cursor: string | null) {
-  return queryOptions({
-    queryKey: ['private', session?.userId ?? null, 'rooms', cursor],
-    queryFn: session ? ({ signal }) => listRooms(session.token, cursor, signal) : skipToken,
-    retry: false,
-  });
+export function roomsQueryOptions(session: GuestSessionResponse | null) {
+  return catalogQueryOptions(
+    ['private', session?.userId ?? null, 'rooms'],
+    session ? (cursor, signal) => listRooms(session.token, cursor, signal) : skipToken,
+  );
 }
 
-export function roomBroadcastsQueryOptions(
-  session: GuestSessionResponse | null,
-  slug: string,
-  cursor: string | null,
-) {
-  return queryOptions({
-    queryKey: ['private', session?.userId ?? null, 'room-broadcasts', slug, cursor],
-    queryFn: session
-      ? ({ signal }) => listBroadcasts(slug, session.token, cursor, signal)
-      : skipToken,
-    retry: false,
-  });
+export function roomBroadcastsQueryOptions(session: GuestSessionResponse | null, slug: string) {
+  return catalogQueryOptions(
+    ['private', session?.userId ?? null, 'room-broadcasts', slug],
+    session ? (cursor, signal) => listBroadcasts(slug, session.token, cursor, signal) : skipToken,
+  );
 }
 
 export function bindSessionCache(client: QueryClient): () => void {

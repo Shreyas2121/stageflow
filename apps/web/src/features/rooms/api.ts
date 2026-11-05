@@ -8,8 +8,7 @@ import {
   type CreateRoomRequest,
   type RoomResponse,
 } from '@stageflow/shared';
-import { request } from '../../lib/http/client';
-import { ApiError } from '../../lib/http/api-error';
+import { authenticatedRequest } from '../session/authenticated-request';
 import { parseBroadcast } from '../broadcast/api';
 import { useSessionStore } from '../session/session-store';
 
@@ -59,16 +58,10 @@ async function roomRequest(
   token: string,
   options: RequestInit,
 ): Promise<RoomResponse> {
-  try {
-    return await request(path, parseRoom, {
-      ...options,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401)
-      useSessionStore.getState().clearSession(token);
-    throw error;
-  }
+  return authenticatedRequest(path, token, parseRoom, {
+    ...options,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 export function createRoom(
   input: CreateRoomRequest,
@@ -125,24 +118,6 @@ function catalogPath(path: string, cursor: string | null): string {
   return `${path}?${new URLSearchParams({ cursor }).toString()}`;
 }
 
-async function authorized<T>(
-  path: string,
-  token: string,
-  parse: (body: unknown) => T,
-  signal?: AbortSignal,
-): Promise<T> {
-  try {
-    return await request(path, parse, {
-      signal,
-      headers: { Authorization: `Bearer ${token}` },
-    });
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401)
-      useSessionStore.getState().clearSession(token);
-    throw error;
-  }
-}
-
 export function listRooms(
   token: string,
   cursor: string | null,
@@ -151,11 +126,11 @@ export function listRooms(
   const session = useSessionStore.getState().session;
   if (!session || session.token !== token) throw new Error('Invalid room page');
   const userId = session.userId;
-  return authorized(
+  return authenticatedRequest(
     catalogPath('/rooms', cursor),
     token,
     (body) => parseRoomPage(body, userId),
-    signal,
+    { signal },
   );
 }
 
@@ -165,10 +140,10 @@ export function listBroadcasts(
   cursor: string | null,
   signal?: AbortSignal,
 ): Promise<BroadcastPage> {
-  return authorized(
+  return authenticatedRequest(
     catalogPath(`/rooms/${encodeURIComponent(slug)}/broadcasts`, cursor),
     token,
     parseBroadcastPage,
-    signal,
+    { signal },
   );
 }

@@ -1,7 +1,8 @@
+import { beforeHistoryCursor } from '../database/catalog-cursor';
 import { isUuid, isRoomSlug } from '@stageflow/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Raw, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import {
   createRoomSlugFromCrypto,
   encodeHistoryCursor,
@@ -20,18 +21,6 @@ export type RoomPage = {
   items: RoomResponse[];
   nextCursor: string | null;
 };
-
-/** Next page of `created_at DESC, id DESC`. The id is compared as a UUID. */
-function beforeHistoryCursor(createdAt: string, id: string) {
-  return Raw(
-    (alias) => {
-      const dot = alias.lastIndexOf('.');
-      const table = `"${alias.slice(0, dot).replaceAll('"', '')}"`;
-      return `(${table}."created_at", ${table}."id") < (CAST(:cursorCreatedAt AS timestamptz), CAST(:cursorId AS uuid))`;
-    },
-    { cursorCreatedAt: createdAt, cursorId: id },
-  );
-}
 
 @Injectable()
 export class RoomsService {

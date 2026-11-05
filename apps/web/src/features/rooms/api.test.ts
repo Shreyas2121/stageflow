@@ -133,22 +133,15 @@ describe('guest catalog pages', () => {
 
   it('keeps catalog queries private to the session user and skips them without a session', () => {
     const session = { token, userId, displayName: 'Ava' };
-    expect(roomsQueryOptions(session, null).queryKey).toEqual(['private', userId, 'rooms', null]);
-    expect(roomsQueryOptions(session, cursor).queryKey).toEqual([
-      'private',
-      userId,
-      'rooms',
-      cursor,
-    ]);
-    expect(roomBroadcastsQueryOptions(session, slug, cursor).queryKey).toEqual([
+    expect(roomsQueryOptions(session).queryKey).toEqual(['private', userId, 'rooms']);
+    expect(roomBroadcastsQueryOptions(session, slug).queryKey).toEqual([
       'private',
       userId,
       'room-broadcasts',
       slug,
-      cursor,
     ]);
-    expect(JSON.stringify(roomsQueryOptions(session, cursor).queryKey)).not.toContain(token);
-    expect(roomsQueryOptions(null, null).queryFn).toBe(skipToken);
-    expect(roomBroadcastsQueryOptions(null, slug, null).queryFn).toBe(skipToken);
+    expect(JSON.stringify(roomsQueryOptions(session).queryKey)).not.toContain(token);
+    expect(roomsQueryOptions(null).queryFn).toBe(skipToken);
+    expect(roomBroadcastsQueryOptions(null, slug).queryFn).toBe(skipToken);
   });
 });
