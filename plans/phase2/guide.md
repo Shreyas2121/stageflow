@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** finishing. C01 through C04 are committed. C05 documentation is verified; the final commit/hash record remains.\
+**Status:** complete. C01 through C05 are committed and the final slice hash is recorded. ID-05 is verified with Google unset; ID-06 is verified with a fake exchange. A real Google round-trip was not run, and existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -249,9 +249,9 @@ Then check the unset home page in the browser.
 
 ## 6. V3P2-C05 — README
 
-**Status:** verified; awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe optional Google sign-in`\
-**Actual commit:**
+**Actual commit:** `446fd1673cf54b1c316443d2c4e3910144b48d1c`
 
 **Why:** The README still says Google is absent. After C04 it must say the feature is optional and that an equal email does not merge accounts.
 
@@ -288,3 +288,7 @@ Read the edited README against phase Sections 5 and 6.
 - `pnpm exec prettier --check README.md plans/phase2.md plans/phase2/guide.md plans/README.md` and `git diff --check` passed. All 58 local links/anchors and seven referenced Git commits validated. `pnpm check:affected --plan --files README.md plans/phase2.md plans/phase2/guide.md plans/README.md` selected formatting only. This slice changes documentation only; no application suite, browser, or service restart was run.
 
 **Handoff:** V3 phase 3 is replay visibility and deletion. Do not write `plans/phase3.md` until that phase is requested.
+
+## 7. Final slice hash record (2026-11-05)
+
+C05 is `446fd1673cf54b1c316443d2c4e3910144b48d1c`. Its hash and the completed phase statuses are recorded in the required follow-up `docs(v3-phase2): record the final slice hash`. Changed-file formatting, all 58 local links/anchors, eight referenced Git commits, and diff checks passed. This follow-up changes documentation only; it adds no runtime or browser observation.
