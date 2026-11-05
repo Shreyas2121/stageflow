@@ -90,20 +90,23 @@ Unexpected host loss fails the current broadcast with `Host connection lost.`, r
 
 Room chat is one plain-text channel for connected hosts, speakers, and attendees in both meetings and webinars. The panel appears after join and shows each accepted message once, in server order, with the sender's name and role at acceptance. Enter sends; Shift+Enter inserts a newline. Text and URLs stay literal text. An arrival preserves focus and, when you are reading earlier lines, shows a new-message count instead of scrolling to the bottom. Demo peers generate no chat lines.
 
-| Chat limit                | Shipped behavior                                                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Text                      | 1 to 1,000 UTF-16 code units after trim and at most 4,000 UTF-8 bytes; some emoji use two code units                    |
-| Retained history          | At most 500 recent messages per room in Redis; the oldest messages are dropped                                          |
-| Idle expiry               | 86,400 seconds (24 hours), refreshed by chat writes                                                                     |
-| History pages             | Latest 50 messages by default, in ascending sequence; requests allow 1 to 100 per page                                  |
-| Participant rate          | 10 accepted messages per participant per 10 seconds                                                                     |
-| Room rate                 | 100 accepted messages per room per 10 seconds                                                                           |
-| Pending sends             | At most 5 waiting for an acknowledgement; a sixth stays in the composer with a busy message                             |
-| Retry deduplication       | Latest 500 participant/request-id pairs per room; an accepted duplicate spends no rate and returns the original message |
-| Participant-rate capacity | At most 1,000 fields per room; a new field past the cap returns `chat_busy` without evicting an existing field          |
-| Chat work queue           | At most 32 waiting operations per room, separate from stage work; excess returns `chat_busy`                            |
+| Chat limit                | Shipped behavior                                                                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Text                      | 1 to 1,000 UTF-16 code units after trim and at most 4,000 UTF-8 bytes; some emoji use two code units                                     |
+| Retained history          | At most 500 recent messages per room in Redis; the oldest messages are dropped                                                           |
+| Idle expiry               | 86,400 seconds (24 hours), refreshed by chat writes                                                                                      |
+| History pages             | Latest 50 messages by default, in ascending sequence; requests allow 1 to 100 per page                                                   |
+| Participant rate          | 10 accepted messages per participant per 10 seconds                                                                                      |
+| Room rate                 | 100 accepted messages per room per 10 seconds                                                                                            |
+| Pending sends             | At most 5 waiting for an acknowledgement; a sixth stays in the composer with a busy message                                              |
+| Unsent attempts           | At most 20 pending or failed attempts and 40,000 UTF-8 text bytes per page; a draft that would exceed either limit stays in the composer |
+| Retry deduplication       | Latest 500 participant/request-id pairs per room; an accepted duplicate spends no rate and returns the original message                  |
+| Participant-rate capacity | At most 1,000 fields per room; a new field past the cap returns `chat_busy` without evicting an existing field                           |
+| Chat work queue           | At most 32 waiting operations per room, separate from stage work; excess returns `chat_busy`                                             |
 
 **Pause chat** blocks every new message, including the host's and a synthetic participant's. Everyone sees **The host paused chat.** Accepted lines remain readable. **Resume chat** permits new sends again. Join and socket resume fetch recent history. During recovery the panel is read only; in-flight sends become **Not sent**, and the page does not send them again automatically. **Retry** uses the original request id; **Dismiss** removes the failure without sending it. A retry after its dedup entry has fallen outside the latest 500 pairs can create another message. A gap lost to retention shows **Earlier messages are no longer available.** Chat events also use the existing socket event budget. A rejected, busy, or rate-limited send stays on chat and leaves the stage, peer connections, and broadcast running.
+
+When adding a draft would exceed the unsent-attempt count or text-byte limit, **Send** is disabled and the panel asks you to retry or dismiss a message. Enter keeps the draft too. Pending and failed attempts stay until acknowledged or explicitly dismissed; the page does not evict them to make space. Same-id **Retry** remains available at the retention limit, within the five-pending-send limit. Successful acknowledgement or **Dismiss** frees space. Reconnecting keeps the retained attempts and draft without sending them automatically.
 
 The panel states **Chat is live. It is not synced to the delayed video.** Room end disables both the composer and Retry, keeps the lines already on the current page, and shows **This room has ended. Chat is closed.** Shutdown deletes the room's chat keys, and API startup clears chat with live presence. Chat is temporary Redis state: no messages are stored in the PostgreSQL catalog or attached to a replay. Each accepted line shows the server time after the role, as specified in [V2 Phase 5 Section 5.1](plans/V2/phase5.md). The visible text is the local hour and minute from `sentAt`, and it includes the date when that local day differs from now. The value on the wire stays the server instant.
 

@@ -5,7 +5,12 @@ import {
   type ChatMessage,
   type ChatSendAck,
 } from '@stageflow/shared';
-import { ChatSession, type ChatTransport } from './chat-session';
+import {
+  CHAT_MAX_RETAINED_ATTEMPTS,
+  CHAT_MAX_RETAINED_TEXT_BYTES,
+  ChatSession,
+  type ChatTransport,
+} from './chat-session';
 
 function message(sequence: number, text = `Line ${sequence}`): ChatMessage {
   return {
@@ -52,6 +57,15 @@ function harness() {
     })),
   };
   return { session, transport };
+}
+
+function attemptTextBytes(session: ChatSession): number {
+  return session
+    .getSnapshot()
+    .attempts.reduce(
+      (total, attempt) => total + new TextEncoder().encode(attempt.text).byteLength,
+      0,
+    );
 }
 
 describe('ChatSession', () => {
@@ -387,6 +401,199 @@ describe('ChatSession', () => {
     expect(session.getSnapshot().draft).toBe('draft 5');
     expect(session.getSnapshot().error).toBe('Chat is busy. Try again shortly.');
     session.end();
+  });
+
+  it('bounds sustained sequential failures without evicting old attempts or losing the draft', async () => {
+    const { session, transport } = harness();
+    transport.chatSend.mockResolvedValue({ ok: false, error: 'chat_busy', message: 'Try again.' });
+    session.connect(transport);
+    await settle();
+    for (let index = 0; index < CHAT_MAX_RETAINED_ATTEMPTS * 5; index++) {
+      session.setDraft(`Draft ${index}`);
+      session.sendDraft();
+      await settle();
+      expect(session.getSnapshot().attempts.length).toBeLessThanOrEqual(CHAT_MAX_RETAINED_ATTEMPTS);
+      expect(attemptTextBytes(session)).toBeLessThanOrEqual(CHAT_MAX_RETAINED_TEXT_BYTES);
+    }
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.sendLimitReached).toBe(true);
+    expect(session.getSnapshot().attempts.map(({ requestId }) => requestId)).toEqual(
+      transport.chatSend.mock.calls.map(([request]) => request.requestId),
+    );
+    expect(session.getSnapshot().attempts.every(({ status }) => status === 'failed')).toBe(true);
+    expect(session.getSnapshot().draft).toBe(`Draft ${CHAT_MAX_RETAINED_ATTEMPTS * 5 - 1}`);
+  });
+
+  it('enforces the exact UTF-8 text-byte cap before the attempt count cap and releases bytes on dismissal', async () => {
+    const { session, transport } = harness();
+    transport.chatSend.mockRejectedValue(new Error('timeout'));
+    session.connect(transport);
+    await settle();
+    const text = '\u754c'.repeat(1000);
+    for (let index = 0; index < 13; index++) {
+      session.setDraft(` \n${text}\t `);
+      session.sendDraft();
+      await settle();
+    }
+    expect(attemptTextBytes(session)).toBe(39_000);
+    session.setDraft('\u754c'.repeat(334));
+    expect(session.sendLimitReached).toBe(true);
+    session.sendDraft();
+    expect(transport.chatSend).toHaveBeenCalledTimes(13);
+    expect(session.getSnapshot().draft).toBe('\u754c'.repeat(334));
+    session.setDraft('a'.repeat(1000));
+    expect(session.sendLimitReached).toBe(false);
+    session.sendDraft();
+    await settle();
+    expect(attemptTextBytes(session)).toBe(CHAT_MAX_RETAINED_TEXT_BYTES);
+    expect(session.getSnapshot().attempts).toHaveLength(14);
+    expect(session.sendLimitReached).toBe(true);
+
+    session.setDraft('a');
+    session.sendDraft();
+    await settle();
+    expect(transport.chatSend).toHaveBeenCalledTimes(14);
+    expect(session.getSnapshot().draft).toBe('a');
+    expect(attemptTextBytes(session)).toBe(CHAT_MAX_RETAINED_TEXT_BYTES);
+
+    const request = transport.chatSend.mock.calls[0]![0];
+    session.retry(request.requestId);
+    await settle();
+    expect(transport.chatSend).toHaveBeenLastCalledWith(request);
+    expect(attemptTextBytes(session)).toBe(CHAT_MAX_RETAINED_TEXT_BYTES);
+    session.dismiss(request.requestId);
+    expect(attemptTextBytes(session)).toBe(37_000);
+    expect(session.sendLimitReached).toBe(false);
+    session.setDraft(text);
+    session.sendDraft();
+    await settle();
+    expect(session.getSnapshot().draft).toBe('');
+    expect(attemptTextBytes(session)).toBe(CHAT_MAX_RETAINED_TEXT_BYTES);
+    expect(session.getSnapshot().attempts).toHaveLength(14);
+  });
+
+  it('preserves mixed pending and failed attempts and still enforces five concurrent sends', async () => {
+    const { session, transport } = harness();
+    transport.chatSend.mockResolvedValue({ ok: false, error: 'chat_busy', message: 'Try again.' });
+    session.connect(transport);
+    await settle();
+    for (let index = 0; index < CHAT_MAX_RETAINED_ATTEMPTS - 5; index++) {
+      session.setDraft(`Failed ${index}`);
+      session.sendDraft();
+      await settle();
+    }
+    const pending = deferred<ChatSendAck>();
+    transport.chatSend.mockImplementation(() => pending.promise);
+    for (let index = 0; index < 5; index++) {
+      session.setDraft(`Pending ${index}`);
+      session.sendDraft();
+    }
+    const attempts = session.getSnapshot().attempts;
+    expect(attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.sendLimitReached).toBe(true);
+    session.setDraft('Keep this draft');
+    session.sendDraft();
+    session.retry(attempts[0]!.requestId);
+    session.dismiss(attempts.at(-1)!.requestId);
+    expect(session.getSnapshot().attempts).toEqual(attempts);
+    expect(session.getSnapshot().draft).toBe('Keep this draft');
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS);
+
+    session.dismiss(attempts[0]!.requestId);
+    session.sendDraft();
+    expect(session.getSnapshot().attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS - 1);
+    expect(session.getSnapshot().draft).toBe('Keep this draft');
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS);
+    pending.resolve({ ok: true, message: message(1) });
+    await settle();
+    expect(session.getSnapshot().attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS - 6);
+    session.sendDraft();
+    await settle();
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS + 1);
+    expect(session.getSnapshot().draft).toBe('');
+  });
+
+  it('allows repeated same-id retries at the count cap and admits a new draft only after space is freed', async () => {
+    const { session, transport } = harness();
+    transport.chatSend.mockResolvedValue({ ok: false, error: 'chat_busy', message: 'Try again.' });
+    session.connect(transport);
+    await settle();
+    for (let index = 0; index < CHAT_MAX_RETAINED_ATTEMPTS; index++) {
+      session.setDraft(`Failed ${index}`);
+      session.sendDraft();
+      await settle();
+    }
+    const request = transport.chatSend.mock.calls[0]![0];
+    const originalIds = session
+      .getSnapshot()
+      .attempts.map(({ requestId }) => requestId)
+      .sort();
+    const originalBytes = attemptTextBytes(session);
+    session.setDraft('Keep until there is space');
+    for (let index = 0; index < 5; index++) {
+      session.retry(request.requestId);
+      await settle();
+      expect(transport.chatSend).toHaveBeenLastCalledWith(request);
+      expect(
+        session
+          .getSnapshot()
+          .attempts.map(({ requestId }) => requestId)
+          .sort(),
+      ).toEqual(originalIds);
+      expect(attemptTextBytes(session)).toBe(originalBytes);
+    }
+    session.sendDraft();
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS + 5);
+    expect(session.getSnapshot().draft).toBe('Keep until there is space');
+    session.dismiss(request.requestId);
+    session.sendDraft();
+    await settle();
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS + 6);
+    expect(transport.chatSend.mock.calls.at(-1)![0].requestId).not.toBe(request.requestId);
+    expect(session.getSnapshot().attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.getSnapshot().draft).toBe('');
+  });
+
+  it('keeps a full set and draft across reconnect without replaying sends or accepting late acknowledgements', async () => {
+    const { session, transport } = harness();
+    transport.chatSend.mockResolvedValue({ ok: false, error: 'chat_busy', message: 'Try again.' });
+    session.connect(transport);
+    await settle();
+    for (let index = 0; index < CHAT_MAX_RETAINED_ATTEMPTS - 1; index++) {
+      session.setDraft(`Failed ${index}`);
+      session.sendDraft();
+      await settle();
+    }
+    const pending = deferred<ChatSendAck>();
+    transport.chatSend.mockReturnValueOnce(pending.promise);
+    session.setDraft('Uncertain send');
+    session.sendDraft();
+    const requests = transport.chatSend.mock.calls.map(([request]) => request);
+    session.setDraft('Unsent draft');
+    session.suspend();
+    session.connect(transport);
+    await settle();
+    pending.resolve({ ok: true, message: message(1) });
+    await settle();
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.getSnapshot().attempts.every(({ status }) => status === 'failed')).toBe(true);
+    expect(
+      session.getSnapshot().attempts.map(({ requestId, text }) => ({ requestId, text })),
+    ).toEqual(requests);
+    session.sendDraft();
+    expect(transport.chatSend).toHaveBeenCalledTimes(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.getSnapshot().draft).toBe('Unsent draft');
+
+    transport.chatSend.mockResolvedValueOnce({ ok: true, message: message(1) });
+    const retry = requests.at(-1)!;
+    session.retry(retry.requestId);
+    await settle();
+    expect(transport.chatSend).toHaveBeenLastCalledWith(retry);
+    expect(session.getSnapshot().attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS - 1);
+    session.sendDraft();
+    await settle();
+    expect(session.getSnapshot().attempts).toHaveLength(CHAT_MAX_RETAINED_ATTEMPTS);
+    expect(session.getSnapshot().draft).toBe('');
   });
 
   it('marks uncertain sends failed, ignores late acks, refetches on resume, and retries the same id explicitly', async () => {

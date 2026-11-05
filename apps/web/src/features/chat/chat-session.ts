@@ -19,6 +19,11 @@ export type ChatTransport = {
 };
 
 type Attempt = ChatSendRequest & { status: 'pending' | 'failed'; error: string };
+
+// Browser-local retention for pending and failed sends; no attempt is evicted automatically.
+export const CHAT_MAX_RETAINED_ATTEMPTS = 20;
+export const CHAT_MAX_RETAINED_TEXT_BYTES = 40_000;
+
 type ChatState = {
   phase: 'idle' | 'joined' | 'recovering' | 'closed';
   messages: ChatMessage[];
@@ -34,6 +39,7 @@ type ChatState = {
 const BUSY = 'Chat is busy. Try again shortly.';
 const UNSENT = 'The acknowledgement was not confirmed. Retry when chat is available.';
 const HISTORY_UNAVAILABLE = 'Unable to load chat. Try again.';
+const textEncoder = new TextEncoder();
 
 /** Owns text and acknowledgements independently of stage/media operations. */
 export class ChatSession {
@@ -76,6 +82,16 @@ export class ChatSession {
     return this.state.phase === 'joined' && !this.state.paused && this.appliedThrough !== null;
   }
 
+  get sendLimitReached(): boolean {
+    if (this.state.attempts.length >= CHAT_MAX_RETAINED_ATTEMPTS) return true;
+    const retainedBytes = this.state.attempts.reduce(
+      (total, attempt) => total + textEncoder.encode(attempt.text).byteLength,
+      0,
+    );
+    const draftBytes = textEncoder.encode(this.state.draft.trim()).byteLength;
+    return retainedBytes + Math.max(1, draftBytes) > CHAT_MAX_RETAINED_TEXT_BYTES;
+  }
+
   connect(transport: ChatTransport): void {
     this.invalidate();
     this.transport = transport;
@@ -110,6 +126,7 @@ export class ChatSession {
       this.update({ error: BUSY });
       return;
     }
+    if (this.sendLimitReached) return;
     this.update({ draft: '', error: '' });
     void this.send(parsed.value);
   }

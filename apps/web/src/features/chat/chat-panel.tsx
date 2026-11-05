@@ -5,7 +5,9 @@ import { formatChatTime } from './format-chat-time';
 
 export function ChatPanel({ session, host }: { session: ChatSession; host: boolean }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const sendLimitReached = session.sendLimitReached;
   const textareaId = useId();
+  const sendLimitId = useId();
   const logId = useId();
   const log = useRef<HTMLDivElement>(null);
   const atLatest = useRef(true);
@@ -162,6 +164,12 @@ export function ChatPanel({ session, host }: { session: ChatSession; host: boole
           )}
         </div>
       )}
+      {sendLimitReached && (
+        <p id={sendLimitId} className="mt-3 text-sm text-danger" role="status">
+          Unsent message limit reached. Retry or dismiss a message before sending more. Your draft
+          is kept.
+        </p>
+      )}
       <form
         className="mt-4"
         onSubmit={(event) => {
@@ -177,6 +185,7 @@ export function ChatPanel({ session, host }: { session: ChatSession; host: boole
           rows={3}
           value={state.draft}
           disabled={!session.canSend}
+          aria-describedby={sendLimitReached ? sendLimitId : undefined}
           className="w-full resize-y rounded-control border border-input-line bg-control p-3 text-sm disabled:opacity-60"
           onChange={(event) => session.setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -190,7 +199,7 @@ export function ChatPanel({ session, host }: { session: ChatSession; host: boole
           type="submit"
           variant="primary"
           className="mt-2"
-          disabled={!session.canSend || !state.draft.trim()}
+          disabled={!session.canSend || !state.draft.trim() || sendLimitReached}
         >
           Send
         </Button>
