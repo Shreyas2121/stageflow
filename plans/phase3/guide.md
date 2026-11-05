@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** in progress. C01 and C02 are committed. C03 replay mutations are verified and awaiting commit. C04 and C05 remain planned.\
+**Status:** in progress. C01 through C03 are committed. C04 and C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -130,9 +130,9 @@ pnpm lint
 
 ## 4. V3P3-C03 — Hide and delete
 
-**Status:** verified, awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): hide or delete a finished replay`\
-**Actual commit:**
+**Actual commit:** `63dc54bf88e1141a3e12e6950c36b6c6f2fd87f2`
 
 **Why:** The owner needs one mutation for visibility and one confined delete. Covers LIB-02's refusal rules, LIB-03, and LIB-04.
 
