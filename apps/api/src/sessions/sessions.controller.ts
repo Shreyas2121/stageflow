@@ -1,6 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
 import type { GuestSessionResponse } from '@stageflow/shared';
+import { User } from '../users/user.entity';
+import { CurrentUser } from './current-user.decorator';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 function accountBody(body: unknown): Record<string, unknown> {
   return typeof body === 'object' && body !== null && !Array.isArray(body)
@@ -31,5 +34,12 @@ export class SessionsController {
   login(@Body() body: unknown): Promise<GuestSessionResponse> {
     const fields = accountBody(body);
     return this.sessions.login(fields.email, fields.password);
+  }
+
+  @Post('password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@CurrentUser() user: User, @Body() body: unknown): Promise<GuestSessionResponse> {
+    const fields = accountBody(body);
+    return this.sessions.changePassword(user, fields.currentPassword, fields.password);
   }
 }

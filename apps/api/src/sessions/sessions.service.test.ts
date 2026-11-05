@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { JwtService } from '@nestjs/jwt';
-import { QueryFailedError, type Repository } from 'typeorm';
+import { QueryFailedError, type EntityManager, type Repository } from 'typeorm';
 import type { User } from '../users/user.entity';
 import { SessionsService } from './sessions.service';
 import { env } from '../config/env';
@@ -438,6 +438,356 @@ describe('host accounts', () => {
       await expect(service.login('ava@example.com', 'test-password')).resolves.toMatchObject({
         token: 'host-token',
       });
+    },
+  );
+});
+
+describe('credential changes', () => {
+  function setup(isGuest = true) {
+    const original = {
+      id: randomUUID(),
+      displayName: 'Ava',
+      email: isGuest ? null : 'ava@example.com',
+      passwordHash: isGuest ? null : 'old-hash-marker',
+      isGuest,
+      sessionVersion: 0,
+    } as User;
+    let row = { ...original };
+    const query = {
+      addSelect: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      setLock: vi.fn().mockReturnThis(),
+      getOne: vi.fn(async (): Promise<User | null> => ({ ...row })),
+    };
+    const users = {
+      findOneBy: vi.fn(async (criteria: Partial<User>): Promise<User | null> =>
+        criteria.id === row.id ? { ...row } : null,
+      ),
+      createQueryBuilder: vi.fn(() => query),
+      save: vi.fn(async (user: User) => {
+        row = { ...user };
+        return { ...row };
+      }),
+      manager: {
+        transaction: vi.fn(async (work: (manager: EntityManager) => Promise<User>) =>
+          work({ getRepository: () => users } as unknown as EntityManager),
+        ),
+      },
+    };
+    const jwt = new JwtService({
+      secret: randomUUID(),
+      signOptions: { algorithm: 'HS256', expiresIn: '12h' },
+    });
+    const sign = vi.spyOn(jwt, 'signAsync');
+    const hash = vi.spyOn(passwords, 'hashPassword').mockResolvedValue('new-hash-marker');
+    const compare = vi.spyOn(passwords, 'verifyPassword').mockResolvedValue(true);
+    const membership = vi.fn<(userId: string) => Promise<boolean>>(async () => false);
+    const service = new SessionsService(users as unknown as Repository<User>, jwt);
+    return { original, users, query, jwt, sign, hash, compare, membership, service };
+  }
+
+  it('promotes the same guest id, preserves the name, and invalidates its old token', async () => {
+    const { service, original, users, query, jwt, sign, membership } = setup();
+    const oldToken = await jwt.signAsync({ sub: original.id, sv: 0, guest: true });
+    sign.mockClear();
+    const result = await service.promote(
+      original,
+      ' AVA@EXAMPLE.COM ',
+      ' new-password ',
+      membership,
+    );
+    expect(result).toMatchObject({ userId: original.id, displayName: original.displayName });
+    expect(users.save).toHaveBeenCalledExactlyOnceWith({
+      ...original,
+      email: 'ava@example.com',
+      passwordHash: 'new-hash-marker',
+      isGuest: false,
+      sessionVersion: 1,
+    });
+    expect(query.addSelect).toHaveBeenCalledWith('user.passwordHash');
+    expect(query.where).toHaveBeenCalledWith('user.id = :id', { id: original.id });
+    expect(query.setLock).toHaveBeenCalledWith('pessimistic_write');
+    expect(membership.mock.calls).toEqual([[original.id], [original.id]]);
+    expect(sign).toHaveBeenCalledExactlyOnceWith(
+      { sub: original.id, sv: 1, guest: false },
+      { expiresIn: '7d' },
+    );
+    await expect(service.verifyToken(oldToken)).rejects.toMatchObject({
+      response: { error: 'unauthorized' },
+    });
+    await expect(service.verifyToken(result.token)).resolves.toMatchObject({
+      id: original.id,
+      isGuest: false,
+      sessionVersion: 1,
+    });
+    expect(original).toMatchObject({ isGuest: true, sessionVersion: 0, email: null });
+  });
+
+  it('refuses a membership before hashing or writing', async () => {
+    const { service, original, users, hash, sign, membership } = setup();
+    membership.mockResolvedValue(true);
+    await expect(
+      service.promote(original, 'ava@example.com', 'new-password', membership),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'membership_active',
+        message: 'Leave the live room before creating a host account.',
+      },
+    });
+    expect(users.save).not.toHaveBeenCalled();
+    expect(hash).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it.each(['membership', 'Redis failure'])(
+    'restores all previous credential columns after a second-scan %s',
+    async (reason) => {
+      const { service, original, users, sign, membership } = setup();
+      membership.mockResolvedValueOnce(false);
+      if (reason === 'membership') membership.mockResolvedValueOnce(true);
+      else membership.mockRejectedValueOnce(new Error('Redis unavailable'));
+      await expect(
+        service.promote(original, 'ava@example.com', 'new-password', membership),
+      ).rejects.toMatchObject({
+        response: {
+          statusCode: reason === 'membership' ? 409 : 503,
+          error: reason === 'membership' ? 'membership_active' : 'server_busy',
+        },
+      });
+      expect(users.save).toHaveBeenCalledTimes(2);
+      expect(users.save).toHaveBeenLastCalledWith(original);
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, '23505'])(
+    'returns server_busy without signing when restore fails with %s',
+    async (code) => {
+      const { service, original, users, membership, sign } = setup();
+      membership.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      users.save
+        .mockImplementationOnce(async (user) => user)
+        .mockRejectedValueOnce(Object.assign(new Error('restore unavailable'), { code }));
+      await expect(
+        service.promote(original, 'ava@example.com', 'new-password', membership),
+      ).rejects.toMatchObject({ response: { statusCode: 503, error: 'server_busy' } });
+      expect(users.save).toHaveBeenLastCalledWith(original);
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns server_busy without writing or signing on the first Redis failure', async () => {
+    const { service, original, users, membership, sign } = setup();
+    membership.mockRejectedValue(new Error('Redis unavailable'));
+    await expect(
+      service.promote(original, 'ava@example.com', 'new-password', membership),
+    ).rejects.toMatchObject({ response: { statusCode: 503, error: 'server_busy' } });
+    expect(users.save).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it.each(['existing', 'race'])(
+    'refuses an %s email conflict without writing another user or issuing a token',
+    async (reason) => {
+      const { service, original, users, membership, sign } = setup();
+      const other = { ...original, id: randomUUID(), isGuest: false, email: 'ava@example.com' };
+      if (reason === 'existing') users.findOneBy.mockResolvedValueOnce(other);
+      else
+        users.save.mockRejectedValueOnce(
+          new QueryFailedError(
+            'UPDATE users',
+            [],
+            Object.assign(new Error('duplicate'), { code: '23505' }),
+          ),
+        );
+      await expect(
+        service.promote(original, 'ava@example.com', 'new-password', membership),
+      ).rejects.toMatchObject({
+        response: {
+          statusCode: 409,
+          error: 'email_taken',
+          message: 'That email is already registered.',
+        },
+      });
+      for (const [user] of users.save.mock.calls) expect(user.id).toBe(original.id);
+      expect(users.save).toHaveBeenCalledTimes(reason === 'existing' ? 0 : 1);
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it('changes the password from version 0 to 1 and rejects the old host token', async () => {
+    const { service, original, users, jwt, sign, compare, hash } = setup(false);
+    const oldToken = await jwt.signAsync({ sub: original.id, sv: 0, guest: false });
+    sign.mockClear();
+    const result = await service.changePassword(original, ' old-password ', ' new-password ');
+    expect(compare).toHaveBeenCalledWith(' old-password ', original.passwordHash);
+    expect(hash).toHaveBeenCalledWith(' new-password ');
+    expect(users.save).toHaveBeenCalledExactlyOnceWith({
+      ...original,
+      passwordHash: 'new-hash-marker',
+      sessionVersion: 1,
+    });
+    expect(sign).toHaveBeenCalledExactlyOnceWith(
+      { sub: original.id, sv: 1, guest: false },
+      { expiresIn: '7d' },
+    );
+    await expect(service.verifyToken(oldToken)).rejects.toMatchObject({
+      response: { statusCode: 401, error: 'unauthorized' },
+    });
+    await expect(service.verifyToken(result.token)).resolves.toMatchObject({
+      id: original.id,
+      sessionVersion: 1,
+    });
+  });
+
+  it.each(['wrong', 'missing hash'])(
+    'rejects a %s current password without hashing, writing, or signing',
+    async (reason) => {
+      const { service, original, users, query, compare, hash, sign } = setup(false);
+      if (reason === 'wrong') compare.mockResolvedValue(false);
+      else query.getOne.mockResolvedValue({ ...original, passwordHash: null });
+      await expect(
+        service.changePassword(original, 'old-password', 'new-password'),
+      ).rejects.toMatchObject({
+        response: {
+          statusCode: 401,
+          error: 'wrong_password',
+          message: 'The current password is wrong.',
+        },
+      });
+      expect(hash).not.toHaveBeenCalled();
+      expect(users.save).not.toHaveBeenCalled();
+      expect(sign).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['password', 'promote'])('refuses the wrong account kind for %s', async (route) => {
+    const { service, original, users, membership, hash } = setup(route === 'password');
+    const result =
+      route === 'password'
+        ? service.changePassword(original, 'old-password', 'new-password')
+        : service.promote(original, 'ava@example.com', 'new-password', membership);
+    await expect(result).rejects.toMatchObject({
+      response: { statusCode: 403, error: route === 'password' ? 'not_registered' : 'not_guest' },
+    });
+    expect(users.manager.transaction).not.toHaveBeenCalled();
+    expect(hash).not.toHaveBeenCalled();
+  });
+
+  it.each(['missing', 'version', 'kind'])(
+    'refuses a %s user after acquiring the credential lock',
+    async (reason) => {
+      const { service, original, users, query, membership, hash } = setup();
+      query.getOne.mockResolvedValue(
+        reason === 'missing'
+          ? null
+          : {
+              ...original,
+              sessionVersion: reason === 'version' ? 1 : 0,
+              isGuest: reason !== 'kind',
+            },
+      );
+      await expect(
+        service.promote(original, 'ava@example.com', 'new-password', membership),
+      ).rejects.toMatchObject({ response: { statusCode: 401, error: 'unauthorized' } });
+      expect(users.save).not.toHaveBeenCalled();
+      expect(hash).not.toHaveBeenCalled();
+      expect(membership).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['password', 'promote'])(
+    'shares register/login capacity with %s and releases it on failure',
+    async (route) => {
+      const { service, original, users, membership, hash, compare } = setup(route === 'promote');
+      let reject!: (error: Error) => void;
+      const gate = new Promise<string>((_resolve, fail) => {
+        reject = fail;
+      });
+      hash.mockReturnValue(gate);
+      const active = Array.from({ length: env.GUEST_PENDING_LIMIT }, () =>
+        service.register('Ava', 'ava@example.com', 'test-password'),
+      );
+      const settled = Promise.allSettled(active);
+      await vi.waitFor(() => expect(hash).toHaveBeenCalledTimes(env.GUEST_PENDING_LIMIT));
+      const result =
+        route === 'password'
+          ? service.changePassword(original, 'old-password', 'new-password')
+          : service.promote(original, 'ava@example.com', 'new-password', membership);
+      await expect(result).rejects.toMatchObject({
+        response: { statusCode: 503, error: 'server_busy' },
+      });
+      expect(users.manager.transaction).not.toHaveBeenCalled();
+      expect(compare).not.toHaveBeenCalled();
+      reject(new Error('password work failed'));
+      await settled;
+      hash.mockResolvedValue('new-hash-marker');
+      await expect(
+        route === 'password'
+          ? service.changePassword(original, 'old-password', 'new-password')
+          : service.promote(original, 'ava@example.com', 'new-password', membership),
+      ).resolves.toMatchObject({ userId: original.id });
+    },
+  );
+
+  it.each(['password', 'promote'])(
+    'holds the shared cap during %s work and releases it after failure',
+    async (route) => {
+      const { service, original, users, membership, compare } = setup(route === 'promote');
+      let reject!: (error: Error) => void;
+      const gate = new Promise<never>((_resolve, fail) => {
+        reject = fail;
+      });
+      if (route === 'password') compare.mockReturnValue(gate);
+      else membership.mockReturnValue(gate);
+      const run = () =>
+        route === 'password'
+          ? service.changePassword(original, 'old-password', 'new-password')
+          : service.promote(original, 'ava@example.com', 'new-password', membership);
+      const active = Promise.allSettled(Array.from({ length: env.GUEST_PENDING_LIMIT }, run));
+      await vi.waitFor(() =>
+        expect(route === 'password' ? compare : membership).toHaveBeenCalledTimes(
+          env.GUEST_PENDING_LIMIT,
+        ),
+      );
+      for (const result of [
+        service.register('Ava', 'ava@example.com', 'new-password'),
+        service.login('ava@example.com', 'new-password'),
+        run(),
+      ]) {
+        await expect(result).rejects.toMatchObject({ response: { error: 'server_busy' } });
+      }
+      reject(new Error('credential work failed'));
+      expect((await active).every((result) => result.status === 'rejected')).toBe(true);
+      expect(users.save).not.toHaveBeenCalled();
+      compare.mockResolvedValue(true);
+      membership.mockResolvedValue(false);
+      await expect(run()).resolves.toMatchObject({ userId: original.id });
+    },
+  );
+
+  it.each(['password', 'promote'])(
+    'sanitizes credential-bearing database errors during %s',
+    async (route) => {
+      const { service, original, users, membership, sign } = setup(route === 'promote');
+      users.save.mockRejectedValue(
+        new QueryFailedError(
+          'UPDATE users SET password_hash = $1',
+          ['private-hash-marker'],
+          new Error('private failure marker'),
+        ),
+      );
+      const result =
+        route === 'password'
+          ? service.changePassword(original, 'old-password', 'new-password')
+          : service.promote(original, 'ava@example.com', 'new-password', membership);
+      const error: unknown = await result.catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(ApiException);
+      expect(error).toMatchObject({ response: { statusCode: 503, error: 'server_busy' } });
+      expect(JSON.stringify(error)).not.toContain('private');
+      expect(error).not.toHaveProperty('cause');
+      expect(sign).not.toHaveBeenCalled();
     },
   );
 });

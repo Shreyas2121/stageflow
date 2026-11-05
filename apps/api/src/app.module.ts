@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { apiConfigSchema } from './config/parse-config';
 import { databaseOptions } from './database/data-source';
 import { SessionsModule } from './sessions/sessions.module';
+import { AccountsModule } from './sessions/accounts.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { HealthController } from './health/health.controller';
 import { LiveModule } from './live/live.module';
@@ -23,6 +24,7 @@ import { BroadcastsModule } from './broadcasts/broadcasts.module';
       extra: { connectionTimeoutMillis: 3000, statement_timeout: 5000, query_timeout: 6000 },
     }),
     SessionsModule,
+    AccountsModule,
     RoomsModule,
     BroadcastsModule,
     LiveModule,

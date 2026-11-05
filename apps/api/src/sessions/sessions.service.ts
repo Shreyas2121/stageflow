@@ -140,6 +140,132 @@ export class SessionsService {
     });
   }
 
+  async changePassword(
+    caller: User,
+    currentPasswordInput: unknown,
+    passwordInput: unknown,
+  ): Promise<GuestSessionResponse> {
+    if (caller.isGuest) {
+      throw new ApiException(
+        403,
+        'not_registered',
+        'Create a host account before changing its password.',
+      );
+    }
+    const currentPassword = parsePassword(currentPasswordInput);
+    if (!currentPassword.ok)
+      throw new ApiException(400, currentPassword.error, currentPassword.message);
+    const password = parsePassword(passwordInput);
+    if (!password.ok) throw new ApiException(400, password.error, password.message);
+
+    return this.withPasswordWork(async () => {
+      const user = await this.users.manager.transaction(async (manager) => {
+        const users = manager.getRepository(User);
+        const current = await this.lockUser(users, caller);
+        if (
+          !current.passwordHash ||
+          !(await verifyPassword(currentPassword.value, current.passwordHash))
+        ) {
+          throw new ApiException(401, 'wrong_password', 'The current password is wrong.');
+        }
+        return users.save({
+          ...current,
+          passwordHash: await hashPassword(password.value),
+          sessionVersion: current.sessionVersion + 1,
+        });
+      });
+      return this.hostSession(user);
+    });
+  }
+
+  async promote(
+    caller: User,
+    emailInput: unknown,
+    passwordInput: unknown,
+    hasMembership: (userId: string) => Promise<boolean>,
+  ): Promise<GuestSessionResponse> {
+    if (!caller.isGuest) {
+      throw new ApiException(403, 'not_guest', 'This session is already a host account.');
+    }
+    const email = parseEmail(emailInput);
+    if (!email.ok) throw new ApiException(400, email.error, email.message);
+    const password = parsePassword(passwordInput);
+    if (!password.ok) throw new ApiException(400, password.error, password.message);
+
+    return this.withPasswordWork(async () => {
+      let user: User;
+      try {
+        user = await this.users.manager.transaction(async (manager) => {
+          const users = manager.getRepository(User);
+          const current = await this.lockUser(users, caller);
+          if (await users.findOneBy({ email: email.value })) {
+            throw new ApiException(409, 'email_taken', 'That email is already registered.');
+          }
+          const membershipActive = new ApiException(
+            409,
+            'membership_active',
+            'Leave the live room before creating a host account.',
+          );
+          if (await hasMembership(current.id)) throw membershipActive;
+          const promoted = await users.save({
+            ...current,
+            email: email.value,
+            passwordHash: await hashPassword(password.value),
+            isGuest: false,
+            sessionVersion: current.sessionVersion + 1,
+          });
+          try {
+            if (await hasMembership(current.id)) throw membershipActive;
+          } catch (error: unknown) {
+            try {
+              await users.save({
+                ...promoted,
+                email: current.email,
+                passwordHash: current.passwordHash,
+                isGuest: current.isGuest,
+                sessionVersion: current.sessionVersion,
+              });
+            } catch {
+              throw new ApiException(
+                503,
+                'server_busy',
+                'Account sign-in is busy. Try again shortly.',
+              );
+            }
+            throw error;
+          }
+          return promoted;
+        });
+      } catch (error: unknown) {
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          error.code === '23505'
+        ) {
+          throw new ApiException(409, 'email_taken', 'That email is already registered.');
+        }
+        throw error;
+      }
+      return this.hostSession(user);
+    });
+  }
+
+  // Serialize credential changes and reject a request authenticated before another change.
+  // The transaction also rolls back promotion if Redis or the explicit restore fails.
+  private async lockUser(users: Repository<User>, caller: User): Promise<User> {
+    const user = await users
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: caller.id })
+      .setLock('pessimistic_write')
+      .getOne();
+    if (!user || user.sessionVersion !== caller.sessionVersion || user.isGuest !== caller.isGuest) {
+      throw new ApiException(401, 'unauthorized', 'Sign in before changing this account.');
+    }
+    return user;
+  }
+
   private async hostSession(user: User): Promise<GuestSessionResponse> {
     const token = await this.jwt.signAsync(
       { sub: user.id, sv: user.sessionVersion, guest: false },

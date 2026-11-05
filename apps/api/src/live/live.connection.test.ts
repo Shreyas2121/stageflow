@@ -22,6 +22,11 @@ class FakeRedis implements LiveRedisClient {
     return 1;
   }
   pages: [string, string[]][] = [['0', []]];
+  hashes: Record<string, Record<string, string>> = {};
+  async hgetall(key: string): Promise<Record<string, string>> {
+    this.calls.push(`hgetall:${key}`);
+    return this.hashes[key] ?? {};
+  }
   private readonly listeners = new Map<string, ((error?: Error) => void)[]>();
 
   async connect(): Promise<void> {
@@ -75,7 +80,85 @@ function silence() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
+
+it('finds a suspended membership across scan pages without deleting any keys', async () => {
+  const redis = new FakeRedis();
+  redis.pages = [
+    ['12', ['preview:room:one:participants']],
+    ['0', ['preview:room:two:participants']],
+  ];
+  redis.hashes = {
+    'preview:room:one:participants': { one: JSON.stringify({ userId: 'other-user' }) },
+    'preview:room:two:participants': {
+      one: JSON.stringify({ userId: 'target-user', suspended: true }),
+    },
+  };
+  expect(await new LiveConnection(redis, 'preview').hasUserMembership('target-user')).toBe(true);
+  expect(redis.patterns).toEqual(['preview:room:*:participants', 'preview:room:*:participants']);
+  expect(redis.deleted).toEqual([]);
+});
+
+it('finishes an empty scan and ignores other users and JSON values without a user id', async () => {
+  const redis = new FakeRedis();
+  const connection = new LiveConnection(redis, 'preview');
+  expect(await connection.hasUserMembership('target-user')).toBe(false);
+  redis.pages = [
+    ['12', []],
+    ['0', ['preview:room:one:participants']],
+  ];
+  redis.hashes = {
+    'preview:room:one:participants': {
+      one: JSON.stringify({ userId: 'other-user' }),
+      two: 'null',
+      three: '{}',
+    },
+  };
+  expect(await connection.hasUserMembership('target-user')).toBe(false);
+  expect(redis.deleted).toEqual([]);
+});
+
+it.each(['scan', 'hgetall'] as const)('propagates a Redis %s failure', async (command) => {
+  const redis = new FakeRedis();
+  redis.pages = [['0', ['preview:room:one:participants']]];
+  vi.spyOn(redis, command).mockRejectedValue(new Error('Redis unavailable'));
+  await expect(
+    new LiveConnection(redis, 'preview').hasUserMembership('target-user'),
+  ).rejects.toThrow('Redis unavailable');
+  expect(redis.deleted).toEqual([]);
+});
+
+it('fails closed for malformed participant JSON', async () => {
+  const redis = new FakeRedis();
+  redis.pages = [['0', ['preview:room:one:participants']]];
+  redis.hashes = { 'preview:room:one:participants': { broken: '{invalid' } };
+  await expect(
+    new LiveConnection(redis, 'preview').hasUserMembership('target-user'),
+  ).rejects.toThrow();
+});
+
+it.each(['repeated cursor', 'page limit', 'deadline'])(
+  'bounds an unfinished membership scan at its %s',
+  async (reason) => {
+    const redis = new FakeRedis();
+    const scan = vi
+      .spyOn(redis, 'scan')
+      .mockImplementation(async (cursor) => [
+        reason === 'repeated cursor' ? '12' : String(Number(cursor) + 1),
+        [],
+      ]);
+    if (reason === 'deadline') {
+      vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(3000);
+    }
+    await expect(
+      new LiveConnection(redis, 'preview').hasUserMembership('target-user'),
+    ).rejects.toThrow('Live membership scan did not finish.');
+    expect(scan.mock.calls.length).toBe(
+      reason === 'repeated cursor' ? 2 : reason === 'page limit' ? 1000 : 0,
+    );
+  },
+);
 
 it('clears only sf:room keys on startup and reports live readiness', async () => {
   const redis = new FakeRedis();

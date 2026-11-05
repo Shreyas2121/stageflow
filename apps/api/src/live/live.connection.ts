@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import { env } from '../config/env';
 
-// Connection commands only. quit() is intentionally absent so shutdown cannot wait on a dead server.
+// quit() is intentionally absent so shutdown cannot wait on a dead server.
 export interface LiveRedisClient {
   status: string;
   connect(): Promise<void>;
@@ -21,6 +21,7 @@ export interface LiveRedisClient {
     count: 'COUNT',
     countValue: number,
   ): Promise<[string, string[]]>;
+  hgetall(key: string): Promise<Record<string, string>>;
   del(...keys: string[]): Promise<number>;
   set(key: string, value: string, condition: 'NX'): Promise<'OK' | null>;
   eval(script: string, count: number, key: string, token: string): Promise<unknown>;
@@ -96,6 +97,44 @@ export class LiveConnection implements OnModuleInit, OnModuleDestroy, OnApplicat
 
   isReady(): boolean {
     return this.ready;
+  }
+
+  async hasUserMembership(userId: string): Promise<boolean> {
+    const deadline = performance.now() + 3000;
+    const cursors = new Set<string>();
+    let cursor = '0';
+    do {
+      if (performance.now() >= deadline || cursors.size >= 1000 || cursors.has(cursor)) {
+        throw new Error('Live membership scan did not finish.');
+      }
+      cursors.add(cursor);
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${this.namespace}:room:*:participants`,
+        'COUNT',
+        100,
+      );
+      for (const key of keys) {
+        if (performance.now() >= deadline) throw new Error('Live membership scan did not finish.');
+        const participants = await this.redis.hgetall(key);
+        if (performance.now() >= deadline) throw new Error('Live membership scan did not finish.');
+        for (const value of Object.values(participants)) {
+          const participant: unknown = JSON.parse(value);
+          if (
+            typeof participant === 'object' &&
+            participant !== null &&
+            'userId' in participant &&
+            participant.userId === userId
+          ) {
+            return true;
+          }
+        }
+      }
+      cursor = next;
+    } while (cursor !== '0');
+    if (performance.now() >= deadline) throw new Error('Live membership scan did not finish.');
+    return false;
   }
 
   whenLost(listener: () => void): void {

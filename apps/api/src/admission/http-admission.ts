@@ -9,6 +9,8 @@ const GUEST_SESSION_PATHS = new Set([
   '/api/sessions/guest',
   '/api/sessions/register',
   '/api/sessions/login',
+  '/api/sessions/password',
+  '/api/sessions/promote',
 ]);
 
 // HLS reads and chunk posts do not spend the ordinary API budget. Playback on a

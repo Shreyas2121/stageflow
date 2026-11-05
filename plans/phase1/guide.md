@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** in progress. V3P1-C01 through V3P1-C03 supply shared parsers, credential storage, versioned tokens, and register/login routes. V3P1-C04 through V3P1-C06 are planned.\
+**Status:** in progress. V3P1-C01 through V3P1-C04 supply shared parsers, credential storage, versioned tokens, register/login, promotion, and password change. V3P1-C05 and V3P1-C06 are planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -155,9 +155,9 @@ pnpm lint
 
 ## 4. V3P1-C03 — Register and login
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-auth): register and log in a host`\
-**Actual commit:**
+**Actual commit:** `abef5bf94518801ebf36ceb8766c7440472e15c4`
 
 **Why:** A host can be created and can return with the same email. A wrong password does not reveal whether the email exists. Covers ID-01 on the API.
 
@@ -207,7 +207,7 @@ pnpm lint
 
 ## 5. V3P1-C04 — Password change and promotion
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-auth): promote the current guest and change the password`\
 **Actual commit:**
 
@@ -221,6 +221,8 @@ pnpm lint
 - `apps/api/src/sessions/sessions.service.test.ts`
 - `apps/api/src/sessions/accounts.controller.ts`
 - `apps/api/src/sessions/accounts.module.ts`
+- `apps/api/src/sessions/accounts.integration.test.ts`
+- `apps/api/src/sessions/sessions.controller.ts` and `sessions.controller.test.ts`
 - `apps/api/src/app.module.ts`
 - `apps/api/src/live/live.connection.ts`
 - `apps/api/src/live/live.connection.test.ts`
@@ -245,6 +247,18 @@ pnpm lint
 ```
 
 **Done when:** Promotion and password change match Sections 5.4 and 5.5, and the stage Lua scripts are unchanged.
+
+**Verification record (2026-11-05):**
+
+- The focused service/controller/admission/connection/account-integration run passed all 120 cases in five files. After adding further shared-cap and credential-error regressions, `pnpm --filter @stageflow/api test` passed all 350 tests in 27 files. Workspace `pnpm typecheck` and `pnpm lint` passed.
+- `pnpm --filter @stageflow/api build`, `pnpm check:artifacts --api`, and `pnpm smoke:live` passed. The affected-check planner selected the API checks, formatting, artifacts, and both smokes; it did not select a full release or audit gate. The fourteen live and three chat Lua files remain unchanged and match their compiled copies.
+- `pnpm smoke:broadcast` failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`. No FFmpeg version or broadcast result was obtained. This does not close any existing V1/V2 acceptance gap.
+- Real PostgreSQL/Redis regressions used owned temporary PostgreSQL 16 and Redis 7 containers with tmpfs storage, random loopback ports, and process-only overrides. The new account fixture created, migrated, and dropped its random database, and deleted only its own membership keys. The compiled Nest probe used another random disposable database and namespace. Cleanup found zero leftover fixture databases and zero Redis keys, then removed only the owned containers and temporary configuration/probe/media files. The developer database and live namespace were not migrated or reset.
+- Promotion keeps the verified guest id and display name, normalizes email, signs a seven-day host token at the incremented version, and invalidates the old guest token. Two same-name users retain their respective rooms and `READY` broadcasts; a taken email leaves the other guest unchanged. Unit tests also cover the unique-constraint race.
+- Membership scans cover pagination, suspended membership, unrelated users, empty pages, Redis scan/hash errors, malformed participant JSON, repeated cursors, and page/time bounds. Promotion refuses the first matching scan without a write, restores all four credential columns after a second-scan match or error, and never signs on failure. A real PostgreSQL connection-loss regression proves the transaction rolls back even when the explicit restore cannot run.
+- Both credential routes use a transaction and row lock, then recheck the caller's version and account kind before writing. Real simultaneous password changes allow one commit; the request holding the stale bearer fails. Password change checks the current hash, increments version 0 to 1, rejects the old token/password, and accepts the replacement token/password. Wrong passwords and guests cause no credential write. Shared register/login/password/promote capacity, slot release, guest network admission, and sanitization of database errors carrying credential parameters are covered.
+- Owned loopback HTTP tests cover bearer authentication, invalid fields, wrong account kinds, ignored ids/display names/credential claims, and the replacement response/token shape. A separate compiled `AppModule` HTTP probe passed real module wiring, membership refusal, promotion with the same room library, password change, old-token rejection, and fresh login. This is API evidence, not browser acceptance.
+- Repository formatting, scoped Prettier checks, and local links in the changed phase records passed. C03's pre-existing hash/status edit is preserved under the ledger rule. ID-02 and ID-03 have their API behavior verified; browser promotion, logout, and home account flows remain for C05. No complete acceptance ID is closed by C04.
 
 ## 6. V3P1-C05 — Home account panel
 

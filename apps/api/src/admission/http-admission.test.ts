@@ -39,10 +39,18 @@ async function fixture(
     activity.guest++;
     response.json({ ok: true });
   });
-  app.post(['/api/sessions/register', '/api/sessions/login'], (_request, response) => {
-    activity.accounts++;
-    response.json({ ok: true });
-  });
+  app.post(
+    [
+      '/api/sessions/register',
+      '/api/sessions/login',
+      '/api/sessions/password',
+      '/api/sessions/promote',
+    ],
+    (_request, response) => {
+      activity.accounts++;
+      response.json({ ok: true });
+    },
+  );
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });
   });
@@ -104,7 +112,7 @@ it('limits actual guest requests before writes, including case/trailing-slash al
     expect((await fetch(url + '/api/health')).status).toBe(200);
   });
 });
-it.each(['register', 'login'])(
+it.each(['register', 'login', 'password', 'promote'])(
   'shares the guest network budget with %s and the other account route',
   async (route) => {
     await fixture(async (url, activity) => {
@@ -133,7 +141,7 @@ it.each(['register', 'login'])(
     });
   },
 );
-it.each(['register', 'login'])(
+it.each(['register', 'login', 'password', 'promote'])(
   'applies the ordinary control budget before %s JSON parsing and account work',
   async (route) => {
     await fixture(
