@@ -28,3 +28,55 @@ export function createGuest(
     signal,
   });
 }
+
+function accountRequest(
+  route: string,
+  body: Record<string, string>,
+  signal?: AbortSignal,
+  token?: string,
+): Promise<GuestSessionResponse> {
+  return request(`/sessions/${route}`, parseGuest, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+export function register(
+  displayName: string,
+  email: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<GuestSessionResponse> {
+  return accountRequest('register', { displayName, email, password }, signal);
+}
+
+export function login(
+  email: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<GuestSessionResponse> {
+  return accountRequest('login', { email, password }, signal);
+}
+
+export function promote(
+  email: string,
+  password: string,
+  token: string,
+  signal?: AbortSignal,
+): Promise<GuestSessionResponse> {
+  return accountRequest('promote', { email, password }, signal, token);
+}
+
+export function changePassword(
+  currentPassword: string,
+  password: string,
+  token: string,
+  signal?: AbortSignal,
+): Promise<GuestSessionResponse> {
+  return accountRequest('password', { currentPassword, password }, signal, token);
+}

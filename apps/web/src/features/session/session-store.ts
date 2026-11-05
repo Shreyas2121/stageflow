@@ -3,24 +3,27 @@ import type { GuestSessionResponse } from '@stageflow/shared';
 import { parseGuest } from './api';
 
 const storageKey = 'stageflow.session';
-// Read exp only to discard an expired token; the server verifies authenticity.
-export function expiresAt(token: string): number | null {
+// Claims guide local expiry and copy only; the server verifies authenticity and access.
+function tokenPayload(token: string): Record<string, unknown> | null {
   try {
     const payload: unknown = JSON.parse(
       atob((token.split('.')[1] ?? '').replace(/-/g, '+').replace(/_/g, '/')),
     );
-    if (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'exp' in payload &&
-      typeof payload.exp === 'number' &&
-      Number.isFinite(payload.exp)
-    )
-      return payload.exp * 1000;
+    if (typeof payload === 'object' && payload !== null && !Array.isArray(payload))
+      return payload as Record<string, unknown>;
   } catch {
     /* The server remains the authority for opaque or invalid tokens. */
   }
   return null;
+}
+
+export function expiresAt(token: string): number | null {
+  const expiry = tokenPayload(token)?.exp;
+  return typeof expiry === 'number' && Number.isFinite(expiry) ? expiry * 1000 : null;
+}
+
+export function isHostSession(session: GuestSessionResponse | null): boolean {
+  return session !== null && tokenPayload(session.token)?.guest === false;
 }
 
 /** Local exp check only. A token without exp stays usable; the server still verifies it. */

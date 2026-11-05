@@ -1,7 +1,7 @@
 import type { RoomResponse } from '@stageflow/shared';
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSessionStore, expiresAt, readStoredSession } from './session-store';
+import { useSessionStore, expiresAt, isHostSession, readStoredSession } from './session-store';
 import { createGuest } from './api';
 import { createRoom, getRoom, parseRoom } from '../rooms/api';
 import { bindSessionCache, roomQueryOptions } from '../rooms/query-options';
@@ -36,6 +36,63 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe('host copy and replacement sessions', () => {
+  it.each([
+    { payload: { guest: false }, host: true },
+    { payload: { guest: true }, host: false },
+    { payload: {}, host: false },
+    { payload: { guest: 'false' }, host: false },
+    { payload: { guest: 0 }, host: false },
+    { payload: { guest: null }, host: false },
+    { payload: null, host: false },
+    { payload: [], host: false },
+    { payload: false, host: false },
+  ])('uses host copy only for boolean guest=false in $payload', ({ payload, host }) => {
+    const token = `header.${btoa(JSON.stringify(payload))}.signature`;
+    expect(isHostSession({ ...guest, token })).toBe(host);
+  });
+
+  it('treats a signed-out, malformed, or opaque session as a guest for copy', () => {
+    expect(isHostSession(null)).toBe(false);
+    for (const token of ['opaque', 'header.%%%.signature', `header.${btoa('{')}.signature`])
+      expect(isHostSession({ ...guest, token })).toBe(false);
+  });
+
+  it('stores and restores a seven-day host session and clears it on logout', () => {
+    const token = `header.${btoa(JSON.stringify({ guest: false, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 }))}.signature`;
+    const host = { ...guest, token };
+    useSessionStore.getState().setSession(host);
+    expect(sessionStorage.setItem).toHaveBeenCalledWith('stageflow.session', JSON.stringify(host));
+    vi.mocked(sessionStorage.getItem).mockReturnValue(JSON.stringify(host));
+    expect(readStoredSession()).toEqual(host);
+    expect(isHostSession(readStoredSession())).toBe(true);
+    useSessionStore.getState().clearSession();
+    expect(useSessionStore.getState().session).toBeNull();
+    expect(sessionStorage.removeItem).toHaveBeenCalledWith('stageflow.session');
+  });
+
+  it('invalidates private caches on same-user promotion and password replacement', () => {
+    const client = new QueryClient();
+    useSessionStore.getState().setSession(guest);
+    const unbind = bindSessionCache(client);
+    try {
+      for (const sv of [1, 2]) {
+        client.setQueryData(['private', guest.userId, 'rooms'], 'old rooms');
+        client.setQueryData(['public'], 'keep');
+        const token = `header.${btoa(JSON.stringify({ guest: false, sv }))}.signature`;
+        useSessionStore.getState().setSession({ ...guest, token });
+        expect(client.getQueryCache().findAll({ queryKey: ['private'] })).toHaveLength(0);
+        expect(client.getQueryData(['public'])).toBe('keep');
+        useSessionStore.getState().clearSession(guest.token);
+        expect(useSessionStore.getState().session?.token).toBe(token);
+      }
+    } finally {
+      unbind();
+      client.clear();
+    }
+  });
 });
 describe('guest recovery and private queries', () => {
   it('restores valid storage and discards corrupt or expired storage', () => {

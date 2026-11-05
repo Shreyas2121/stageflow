@@ -21,7 +21,13 @@ function invitationHref(slug: string): string {
   return new URL(`/r/${slug}`, window.location.origin).href;
 }
 
-export function RoomList({ session }: { session: GuestSessionResponse }) {
+export function RoomList({
+  session,
+  isHost = false,
+}: {
+  session: GuestSessionResponse;
+  isHost?: boolean;
+}) {
   const page = useCatalogPages(roomsQueryOptions(session));
   const { items } = page;
 
@@ -34,7 +40,11 @@ export function RoomList({ session }: { session: GuestSessionResponse }) {
           ))}
         </ul>
       )}
-      <CatalogPagingControls page={page} name="rooms" empty="This guest session has no rooms." />
+      <CatalogPagingControls
+        page={page}
+        name="rooms"
+        empty={isHost ? 'This account has no rooms.' : 'This guest session has no rooms.'}
+      />
     </div>
   );
 }

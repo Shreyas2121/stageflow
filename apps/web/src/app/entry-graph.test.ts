@@ -19,6 +19,12 @@ describe('home entry', () => {
     expect(home).not.toContain('LiveRoom');
     expect(home).not.toMatch(/chat-panel|ChatPanel|features\/chat/);
     expect(home).toContain('Rooms from this guest session');
+    expect(home).toContain('Your rooms');
+    const account = source('features/session/account-panel.tsx');
+    expect(account.toLowerCase()).not.toContain('hls');
+    expect(account).not.toMatch(
+      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+    );
     expect(source('main.tsx').toLowerCase()).not.toContain('hls');
   });
 

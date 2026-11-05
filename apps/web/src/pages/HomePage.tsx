@@ -15,16 +15,19 @@ import { useMutation } from '@tanstack/react-query';
 import { createGuest } from '../features/session/api';
 import { createRoom, getRoom } from '../features/rooms/api';
 import { RoomList } from '../features/rooms/room-list';
-import { usableSession, useSessionStore } from '../features/session/session-store';
+import { isHostSession, usableSession, useSessionStore } from '../features/session/session-store';
+import { AccountPanel } from '../features/session/account-panel';
 
 export function HomePage() {
   const storedSession = useSessionStore((state) => state.session);
   const session = usableSession(storedSession);
+  const isHost = isHostSession(session);
   const setSession = useSessionStore((state) => state.setSession);
   const clearSession = useSessionStore((state) => state.clearSession);
   const [displayName, setDisplayName] = useState(session?.displayName ?? '');
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
+  const [accountPending, setAccountPending] = useState(false);
   const navigate = useNavigate();
   const pendingRequest = useRef<AbortController | null>(null);
   useEffect(() => () => pendingRequest.current?.abort(), []);
@@ -76,9 +79,9 @@ export function HomePage() {
         </p>
       </div>
       <fieldset
-        disabled={submit.isPending}
+        disabled={submit.isPending || accountPending}
         className="mt-9 min-w-0 overflow-visible rounded-panel border border-line bg-surface p-0"
-        aria-busy={submit.isPending}
+        aria-busy={submit.isPending || accountPending}
       >
         <legend className="sr-only">Your name and room options</legend>
         {session ? (
@@ -87,21 +90,23 @@ export function HomePage() {
               <p className="mb-2.5 text-[13px] font-medium">Your display name</p>
               <p className="m-0 text-sm">{session.displayName}</p>
             </div>
-            <div>
-              <p className="mb-4 text-xs text-muted">
-                These rooms stay with this guest token. A new session cannot find them by display
-                name.
-              </p>
-              <Button
-                type="button"
-                onClick={() => {
-                  pendingRequest.current?.abort();
-                  clearSession();
-                }}
-              >
-                Use a different name
-              </Button>
-            </div>
+            {!isHost && (
+              <div>
+                <p className="mb-4 text-xs text-muted">
+                  These rooms stay with this guest token. A new session cannot find them by display
+                  name.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    pendingRequest.current?.abort();
+                    clearSession();
+                  }}
+                >
+                  Use a different name
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <FormField
@@ -203,20 +208,28 @@ export function HomePage() {
           Error: {submit.error.message}
         </p>
       )}
+      <AccountPanel
+        key={`${session?.userId ?? 'signed-out'}:${isHost}`}
+        session={session}
+        displayName={displayName}
+        disabled={submit.isPending}
+        onPendingChange={setAccountPending}
+      />
       <section className="mt-8" aria-labelledby="guest-rooms">
         <h2 id="guest-rooms" className="mb-2 text-[22px] font-medium tracking-tight">
-          Rooms from this guest session
+          {isHost ? 'Your rooms' : 'Rooms from this guest session'}
         </h2>
         {session ? (
           <>
             <p className="m-0 text-sm text-muted">
-              These rooms belong to this guest session. A new or expired session cannot find them by
-              typing the same display name.
+              {isHost
+                ? 'These rooms stay with this account. Sign in with the same email to see them on another browser.'
+                : 'These rooms belong to this guest session. A new or expired session cannot find them by typing the same display name.'}
             </p>
             <p className="mt-2 mb-0 text-sm text-muted">
               LIVE means the room has not ended. It does not mean someone is connected.
             </p>
-            <RoomList key={session.userId} session={session} />
+            <RoomList key={session.userId} session={session} isHost={isHost} />
           </>
         ) : (
           <p className="mt-2 mb-0 text-sm text-muted">

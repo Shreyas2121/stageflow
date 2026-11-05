@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** in progress. V3P1-C01 through V3P1-C04 supply shared parsers, credential storage, versioned tokens, register/login, promotion, and password change. V3P1-C05 and V3P1-C06 are planned.\
+**Status:** in progress. V3P1-C01 through V3P1-C05 supply parsers, credentials, versioned tokens, account routes, and the home account flows. ID-01 through ID-04 are verified. V3P1-C06's README work is planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -207,9 +207,9 @@ pnpm lint
 
 ## 5. V3P1-C04 — Password change and promotion
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-auth): promote the current guest and change the password`\
-**Actual commit:**
+**Actual commit:** `bcfe8fb5e808fa9106ebecdf127ae52b3dce48a4`
 
 **Why:** The current guest can keep their rooms, a live call blocks that change, and a password change kills the previous token. Covers ID-02 and ID-03 on the API.
 
@@ -262,7 +262,7 @@ pnpm lint
 
 ## 6. V3P1-C05 — Home account panel
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(web-home): sign in, promote a guest, and show the host library`\
 **Actual commit:**
 
@@ -273,12 +273,14 @@ pnpm lint
 **Files:**
 
 - `apps/web/src/features/session/api.ts`
+- `apps/web/src/features/session/api.test.ts`
 - `apps/web/src/features/session/session-store.ts`
 - `apps/web/src/features/session/session-store.test.ts`
 - `apps/web/src/features/session/account-panel.tsx`
 - `apps/web/src/pages/HomePage.tsx`
 - `apps/web/src/features/rooms/room-list.tsx`
 - `apps/web/src/app/entry-graph.test.ts`
+- `apps/web/AGENTS.md`
 
 **Implementation:**
 
@@ -301,6 +303,20 @@ pnpm lint
 Then exercise the home flow in the browser. A missing browser leaves ID-01 through ID-04 partial and named.
 
 **Done when:** The three home states match Section 5.6, and the replay and room signed-out gates are unchanged.
+
+**Verification record (2026-11-05):**
+
+- `pnpm --filter @stageflow/web test -- src/features/session/api.test.ts src/features/session/session-store.test.ts src/app/entry-graph.test.ts` passed all 39 focused cases. The final `pnpm --filter @stageflow/web test` passed all 456 tests in 32 files. Workspace `pnpm typecheck` and `pnpm lint` passed.
+- `pnpm --filter @stageflow/web build` and `pnpm check:artifacts --web` passed. The affected-check planner selected only web checks, formatting, and web artifacts; it selected neither API tests, smokes, nor audit. The existing deferred playback chunk still produces Vite's size warning; it remains outside the home import graph. Room/replay sources and their signed-out gates are unchanged.
+- The account helpers reuse `parseGuest`, send only each route's JSON fields, and add a bearer only for promotion/password change. Regressions cover cancellation, invalid responses, API messages, and preservation of the existing session after account errors, including `wrong_password`. Host copy requires the literal boolean `guest: false`; legacy, malformed, and other claims retain guest copy. Same-user promotion/password replacement clear private catalog caches without clearing a newer token on an old request's 401.
+- Browser checks used Playwright `1.64.1`, installed Chrome `156.0.8078.80` headless on Windows NT `10.0` x64, locale `en-GB`, time zone `UTC`, and a primary viewport of `1280 × 800`. The web ran from current Vite source against the real compiled C04 `AppModule`, PostgreSQL 16, Redis 7, bcrypt, and JWTs. Each run created/migrated/dropped its own database and acquired/released its own random live namespace. Owned containers used tmpfs storage, random loopback ports, and process-only overrides. A controlled request delay checked pending controls; account responses and persistence were real.
+- A guest created `C05 Design review`, returned home, and promoted. The same user id and room appeared under **Your rooms**, the old guest token returned 401, **Register** was absent for the guest, and **Use a different name** was absent for the host. Logout removed `stageflow.session`; after reload, a wrong password stayed on the login form and a correct login recovered that library. Host create/join reused the host token without another guest request. The browser also checked the original guest token's 12-hour lifetime.
+- Wrong current-password submission retained the host and its token. Successful password change cleared password fields, announced success, stored a replacement token, made the old token return 401, and let the replacement token read the library. A second account registered with the shared display-name field, initially saw **This account has no rooms.**, created its own room, logged out, and recovered only that room from a fresh browser context. Invalid email/password fields showed shared parser messages; while registration was delayed, account switches, name edits, and room create/join were disabled and the fieldset reported busy.
+- A fresh guest with the same display name joined the first room by link, returned home, and saw **Rooms from this guest session** and **This guest session has no rooms.** A taken email showed the API message and preserved that guest's token/copy. Guest login displayed the unpromoted-room warning, then replaced the session with the registered user's library.
+- Another guest joined a real live meeting with explicitly enabled synthetic camera/microphone input and added three demo peers; the spawn control then disabled. An opener-created dashboard tab retained that guest token. Promotion returned the real membership error and preserved the guest heading/token. After removing the demos and leaving the room, membership was absent and promotion succeeded with the same user and room. No C05 browser step from the guide was left unrun.
+- The host layout had no horizontal overflow at `1024 × 768` or `390 × 844`; desktop/mobile screenshots were inspected. The primary browser page reported no uncaught runtime errors. These are identity/UI and synthetic-media observations, not physical-device, audible-output, native-picker, recording, or replay-pixel evidence.
+- Repository/scoped formatting and local links in the changed guides/phase records passed. Cleanup found zero fixture databases, Redis keys, and owner guards before removing the owned containers; temporary scripts, configuration, reports, and screenshots were removed. Developer services, data, configuration, and live namespaces were not restarted, migrated, or reset. C04's pre-existing status/hash update is preserved under the ledger rule.
+- ID-01 through ID-04 are verified for this phase's identity contract using C01–C04 API evidence and these browser checks. Existing V1/V2 acceptance gaps stay open. No broadcast smoke was run by C05; C04's missing-FFmpeg result remains the latest broadcast evidence. C06 README work remains planned.
 
 ## 7. V3P1-C06 — README
 
