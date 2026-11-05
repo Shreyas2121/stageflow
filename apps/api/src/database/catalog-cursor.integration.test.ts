@@ -150,6 +150,51 @@ beforeAll(async () => {
   broadcasts = new BroadcastsService(source.getRepository(Broadcast), rooms);
 }, 30_000);
 
+it('filters replay visibility and delete claims in PostgreSQL before paging', async () => {
+  if (!dataSource || !broadcasts) throw new Error('Catalog services were not created.');
+  const source = dataSource;
+  const service = broadcasts;
+  const privateRoomId = randomUUID();
+  const slug = 'PrivateCast1';
+  await insertInstant('rooms', privateRoomId, instants[0]!, castHostId, slug);
+  const records: Array<{ id: string; visibility: 'LINK' | 'HOST'; status: 'READY' | 'DELETING' }> =
+    [];
+  for (let index = 0; index < instants.length; index++) {
+    const id = randomUUID();
+    const visibility = index % 2 ? 'LINK' : 'HOST';
+    const status = index === 0 || index === 3 ? 'DELETING' : 'READY';
+    await insertInstant('broadcasts', id, instants[index]!, privateRoomId);
+    await source.getRepository(Broadcast).update(id, { visibility, status });
+    records.push({ id, visibility, status });
+  }
+  const order = await ordered('broadcasts', 'room_id', privateRoomId);
+  const owner = { id: castHostId, isGuest: false, email: null, passwordHash: null } as User;
+  const outsiders = [
+    { id: castHostId, isGuest: true } as User,
+    { id: otherHostId, isGuest: false } as User,
+    { id: hostId, isGuest: true } as User,
+  ];
+  for (const user of [owner, ...outsiders]) {
+    const allowed = new Set(
+      records
+        .filter((row) => row.status !== 'DELETING' && (user === owner || row.visibility === 'LINK'))
+        .map((row) => row.id),
+    );
+    for (const limit of [1, 2]) {
+      await walk(
+        (cursor) =>
+          service.listByRoomSlug(
+            slug,
+            { limit: String(limit), ...(cursor ? { cursor } : {}) },
+            user,
+          ),
+        limit,
+        order.filter((row) => allowed.has(row.id)),
+      );
+    }
+  }
+});
+
 afterAll(async () => {
   try {
     if (dataSource?.isInitialized) await dataSource.destroy();
@@ -244,20 +289,34 @@ it('pages rooms and broadcasts across microseconds without skips or duplicates',
 
   const slug = 'CursorCast01';
   await walk(
-    (cursor) => broadcastPages.listByRoomSlug(slug, { limit: '1', ...(cursor ? { cursor } : {}) }),
+    (cursor) =>
+      broadcastPages.listByRoomSlug(
+        slug,
+        { limit: '1', ...(cursor ? { cursor } : {}) },
+        caller(otherHostId),
+      ),
     1,
     broadcastOrder,
   );
   await walk(
-    (cursor) => broadcastPages.listByRoomSlug(slug, { limit: '2', ...(cursor ? { cursor } : {}) }),
+    (cursor) =>
+      broadcastPages.listByRoomSlug(
+        slug,
+        { limit: '2', ...(cursor ? { cursor } : {}) },
+        caller(otherHostId),
+      ),
     2,
     broadcastOrder,
   );
-  const foreign = await broadcastPages.listByRoomSlug('CursorOther1', { limit: '10' });
+  const foreign = await broadcastPages.listByRoomSlug(
+    'CursorOther1',
+    { limit: '10' },
+    caller(otherHostId),
+  );
   expect(foreign.items).toHaveLength(1);
   expect(foreign.items[0]?.roomId).toBe(otherRoomId);
   expect(broadcastOrder.some((row) => row.id === foreign.items[0]?.id)).toBe(false);
   for (const item of foreign.items) expect(parseBroadcast(item)).toEqual(item);
-  const catalog = await broadcastPages.listByRoomSlug(slug, { limit: '1' });
+  const catalog = await broadcastPages.listByRoomSlug(slug, { limit: '1' }, caller(otherHostId));
   expect(parseBroadcast(catalog.items[0])).toEqual(catalog.items[0]);
 }, 30_000);

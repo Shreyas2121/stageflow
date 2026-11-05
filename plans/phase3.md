@@ -1,6 +1,6 @@
 # V3 Phase 3 — Replay visibility and deletion
 
-**Status:** in progress. C01 records replay visibility; C02 through C05 remain planned.\
+**Status:** in progress. C01 records replay visibility and C02 enforces owner-only reads. C03 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.4`, Sections 4, 8, and 12 (LIB-01 through LIB-04). Identity stays as shipped in `plans/phase1.md` and `plans/phase2.md`.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V3P3-C01 through V3P3-C05. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md) or the V2 commits in [V2/phase3/guide.md](V2/phase3/guide.md).\
@@ -123,12 +123,12 @@ These controls stay on the home library. They do not import `hls.js`, the live r
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                                         | Method                                                                                  | Status  |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------- |
-| LIB-01 | A guest plays `LINK` JSON and media. `HOST` plays for the registered owner and returns `broadcast_not_found` for a guest and another host | Route regressions, plus a browser replay of a seeded `LINK` row and a seeded `HOST` row | planned |
-| LIB-02 | Migrated rows and a promoted guest's replays stay `LINK`. A guest owner cannot set `HOST`. A live row cannot be hidden                    | Migration and service regressions                                                       | planned |
-| LIB-03 | Owner delete removes the `READY` or `FAILED` row and that directory. An escaping path is left in place                                    | Service test on a disposable directory                                                  | planned |
-| LIB-04 | `STARTING`, `LIVE`, `STOPPING`, and the active Redis id cannot be deleted. A failed removal restores the row and reports failure          | Status and filesystem regressions                                                       | planned |
+| ID     | Observable result                                                                                                                         | Method                                                                                  | Status                        |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------- |
+| LIB-01 | A guest plays `LINK` JSON and media. `HOST` plays for the registered owner and returns `broadcast_not_found` for a guest and another host | Route regressions, plus a browser replay of a seeded `LINK` row and a seeded `HOST` row | API verified; browser pending |
+| LIB-02 | Migrated rows and a promoted guest's replays stay `LINK`. A guest owner cannot set `HOST`. A live row cannot be hidden                    | Migration and service regressions                                                       | Storage verified; C03 pending |
+| LIB-03 | Owner delete removes the `READY` or `FAILED` row and that directory. An escaping path is left in place                                    | Service test on a disposable directory                                                  | planned                       |
+| LIB-04 | `STARTING`, `LIVE`, `STOPPING`, and the active Redis id cannot be deleted. A failed removal restores the row and reports failure          | Status and filesystem regressions                                                       | planned                       |
 
 A seeded playlist is not an FFmpeg observation. MEDIA-04, REC-05, and the other open physical ids stay open.
 
@@ -172,3 +172,7 @@ This phase does not make V2 acceptance complete. Leave the open ids open.
 ### V3P3-C01 ? Stored visibility (2026-11-05)
 
 Shared 309, API 400, web 477, and tooling 49 tests passed, as did workspace typecheck/lint, both builds, formatting, artifact checks, and live smoke. Broadcast smoke passed with the existing temporary FFmpeg 6.0 executable after its initial PATH lookup failed. All six migrations ran on an owned disposable database, with an empty second run. Migration regressions verify legacy and newly saved LINK rows, visibility constraints, and internal DELETING storage. Snapshot projection omits DELETING and restart recovery leaves it unchanged. No route can set HOST yet. LIB-02 storage is verified; promotion and mutation refusals remain for C03. Browser and physical acceptance remain open.
+
+### V3P3-C02 ? Owner-only reads (2026-11-05)
+
+All 404 API tests passed, including real-JWT HTTP requests against disposable media files, service checks that reject before resolving files, and disposable PostgreSQL privacy filtering across keyset pages. Password and Google-only registered owners can read HOST catalogs, thumbnails, playlists and segments. Guest owners, other registered hosts and guests receive the same broadcast-not-found response as a missing id. LINK remains readable by any valid bearer, and DELETING is omitted for everyone. Workspace typecheck/lint, repository formatting, shared preparation, API build/artifacts, live smoke, and disposable FFmpeg broadcast smoke passed. The latter used the same existing temporary FFmpeg 6.0 executable as C01. LIB-01 API coverage is verified; the browser half remains open for C04. C03 through C05 are not implemented.

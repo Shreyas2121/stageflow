@@ -15,13 +15,14 @@ import {
 } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
 import { readOrderingInstant } from '../database/ordering-instant';
 import { ApiException } from '../http/api.exception';
 import { failure } from '../live/signaling.messages';
 import { RoomsService } from '../rooms/rooms.service';
+import type { User } from '../users/user.entity';
 import { Broadcast } from './broadcast.entity';
 import { FfmpegSupervisor, type FfmpegExit } from './ffmpeg-supervisor';
 import { checkedHlsPath, checkedThumbnailPath, prepareBroadcastDirectory } from './hls-path';
@@ -407,8 +408,8 @@ export class BroadcastsService {
     }
   }
 
-  async mediaPath(id: string, file: string): Promise<string> {
-    await this.getById(id);
+  async mediaPath(id: string, file: string, user: User): Promise<string> {
+    await this.readableRow(id, user);
     try {
       return await checkedHlsPath(this.dataRoot, id, file);
     } catch {
@@ -416,15 +417,14 @@ export class BroadcastsService {
     }
   }
 
-  async thumbnailFile(id: string): Promise<string> {
+  async thumbnailFile(id: string, user: User): Promise<string> {
     const missing = new ApiException(
       404,
       'media_not_found',
       'No thumbnail exists for that broadcast.',
     );
-    if (!isUuid(id)) throw missing;
-    const row = await this.broadcasts.findOneBy({ id });
-    if (!row || row.thumbnailPath !== `broadcasts/${row.id}/thumbnail.jpg`) throw missing;
+    const row = await this.readableRow(id, user);
+    if (row.thumbnailPath !== `broadcasts/${row.id}/thumbnail.jpg`) throw missing;
     try {
       return await checkedThumbnailPath(this.dataRoot, id, 'thumbnail.jpg');
     } catch {
@@ -454,16 +454,25 @@ export class BroadcastsService {
     );
   }
 
-  async listByRoomSlug(slug: string, query: Record<string, unknown>): Promise<BroadcastPage> {
+  async listByRoomSlug(
+    slug: string,
+    query: Record<string, unknown>,
+    user: User,
+  ): Promise<BroadcastPage> {
     const limit = parseCatalogLimit(query.limit);
     if (!limit.ok) throw new ApiException(400, limit.error, limit.message);
     const cursor = parseHistoryCursor(query.cursor);
     if (!cursor.ok) throw new ApiException(400, cursor.error, cursor.message);
 
-    const room = await this.rooms.getBySlug(slug);
+    const catalogRoom = await this.rooms.getBySlug(slug);
+    const room = await this.rooms.getById(catalogRoom.id);
+    if (!room) throw new ApiException(404, 'room_not_found', 'No room exists for that slug.');
     const rows = await this.broadcasts.find({
       where: {
         roomId: room.id,
+        status: Not('DELETING'),
+        visibility:
+          user.isGuest === false && user.id === room.hostId ? In(['LINK', 'HOST']) : 'LINK',
         ...(cursor.value
           ? { id: beforeHistoryCursor(cursor.value.createdAt, cursor.value.id) }
           : {}),
@@ -487,7 +496,11 @@ export class BroadcastsService {
     return { items, nextCursor };
   }
 
-  async getById(id: string): Promise<BroadcastResponse> {
+  async getById(id: string, user: User): Promise<BroadcastResponse> {
+    return catalog(await this.readableRow(id, user));
+  }
+
+  private async readableRow(id: string, user: User): Promise<Broadcast> {
     const notFound = new ApiException(
       404,
       'broadcast_not_found',
@@ -495,7 +508,10 @@ export class BroadcastsService {
     );
     if (!isUuid(id)) throw notFound;
     const row = await this.broadcasts.findOneBy({ id });
-    if (!row) throw notFound;
-    return catalog(row);
+    if (!row || row.status === 'DELETING') throw notFound;
+    const room = await this.rooms.getById(row.roomId);
+    if (!room || (row.visibility === 'HOST' && (user.isGuest !== false || user.id !== room.hostId)))
+      throw notFound;
+    return row;
   }
 }

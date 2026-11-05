@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** in progress. C01 records replay visibility; C02 through C05 remain planned.\
+**Status:** in progress. C01 records replay visibility and C02 enforces owner-only reads. C03 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -50,9 +50,9 @@ Keep guest create, register, login, promotion, Google sign-in, demo peers, the m
 
 ## 2. V3P3-C01 — Record link visibility
 
-**Status:** verified, awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): record link visibility on replays`\
-**Actual commit:**
+**Actual commit:** `af56e37dad0259f4dccfa4a78fe9b58102eb8892`
 
 **Why:** Later slices need one stored value and one catalog field before any replay becomes private. Covers the storage half of LIB-02.
 
@@ -93,7 +93,7 @@ pnpm lint
 
 ## 3. V3P3-C02 — Owner-only private playback
 
-**Status:** planned\
+**Status:** verified, awaiting commit\
 **Proposed commit message:** `feat(api-broadcast): show a private replay only to its owner`\
 **Actual commit:**
 
@@ -125,6 +125,8 @@ pnpm lint
 ```
 
 **Done when:** `HOST` bytes are limited to the registered owner, and `LINK` bytes still play for a guest token.
+
+**Verification record (2026-11-05):** Focused broadcast service/HTTP and PostgreSQL cursor tests passed (16 tests). The full API suite passed (404 tests, 31 files). Workspace `pnpm typecheck` and `pnpm lint` passed. The affected plan selected API checks: repository formatting, shared preparation, API typecheck/lint/test/build, API artifacts, live smoke, and broadcast smoke all passed. Broadcast smoke used the existing temporary FFmpeg 6.0 executable recorded under C01. HTTP regressions use real JWT validation and disposable media files, covering LINK and HOST JSON, history, thumbnail, playlist and segment reads for a password owner, Google-only owner with null email/password hash, guest owner, unrelated registered host, and guest. Unauthorized requests and DELETING return the normal broadcast-not-found body. Service spies prove rejected reads never resolve media paths; authorized missing files remain media-not-found. PostgreSQL history tests filter before limits/cursors at page sizes one and two. Browser LIB-01 remains unverified for C04; no physical-device acceptance is closed.
 
 ## 4. V3P3-C03 — Hide and delete
 

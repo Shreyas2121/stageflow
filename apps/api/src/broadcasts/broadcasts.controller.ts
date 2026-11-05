@@ -28,14 +28,15 @@ export class BroadcastsController {
   @Get('rooms/:slug/broadcasts')
   list(
     @Param('slug') slug: string,
+    @CurrentUser() user: User,
     @Query() query: Record<string, unknown>,
   ): Promise<BroadcastPage> {
-    return this.broadcasts.listByRoomSlug(slug, query);
+    return this.broadcasts.listByRoomSlug(slug, query, user);
   }
 
   @Get('broadcasts/:id')
-  get(@Param('id') id: string): Promise<BroadcastResponse> {
-    return this.broadcasts.getById(id);
+  get(@Param('id') id: string, @CurrentUser() user: User): Promise<BroadcastResponse> {
+    return this.broadcasts.getById(id, user);
   }
 
   @Post('broadcasts/:id/chunks')
@@ -65,10 +66,11 @@ export class BroadcastsController {
   async media(
     @Param('id') id: string,
     @Param('file') file: string,
+    @CurrentUser() user: User,
     @Res() response: Response,
     @Next() next: NextFunction,
   ): Promise<void> {
-    const path = await this.broadcasts.mediaPath(id, file);
+    const path = await this.broadcasts.mediaPath(id, file, user);
     response.sendFile(path, { headers: hlsHeaders(file), cacheControl: false }, (error) => {
       if (error) next(error);
     });
@@ -76,11 +78,12 @@ export class BroadcastsController {
 
   @Get('broadcasts/:id/thumbnail.jpg')
   async thumbnail(
+    @CurrentUser() user: User,
     @Param('id') id: string,
     @Res() response: Response,
     @Next() next: NextFunction,
   ): Promise<void> {
-    const path = await this.broadcasts.thumbnailFile(id);
+    const path = await this.broadcasts.thumbnailFile(id, user);
     response.sendFile(
       path,
       {
