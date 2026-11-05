@@ -93,9 +93,9 @@ pnpm lint
 
 ## 3. V3P3-C02 — Owner-only private playback
 
-**Status:** verified, awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-broadcast): show a private replay only to its owner`\
-**Actual commit:**
+**Actual commit:** `16b597e0bb8a3de9a68145811577b03cc1efec6b`
 
 **Why:** A private row has to be enforced on every read before the product offers a hide button. Covers LIB-01.
 
