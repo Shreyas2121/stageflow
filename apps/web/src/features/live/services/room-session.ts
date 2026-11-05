@@ -1,4 +1,4 @@
-import { connectedStageIds, RECONNECT_GRACE_MS } from '@stageflow/shared';
+import { connectedStageIds } from '@stageflow/shared';
 import type {
   CommandAck,
   IceServer,
@@ -28,6 +28,7 @@ import {
   type OutputRouteResult,
 } from './output-route';
 import { PeerManager, type RemoteStreams, type TrackSource } from './peer-manager';
+import { RecoveryController } from './recovery-controller';
 import { audienceFor, roleTransition, type StageMembership } from './role-transition';
 import { ScreenShareController } from './screen-share';
 import { openSignaling, type RoomConnection } from './signaling';
@@ -37,30 +38,6 @@ export type ConnectionPhase = 'lobby' | 'joining' | 'joined' | 'recovering' | 'l
 type PendingStageEvent =
   | { type: 'description'; payload: RelayedDescription }
   | { type: 'candidate'; payload: RelayedIceCandidate };
-
-/** Answers that can succeed on a later selected attempt. `resume_lost` stays here so the loser does not adopt the winning transport. */
-function retryableResumeMessage(error: string): string | null {
-  switch (error) {
-    case 'server_busy':
-      return 'The live server is busy. Try again shortly.';
-    case 'server_error':
-      return 'Unable to update the live room. Join again.';
-    case 'rate_limited':
-      return 'Too many room commands. Try again shortly.';
-    case 'already_connected':
-      return 'This participant is already connected.';
-    case 'resume_lost':
-      return 'Another connection resumed this membership.';
-    default:
-      return null;
-  }
-}
-
-function terminalResumeMessage(error: string): string {
-  if (error === 'participant_not_found') return 'The live room reset. Join again.';
-  if (error === 'room_ended') return 'This room has ended.';
-  return 'The connection was gone too long. Join again.';
-}
 
 export type RoomMedia = TrackSource & {
   readonly ready: boolean;
@@ -154,12 +131,8 @@ export class RoomSession {
   private prepareToken = 0;
   private settled: StageMembership | null = null;
   private endedNotified = false;
-  private resumeIdentity: { participantId: string; resumeCredential: string } | null = null;
-  private recoveryEpoch = 0;
-  private recoveryDeadline = 0;
-  private recoveryTimers: ReturnType<typeof setTimeout>[] = [];
+  private readonly recovery: RecoveryController;
   private resumedWithoutCapture = false;
-  private readonly leaveRequests = new WeakMap<RoomConnection, Promise<CommandAck>>();
 
   private readonly state: {
     phase: ConnectionPhase;
@@ -246,6 +219,32 @@ export class RoomSession {
     const generation = () => this.generation;
     const connection = () => this.connection;
     const peers = () => this.peers;
+    this.recovery = new RecoveryController(this.room.id, {
+      get connection() {
+        return connection();
+      },
+      canRecover: () => this.state.phase === 'recovering' && this.attached && !this.pageHidden,
+      hasJoined: () => this.state.phase === 'joined',
+      setConnection: (active) => {
+        this.connection = active;
+      },
+      open: (onResumed) => {
+        const opened = { current: null as RoomConnection | null };
+        const active = this.open(this.token, this.room.id, {
+          ...this.callbacksFor(opened),
+          onResumed,
+        });
+        opened.current = active;
+        return active;
+      },
+      resumed: (active, result) => this.completeResume(active, result),
+      retrying: (message) => {
+        this.state.error = message;
+        this.emit();
+      },
+      failed: (message) => this.finishRecoveryFailure(message),
+      ended: () => this.notifyEnded(),
+    });
     this.share = new ScreenShareController({
       get generation() {
         return generation();
@@ -542,7 +541,7 @@ export class RoomSession {
       return;
     }
     const generation = this.generation;
-    this.cancelRecovery();
+    this.recovery.cancel();
     this.resumedWithoutCapture = false;
     this.locallyTornDown = false;
     this.state.phase = 'joining';
@@ -573,9 +572,7 @@ export class RoomSession {
         }
         return;
       }
-      this.resumeIdentity = result.resumeCredential
-        ? { participantId: result.participantId, resumeCredential: result.resumeCredential }
-        : null;
+      this.recovery.remember(result.participantId, result.resumeCredential);
       this.state.phase = 'joined';
       this.chat.connect(active);
       this.media.releaseLobby();
@@ -595,7 +592,7 @@ export class RoomSession {
   async leave(): Promise<void> {
     if (this.state.phase === 'leaving') return;
     const active = this.connection;
-    this.cancelRecovery();
+    this.recovery.cancel();
     this.state.phase = 'leaving';
     if (this.room.hostId === this.userId) this.chat.end();
     else this.chat.suspend(false);
@@ -605,7 +602,7 @@ export class RoomSession {
     this.emit();
     try {
       if (active) {
-        const result = await this.requestLeave(active);
+        const result = await this.recovery.requestLeave(active);
         if (this.connection === active && !result.ok) this.state.error = result.message;
       }
     } catch {
@@ -774,7 +771,7 @@ export class RoomSession {
     if (this.connection !== active) return;
     this.connection = null;
     this.chat.end();
-    this.cancelRecovery();
+    this.recovery.cancel();
     this.teardownLocal();
     this.state.phase = 'lobby';
     this.state.error = 'This room has ended.';
@@ -793,7 +790,7 @@ export class RoomSession {
       this.state.phase === 'joined' &&
       this.attached &&
       !this.pageHidden &&
-      this.resumeIdentity !== null;
+      this.recovery.hasCredential;
     const role = this.state.role;
     this.chat.suspend(canResume);
     this.teardownLocal();
@@ -802,11 +799,11 @@ export class RoomSession {
       this.state.role = role;
       this.state.isAudioMuted = this.state.isVideoOff = true;
       this.state.error = '';
-      this.startRecovery();
+      this.recovery.start();
       this.emit();
       return;
     }
-    this.cancelRecovery();
+    this.recovery.cancel();
     this.state.phase = 'lobby';
     this.state.error = 'The live room reset. Join again.';
     this.emit();
@@ -848,111 +845,7 @@ export class RoomSession {
     };
   }
 
-  private cancelRecovery(dropCredential = true): void {
-    this.recoveryEpoch += 1;
-    for (const timer of this.recoveryTimers) clearTimeout(timer);
-    this.recoveryTimers = [];
-    if (dropCredential) this.resumeIdentity = null;
-  }
-
-  private startRecovery(): void {
-    this.cancelRecovery(false);
-    const epoch = this.recoveryEpoch;
-    this.recoveryDeadline = Date.now() + RECONNECT_GRACE_MS;
-    for (const delay of [1000, 2000, 4000])
-      this.recoveryTimers.push(
-        setTimeout(() => {
-          void this.resumeAttempt(epoch);
-        }, delay),
-      );
-    this.recoveryTimers.push(
-      setTimeout(() => {
-        if (epoch === this.recoveryEpoch)
-          this.failRecovery('The connection was gone too long. Join again.');
-      }, RECONNECT_GRACE_MS),
-    );
-    void this.resumeAttempt(epoch);
-  }
-
-  private async resumeAttempt(epoch: number): Promise<void> {
-    if (
-      epoch !== this.recoveryEpoch ||
-      this.state.phase !== 'recovering' ||
-      !this.resumeIdentity ||
-      this.pageHidden ||
-      !this.attached
-    )
-      return;
-    if (Date.now() >= this.recoveryDeadline) {
-      this.failRecovery('The connection was gone too long. Join again.');
-      return;
-    }
-    const identity = this.resumeIdentity;
-    const previous = this.connection;
-    this.connection = null;
-    previous?.close();
-    const opened: { current: RoomConnection | null } = { current: null };
-    let active: RoomConnection | null = null;
-    try {
-      active = this.open(this.token, this.room.id, {
-        ...this.callbacksFor(opened),
-        onResumed: (result) => {
-          if (opened.current) this.completeResume(opened.current, result, epoch);
-        },
-      });
-      opened.current = active;
-      this.connection = active;
-      const result = await active.resume({ roomId: this.room.id, ...identity });
-      if (result.ok) {
-        this.completeResume(active, result, epoch);
-        return;
-      }
-      if (epoch !== this.recoveryEpoch || this.connection !== active) return;
-      const retryable = retryableResumeMessage(result.error);
-      if (retryable) {
-        // This socket did not bind. Close it without leave so the connected transport, or the generation winner, stays the membership.
-        this.keepRecovering(active, retryable);
-        return;
-      }
-      this.failRecovery(terminalResumeMessage(result.error));
-      if (result.error === 'room_ended') this.notifyEnded();
-    } catch {
-      active?.close();
-      if (this.connection === active) this.connection = null;
-      // The next attempt keeps its absolute schedule. The final attempt may wait until grace ends.
-    }
-  }
-
-  private completeResume(
-    active: RoomConnection,
-    result: Extract<ResumeAck, { ok: true }>,
-    epoch: number,
-  ): void {
-    if (this.connection === active && this.state.phase === 'joined') return;
-    if (
-      epoch === this.recoveryEpoch &&
-      this.connection === active &&
-      this.state.phase === 'recovering' &&
-      Date.now() >= this.recoveryDeadline
-    ) {
-      void this.requestLeave(active).catch(() => undefined);
-      this.failRecovery('The connection was gone too long. Join again.');
-      return;
-    }
-    if (
-      epoch !== this.recoveryEpoch ||
-      this.connection !== active ||
-      this.state.phase !== 'recovering' ||
-      this.pageHidden ||
-      !this.attached
-    ) {
-      void this.requestLeave(active).then(
-        () => active.close(),
-        () => active.close(),
-      );
-      return;
-    }
-    this.cancelRecovery(false);
+  private completeResume(active: RoomConnection, result: Extract<ResumeAck, { ok: true }>): void {
     this.locallyTornDown = false;
     this.resumedWithoutCapture = true;
     this.state.isAudioMuted = this.state.isVideoOff = true;
@@ -967,34 +860,13 @@ export class RoomSession {
     void this.refreshDevices();
   }
 
-  /** Drops one failed attempt and leaves the 0/1/2/4-second schedule and resume credential in place. */
-  private keepRecovering(active: RoomConnection, message: string): void {
-    if (this.connection === active) this.connection = null;
-    active.close();
-    if (this.state.phase !== 'recovering') return;
-    this.state.error = message;
-    this.emit();
-  }
-
-  private failRecovery(message: string): void {
-    const active = this.connection;
-    this.connection = null;
+  private finishRecoveryFailure(message: string): void {
     if (message === 'This room has ended.') this.chat.end();
     else this.chat.suspend(false);
-    this.cancelRecovery();
-    active?.close();
     this.teardownLocal();
     this.state.phase = 'lobby';
     this.state.error = message;
     this.emit();
-  }
-
-  private requestLeave(active: RoomConnection): Promise<CommandAck> {
-    const pending = this.leaveRequests.get(active);
-    if (pending) return pending;
-    const result = active.leave();
-    this.leaveRequests.set(active, result);
-    return result;
   }
 
   private async enableResumedInput(kind: InputKind): Promise<void> {
@@ -1487,7 +1359,7 @@ export class RoomSession {
     const active = this.connection;
     this.connection = null;
     this.chat.suspend(false);
-    this.cancelRecovery();
+    this.recovery.cancel();
     this.teardownLocal();
     active?.close();
   }
