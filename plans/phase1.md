@@ -200,6 +200,6 @@ All six slices are committed. The next requested phase may rely on these:
 - Home can show either the guest sentence or **Your rooms** from the stored token.
 - Promote refuses a live membership and a taken email.
 
-V3 phase 2 may add optional Google on top of this account row. It must not treat a Google email as a merge key. Do not write `plans/phase2.md` until that phase is requested.
+V3 phase 2 is specified in [phase2.md](phase2.md). It adds optional Google on top of this account row and must not treat a Google email as a merge key. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
