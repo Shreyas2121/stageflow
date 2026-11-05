@@ -1,6 +1,6 @@
 # V3 Phase 1 — Host identity
 
-**Status:** verified. V3P1-C01 through V3P1-C05 are committed; C06 README documentation is verified and ready to commit. ID-01 through ID-04 are verified. Existing V1/V2 acceptance gaps remain open.\
+**Status:** complete. V3P1-C01 through V3P1-C06 are committed, including the README and final slice-hash record. ID-01 through ID-04 are verified. Existing V1/V2 acceptance gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.2`, Sections 1, 3, 4, 5, 6, and 12 (ID-01 through ID-04). Unchanged media, admission, and restart rules stay in `MASTER_PLAN.md` version `1.0.9` and `MASTER_PLAN_V2.md` version `2.0.0-draft.9`.\
 **Execution guide:** [phase1/guide.md](phase1/guide.md). That guide owns V3P1-C01 through V3P1-C06. Those ids are not the V1 commits in [V1/phase1/guide.md](V1/phase1/guide.md) or the V2 commits in [V2/phase1/guide.md](V2/phase1/guide.md).\
@@ -193,7 +193,7 @@ The slice that edits the smoke migration list updates `scripts/smoke-broadcast.m
 
 ## 9. Exit and handoff
 
-The next phase may rely on these once the slices are committed:
+All six slices are committed. The next requested phase may rely on these:
 
 - A guest token and a host token both pass the socket handshake when their claims match the row.
 - `users.email`, `users.password_hash`, and `users.session_version` exist. Existing guest rows have a null email, a null hash, and version `0`.

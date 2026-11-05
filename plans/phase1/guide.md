@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** verified. V3P1-C01 through V3P1-C05 are committed; C06's README work is verified and ready to commit. ID-01 through ID-04 are verified. Existing V1/V2 acceptance gaps remain open.\
+**Status:** complete. V3P1-C01 through V3P1-C06 are committed, including the README and final slice-hash record. ID-01 through ID-04 are verified. Existing V1/V2 acceptance gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -320,9 +320,9 @@ Then exercise the home flow in the browser. A missing browser leaves ID-01 throu
 
 ## 7. V3P1-C06 — README
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe host accounts and guest promotion`\
-**Actual commit:**
+**Actual commit:** `bfa483eeb86257c65b580b570d7fb47fd948b245`
 
 **Why:** The README currently says accounts are future work. After C05 it must describe the host token, the guest path, and the promotion limit. This slice adds no runtime behavior.
 
