@@ -8,7 +8,8 @@ import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
 import { env } from '../config/env';
 import { hashPassword, verifyPassword } from './password';
-import type { GoogleProfile } from './google-identity';
+import type { GoogleProfile, GoogleCodeExchange } from './google-identity';
+import { googleRejected, googleUnavailable } from './google-exchange';
 
 @Injectable()
 export class SessionsService {
@@ -276,6 +277,24 @@ export class SessionsService {
     ) {
       throw new ApiException(401, 'google_rejected', 'Google did not confirm this sign-in.');
     }
+  }
+
+  async exchangeGoogleCode(
+    code: string,
+    verifier: string,
+    exchange: GoogleCodeExchange,
+    linkUserId?: string,
+  ): Promise<GuestSessionResponse> {
+    if (!env.GOOGLE_ENABLED) throw googleUnavailable();
+    return this.withPasswordWork(async () => {
+      const profile = await exchange(code, verifier);
+      if (linkUserId !== undefined) {
+        const user = await this.users.findOneBy({ id: linkUserId });
+        if (!user) throw googleRejected();
+        return this.linkGoogle(user, profile);
+      }
+      return this.signInWithGoogle(profile);
+    });
   }
 
   async signInWithGoogle(profile: GoogleProfile): Promise<GuestSessionResponse> {

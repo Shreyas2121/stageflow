@@ -6,7 +6,7 @@ import { bindLiveResetExit, LiveConnection } from './live/live.connection';
 import { ApiExceptionFilter } from './http/api-exception.filter';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { httpAdmission } from './admission/http-admission';
+import { httpAdmission, httpPreflight } from './admission/http-admission';
 import { normalizeAddress } from './config/parse-config';
 import { broadcastChunkParser } from './broadcasts/chunk-parser';
 import { bindDevShutdown } from './dev-shutdown';
@@ -18,11 +18,13 @@ async function bootstrap(): Promise<void> {
   );
   app.getHttpAdapter().enableCors({
     origin: env.CORS_ORIGIN,
+    preflightContinue: true,
     methods: ['GET', 'POST'],
     allowedHeaders: ['Authorization', 'Content-Type', 'x-chunk-sequence'],
     exposedHeaders: ['Retry-After'],
   });
   app.use(httpAdmission(env));
+  app.use(httpPreflight);
   app.use('/api/broadcasts/:id/chunks', broadcastChunkParser);
   app.useBodyParser('json', { limit: env.HTTP_BODY_BYTES });
   app.setGlobalPrefix('api');

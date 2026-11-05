@@ -1,6 +1,6 @@
 # V3 Phase 2 — Optional Google sign-in
 
-**Status:** in progress. C01 configuration and C02 identity decisions are verified. C03 through C05 remain planned.\
+**Status:** in progress. C01 through C03 are verified. C04 and C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.3`, Sections 4, 6.4, and 12 (ID-05 and ID-06). Email and password accounts stay as shipped in `plans/phase1.md`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V3P2-C01 through V3P2-C05. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md) or the V2 commits in [V2/phase2/guide.md](V2/phase2/guide.md).\
@@ -126,10 +126,10 @@ A real Google browser round-trip is recorded only when the three settings and a 
 
 ## 6. Acceptance matrix
 
-| ID    | Observable result                                                                                                                     | Method                                                                | Status                                                          |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
-| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | partial: C01 config verified; routes and browser remain planned |
-| ID-06 | A fake exchange creates a separate host, does not attach an equal email, and links only for the current host when the subject is free | Service regressions. A real Google browser pass is optional and named | planned                                                         |
+| ID    | Observable result                                                                                                                     | Method                                                                | Status                                                       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | partial: config and routes verified; browser remains planned |
+| ID-06 | A fake exchange creates a separate host, does not attach an equal email, and links only for the current host when the subject is free | Service regressions. A real Google browser pass is optional and named | verified with fake exchange; real Google round-trip not run  |
 
 ## 7. Verification commands
 
@@ -177,3 +177,11 @@ Only ID-05's config half is verified. Its route and browser halves, ID-06, and a
 ### V3P2-C02 ? Subject column and account decisions (2026-11-05)
 
 The nullable Google subject migration and direct-profile account decisions are implemented. New subjects create separate hosts, equal profile emails are discarded, linking requires the current host and refuses conflicts, and Google-only hosts cannot change a nonexistent password. The guide records disposable migration and service regressions. ID-06 HTTP exchange coverage remains planned; no Google routes or real round-trip are claimed.
+
+### V3P2-C03 ? Code exchange and routes (2026-11-05)
+
+The optional Google HTTP flow now performs code exchange and token verification on the API, discards email, uses PKCE and one-use Redis state/tickets, and links only the authenticated host. Disabled Google refuses all four actions without exchange. Google actions share account rate budgets for every method, and exchange shares the password in-flight cap.
+
+All 398 API tests, workspace typecheck/lint, frozen installation, and dependency audit passed. The guide records the focused fake-exchange HTTP cases, real Redis TTL/single-use/shutdown coverage, and release-gate outcome. ID-05 still needs C04 browser acceptance. ID-06 is verified against a fake exchange; no real Google browser round-trip ran. Existing V1/V2 physical observations remain open.
+
+C03 release evidence: the ordinary full-gate run hit the existing cross-fixture Redis MONITOR race. The API retry, explicit serial API run, and all remaining release components passed, including both app builds, formatting, artifacts, live smoke, and real FFmpeg 6.0 broadcast/restart/missing-binary checks. This is component completion after a retry, not an uninterrupted full-gate pass. Disposable migration execution included all five registered migrations once, followed by an empty second run. These automated results do not close outstanding browser or physical-device observations.

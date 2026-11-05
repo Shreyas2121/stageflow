@@ -12,6 +12,9 @@ const GUEST_SESSION_PATHS = new Set([
   '/api/sessions/password',
   '/api/sessions/promote',
 ]);
+const GOOGLE_ACTION_PATHS = new Set(
+  ['start', 'callback', 'ticket', 'link'].map((action) => `/api/sessions/google/${action}`),
+);
 
 // HLS reads and chunk posts do not spend the ordinary API budget. Playback on a
 // shared localhost or NAT address cannot exhaust the producer allowance.
@@ -23,7 +26,7 @@ export function httpTrafficClass(method: string, path: string): HttpTrafficClass
       .replace(/\/+$/, '') || '/';
   if (
     !normalized.startsWith('/api/') ||
-    method === 'OPTIONS' ||
+    (method === 'OPTIONS' && !GOOGLE_ACTION_PATHS.has(normalized)) ||
     (method === 'GET' && (normalized === '/api/health' || normalized === '/api/health/live'))
   )
     return 'exempt';
@@ -68,8 +71,8 @@ export function httpAdmission(config: ApiConfig): RequestHandler {
       if (!uploads.consume(identity)) rejected = uploads;
     } else if (!control.consume(identity)) rejected = control;
     else if (
-      request.method === 'POST' &&
-      GUEST_SESSION_PATHS.has(path) &&
+      ((request.method === 'POST' && GUEST_SESSION_PATHS.has(path)) ||
+        GOOGLE_ACTION_PATHS.has(path)) &&
       !guests.consume(identity)
     )
       rejected = guests;
@@ -93,3 +96,8 @@ export function httpAdmission(config: ApiConfig): RequestHandler {
     next();
   };
 }
+
+export const httpPreflight: RequestHandler = (request, response, next) => {
+  if (request.method === 'OPTIONS') response.sendStatus(204);
+  else next();
+};

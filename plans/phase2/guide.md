@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** in progress. C01 configuration and C02 identity decisions are verified. C03 through C05 remain planned.\
+**Status:** in progress. C01 through C03 are verified. C04 and C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -95,9 +95,9 @@ pnpm lint
 
 ## 3. V3P2-C02 — Subject column and account decisions
 
-**Status:** verified; awaiting implementation commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-auth): identify a host by Google subject`\
-**Actual commit:**
+**Actual commit:** `6cee44181c5589b3c8e1a2d4b8eb165b8b2cf22e`
 
 **Why:** Sign-in and link need one place that creates a host, refuses an email match, and links only the current host. Covers ID-06 before HTTP redirects exist.
 
@@ -141,7 +141,7 @@ pnpm lint
 
 ## 4. V3P2-C03 — Code exchange and routes
 
-**Status:** planned\
+**Status:** verified; awaiting implementation commit\
 **Proposed commit message:** `feat(api-auth): exchange a Google code on the server`\
 **Actual commit:**
 
@@ -180,6 +180,21 @@ pnpm lint
 ```
 
 **Done when:** Unset Google refuses the four action routes, and a fake exchange completes sign-in and link without a real Google call.
+
+**Verification record (2026-11-05):**
+
+- C02 was still absent when C03 was requested, so its previously authorized prerequisite was completed and committed first as `6cee44181c5589b3c8e1a2d4b8eb165b8b2cf22e`.
+- Added `google-auth-library` `11.3.3`, server-only code exchange with PKCE and audience verification, constant rejection diagnostics, and profile projection to subject/name only. Token and certificate requests have ten-second timeouts.
+- Added the optional probe and four action routes, current-host link authentication, configured-origin redirects, and one-time state/ticket storage under separate Google Redis keys (300/60-second TTLs). The dedicated Redis client is lazy while disabled and quits on shutdown.
+- The existing password cap also bounds exchanges. Google action aliases spend the account budget for all methods, including preflights; the probe stays outside that budget. `main.ts` continues CORS preflights through admission before sending 204, preserving CORS headers on budget failures.
+- All 30 focused exchange, real Redis, HTTP, and admission tests passed. The full API suite passed 398 tests in 30 files. Cases cover disabled actions without exchange, PKCE, email isolation through the callback/service, host-only linking and conflicts, state/ticket replay, expiry, constant errors, and cap refusal/recovery. The callback cap path also passed an HTTP 503 check without another exchange call.
+- `pnpm typecheck`, `pnpm lint`, `pnpm install --frozen-lockfile`, and `pnpm audit:check` passed. Audit reported no production advisories and only the existing explicit, unexpired development exceptions.
+- Dependency installation invalidated the running shared watcher fingerprint; initial test/typecheck attempts timed out awaiting shared readiness. Triggering a compiler generation and restoring the shared source byte-for-byte recovered readiness without stopping the dev supervisor. The Redis shutdown test was corrected to await its asynchronous close event, and test typing/lint issues were corrected before the passing runs.
+- `pnpm check:affected --plan --files apps/api/package.json pnpm-lock.yaml apps/api/src/sessions/google.controller.ts apps/api/src/admission/http-admission.ts apps/api/src/main.ts` selected the full release gate plus audit. `pnpm check:release` passed tooling/typecheck/lint, 309 shared and 456 web tests, then hit the existing Redis MONITOR race: the live test observed an accounts fixture namespace. An API retry passed all 398 tests. The remaining release graph steps (both builds, formatting, artifacts, live smoke, and broadcast smoke) then passed; this records completion of the components, not an uninterrupted successful `pnpm check:release`.
+- The recovery used `checkGraph` and `pnpm` from the existing scripts to run the release graph from its API-test step. Its nested `-- --maxWorkers=1` arguments did not serialize Vitest, so `pnpm --filter @stageflow/api exec dotenv -e ../../.env -- vitest run --maxWorkers=1` was also run explicitly and passed all 398 API tests in 30 files. No existing Redis assertion was changed.
+- Broadcast smoke used a command-only `FFMPEG_PATH=C:\Users\rasai\AppData\Local\Temp\sf_review_ffmpeg_MQj2TB\ffmpeg.exe` override. The existing binary reports `6.0-essentials_build-www.gyan.dev`. Real VP8/Opus WebM produced five chunks and two HLS segments, decoded audio/video, ENDLIST, and READY. Restart preserved READY/media and the foreign namespace, and missing-binary isolation passed. All five registered migrations, including `AddGoogleSubject1794009600000`, applied once and the second run was empty. Owned API processes, database, Redis keys, and media fixtures were cleaned up. `.env` and Google settings are unchanged.
+- The running developer API still returned HTTP 200 for live readiness and `{ enabled: false }` for the Google probe. All 22 local links/anchors resolve; changed-file formatting and `git diff --check` passed.
+- ID-05 configuration/routes and ID-06 fake-exchange decisions are verified. ID-05 browser controls remain for C04. No real Google browser round-trip ran, and existing V1/V2 physical/native-picker observations remain open. The developer database was not migrated.
 
 ## 5. V3P2-C04 — Home control and return page
 

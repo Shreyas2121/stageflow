@@ -4,7 +4,7 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { expect, it } from 'vitest';
 import { broadcastChunkParser } from '../broadcasts/chunk-parser';
 import { parseConfig } from '../config/parse-config';
-import { httpAdmission, httpTrafficClass } from './http-admission';
+import { httpAdmission, httpPreflight, httpTrafficClass } from './http-admission';
 
 async function fixture(
   test: (
@@ -31,8 +31,9 @@ async function fixture(
   const adapter = new ExpressAdapter();
   const app = adapter.getInstance() as Express;
   const activity = { guest: 0, accounts: 0, media: 0, uploads: 0 };
-  adapter.enableCors({ origin: config.CORS_ORIGIN });
+  adapter.enableCors({ origin: config.CORS_ORIGIN, preflightContinue: true });
   app.use(httpAdmission(config));
+  app.use(httpPreflight);
   app.use('/api/broadcasts/:id/chunks', broadcastChunkParser);
   adapter.useBodyParser('json', false, { limit: config.HTTP_BODY_BYTES });
   app.post('/api/sessions/guest', (_request, response) => {
@@ -303,5 +304,43 @@ it('rejects an abusive chunk before the raw parser once the network allowance is
       await control.text();
     },
     { UPLOAD_NETWORK_RATE_LIMIT: '2', HTTP_RATE_LIMIT: '10' },
+  );
+});
+
+it('charges every Google action method to the account budget and leaves the probe out', async () => {
+  for (const action of ['start', 'callback', 'ticket', 'link']) {
+    await fixture(
+      async (url) => {
+        for (let n = 0; n < 4; n++)
+          expect((await fetch(url + '/api/sessions/google')).status).toBe(404);
+        expect((await fetch(url + `/api/sessions/google/${action}`)).status).toBe(404);
+        expect(
+          (await fetch(url + `/API/sessions/google/${action}/`, { method: 'PUT' })).status,
+        ).toBe(404);
+        const limited = await fetch(url + `/api/sessions/google/${action}`, { method: 'DELETE' });
+        expect(limited.status).toBe(429);
+        expect(await limited.json()).toMatchObject({ error: 'rate_limited' });
+      },
+      { HTTP_RATE_LIMIT: '100' },
+    );
+  }
+});
+
+it('budgets Google action preflights and HEAD aliases while keeping CORS response headers', async () => {
+  await fixture(
+    async (url) => {
+      const headers = { Origin: 'http://allowed.test', 'Access-Control-Request-Method': 'POST' };
+      expect(
+        (await fetch(url + '/api/sessions/google/link', { method: 'OPTIONS', headers })).status,
+      ).toBe(204);
+      expect((await fetch(url + '/api/sessions/google/link', { method: 'HEAD' })).status).toBe(404);
+      const blocked = await fetch(url + '/api/sessions/google/link', {
+        method: 'OPTIONS',
+        headers,
+      });
+      expect(blocked.status).toBe(429);
+      expect(blocked.headers.get('access-control-allow-origin')).toBe('http://allowed.test');
+    },
+    { HTTP_RATE_LIMIT: '100' },
   );
 });
