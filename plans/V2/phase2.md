@@ -1,7 +1,7 @@
 # V2 Phase 2 — In-call devices
 
 **Status:** V2P2-C01 through V2P2-C06 are committed. MEDIA-01 has a synthetic two-window result. MEDIA-03's physical unplug, MEDIA-04 playback, and P3-A05 remain unverified.\
-**Last updated:** 2026-11-04.\
+**Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V2.md` version `2.0.0-draft.3`, Sections 1, 5, 7, 10, 11, and 12 (MEDIA-01 through MEDIA-04). Unchanged mesh, lock, and broadcast rules stay in `MASTER_PLAN.md` version `1.0.9`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V2P2-C01 through V2P2-C06. Those ids are not the V1 commits in [V1/phase2/guide.md](../V1/phase2/guide.md). This file owns the rules those commits must satisfy.\
 **Requirement IDs:** MEDIA-01, MEDIA-02, MEDIA-03, MEDIA-04.
@@ -121,9 +121,11 @@ One selected output id is shared by the green room, the stage, the attendee play
 
 Apply it through `routeAudioOutput` to every applicable playback element, including an element created after the choice. Applicable elements are remote stage videos, the attendee broadcast video, and the replay video. The local stage tile stays muted. A missing `setSinkId` reports the output as unsupported and leaves the default speaker, with the existing sentence that this browser uses the default speaker.
 
-The saved id changes when the member chooses a new output and every current element accepts it, or when the member chooses the default. If an element rejects the id, keep the previous saved id, show the error, and do not describe the failed element as routed. A later element receives the saved id when it is created.
+The saved id changes when the member chooses a new output and every current element accepts it, or when the member chooses the default. If an element rejects an explicit change, restore the previous saved id and show the error. V2R-C07 resets the saved choice and bound elements to default if the previous output cannot be restored, or if a newly created element rejects the saved id. An unsupported new element also resets the choice to default. The failed binding reports its error to both the player and the live/replay speaker controls; it is not described as successfully routed to the saved speaker. A later element receives the current saved id when it is created.
 
 An attendee may change the speaker. That control does not call `getUserMedia`. An empty output list still offers the default speaker and does not request capture to obtain labels.
+
+V2R-C07 initializes the allowed device list after successful join and resume, independently of capture. Enumeration failures keep the existing list and do not block joining. The browser's permitted devices and labels are used as returned. The latest enumeration request wins, and results from before leave, page exit, or disposal are ignored. Explicit preparation uses the same request ordering so an older enumeration cannot overwrite a newer device list. The existing native selects remain mounted across refreshes.
 
 ### 5.5 Stage controls
 
@@ -149,6 +151,8 @@ The four-person mesh, Perfect Negotiation, demo peers, host locks, screen share,
 A missing browser, disposable FFmpeg run, physical device, or native picker leaves only that method unverified. On 2026-11-03 the V2P2-C04 web tests passed and the V2P2-C05 output tests passed. On 2026-11-04 the combined session changed the host camera, microphone, and speaker while the second peer stayed connected, the peer count stayed the same, and the remote video stayed live. Synthetic screen share selected a restore camera and stopped sharing. The native picker was not used, so P3-A05 stays open. Chrome's fake tracks did not dispatch `ended`; the existing handler showed the camera-stopped sentence and **Try this camera** cleared it. That is not a physical unplug, so MEDIA-03 stays unverified for unplug. MEDIA-04 playback was not run. Human audible confirmation was not made. The README states the shipped device limits. P3-A03, P3-A05, and P3-A06 stay open. The WS-03 smoke stays unverified.
 
 ## 7. Verification commands
+
+**V2R-C07 maintenance verification (2026-11-05):** Web tests passed (352 across 27 files), including 88 room-session and 19 output-route tests. Eleven new regressions failed before the implementation. Coverage includes attendee initialization without capture, empty/rejected/unavailable enumeration, stale results after leave and a new join, a newer devicechange winning over join/prepare enumeration, saved-sink binding failure and unsupported output, default fallback across existing elements, failed rollback, final-result notification, ignored late unbound failures, and listener disposal. Existing output rollback, storage-failure, capture, reconnect, chat, and deferred-player checks remain passing. Web typecheck, lint, build, and web artifact checks passed. In isolated Chrome 156.0.8078.80 on Windows, the actual RoomSession, LocalMedia, SpeakerSelect, BroadcastPlayer, and ReplayPage passed initial attendee enumeration, stable select focus during devicechange, visible live/replay saved-sink errors, selector/storage reset to default, successful explicit reselection with error clearing, and zero capture calls. Signaling, device enumeration, and sink routing were controlled; media requests were blocked. This is no decoded playback or human audible-output result. MEDIA-04 playback/audibility and the earlier physical/native-picker observations remain open.
 
 ```powershell
 pnpm --filter @stageflow/web test

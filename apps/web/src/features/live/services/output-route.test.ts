@@ -6,6 +6,7 @@ import {
   routeAudioOutput,
   selectAudioOutput,
   selectedOutputId,
+  subscribeAudioOutput,
   type OutputRouteResult,
 } from './output-route';
 
@@ -111,6 +112,87 @@ describe('audio output routing', () => {
     bind(element(), (result) => seen.push(result));
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toEqual({ ok: true, supported: false, deviceId: '', message: '' });
+  });
+
+  it('clears a saved output rejected at bind time and resets existing elements to default', async () => {
+    await selectAudioOutput('missing');
+    const existing = accepting();
+    bind(existing);
+    await vi.waitFor(() => expect(existing.sinkId).toBe('missing'));
+    const seen: OutputRouteResult[] = [];
+    const added = rejecting('missing');
+    bind(added, (result) => seen.push(result));
+    await vi.waitFor(() => expect(selectedOutputId()).toBe(''));
+    expect(existing.sinkId).toBe('');
+    expect(added.sinkId).toBe('');
+    expect(seen.at(-1)).toMatchObject({
+      ok: false,
+      deviceId: '',
+      message: expect.stringContaining('device not found'),
+    });
+  });
+
+  it('clears a saved output when the new playback element cannot select a sink', async () => {
+    await selectAudioOutput('saved');
+    const seen: OutputRouteResult[] = [];
+    bind(element(), (result) => seen.push(result));
+    await vi.waitFor(() => expect(seen).not.toHaveLength(0));
+    expect(selectedOutputId()).toBe('');
+    expect(seen.at(-1)).toEqual({ ok: true, supported: false, deviceId: '', message: '' });
+  });
+
+  it('publishes one final bind failure to selection controls and releases their listener', async () => {
+    await selectAudioOutput('missing');
+    const seen = vi.fn((result: OutputRouteResult) => {
+      expect(selectedOutputId()).toBe(result.deviceId);
+    });
+    const unsubscribe = subscribeAudioOutput(seen);
+    releases.push(unsubscribe);
+    bind(rejecting('missing'));
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledOnce());
+    expect(seen).toHaveBeenLastCalledWith({
+      ok: false,
+      supported: true,
+      deviceId: '',
+      message: 'Unable to use that speaker. device not found',
+    });
+    unsubscribe();
+    await selectAudioOutput('available');
+    expect(seen).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a late bind failure after its element has been removed', async () => {
+    await selectAudioOutput('saved');
+    let reject!: (error: Error) => void;
+    const setSinkId = vi.fn(
+      () =>
+        new Promise<void>((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const seen = vi.fn();
+    const release = bind(element(setSinkId), seen);
+    await vi.waitFor(() => expect(setSinkId).toHaveBeenCalledOnce());
+    release();
+    reject(new Error('device not found'));
+    await selectAudioOutput('newer');
+    expect(seen).not.toHaveBeenCalled();
+    expect(selectedOutputId()).toBe('newer');
+  });
+
+  it('resets to default if neither the new selection nor the saved output can be restored', async () => {
+    await selectAudioOutput('previous');
+    const target = accepting();
+    bind(target);
+    await vi.waitFor(() => expect(target.sinkId).toBe('previous'));
+    target.setSinkId = vi.fn(async (id: string) => {
+      if (id) throw new Error('device not found');
+      target.sinkId = '';
+    });
+    const result = await selectAudioOutput('next');
+    expect(result).toMatchObject({ ok: false, deviceId: '' });
+    expect(selectedOutputId()).toBe('');
+    expect(target.sinkId).toBe('');
   });
 
   it('keeps the previous id when a bound element rejects the next one', async () => {

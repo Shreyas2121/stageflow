@@ -14,6 +14,7 @@ export type BroadcastPlayerProps = {
 export function BroadcastPlayer({ playlistUrl, token, mode }: BroadcastPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [outputError, setOutputError] = useState<string | null>(null);
   const apiBase = apiUrl();
   const source = broadcastMediaUrl(playlistUrl, apiBase);
   const supported = Hls.isSupported();
@@ -21,7 +22,7 @@ export function BroadcastPlayer({ playlistUrl, token, mode }: BroadcastPlayerPro
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    return bindAudioOutput(video);
+    return bindAudioOutput(video, (result) => setOutputError(result.ok ? null : result.message));
   }, [supported, source]);
 
   useEffect(() => {
@@ -66,6 +67,14 @@ export function BroadcastPlayer({ playlistUrl, token, mode }: BroadcastPlayerPro
         playsInline
         aria-label={mode === 'live' ? 'Live broadcast' : 'Broadcast replay'}
       />
+      {outputError && (
+        <p
+          className="mt-3 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"
+          role="alert"
+        >
+          {outputError}
+        </p>
+      )}
       {playbackError && (
         <p
           className="mt-3 rounded-control border border-danger-line bg-danger-surface px-4.5 py-3.5 text-sm text-danger wrap-anywhere"

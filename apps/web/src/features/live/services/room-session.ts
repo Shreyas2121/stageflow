@@ -21,7 +21,12 @@ import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
 import { DemoRegistry, type DemoAudio, type DemoFactory } from './demo-registry';
 import { LocalMedia, type DeviceChoices, type InputKind } from './local-media';
-import { audioOutputSupported, selectedOutputId, type OutputRouteResult } from './output-route';
+import {
+  audioOutputSupported,
+  selectedOutputId,
+  subscribeAudioOutput,
+  type OutputRouteResult,
+} from './output-route';
 import { PeerManager, type RemoteStreams, type TrackSource } from './peer-manager';
 import { audienceFor, roleTransition, type StageMembership } from './role-transition';
 import { ScreenShareController } from './screen-share';
@@ -138,6 +143,7 @@ export class RoomSession {
   private readonly broadcastSession: BroadcastSession;
   private readonly stageVideos = new Map<string, HTMLVideoElement>();
   private unsubscribe: (() => void) | null = null;
+  private unsubscribeOutput: (() => void) | null = null;
   private attached = false;
   private pageHidden = false;
   private locallyTornDown = false;
@@ -398,6 +404,13 @@ export class RoomSession {
     if (this.attached) return;
     this.attached = true;
     this.unsubscribe = useRoomStore.subscribe(() => this.syncFromStore());
+    this.unsubscribeOutput = subscribeAudioOutput((result) => {
+      if (this.pageHidden || this.state.phase === 'leaving') return;
+      this.state.sinkSupported = result.supported;
+      this.state.speakerId = result.deviceId;
+      this.state.speakerError = result.ok ? '' : result.message;
+      this.emit();
+    });
     if (typeof window !== 'undefined') {
       window.addEventListener('pagehide', this.onPageHide);
       window.addEventListener('pageshow', this.onPageShow);
@@ -416,6 +429,8 @@ export class RoomSession {
     this.deviceEvents()?.removeEventListener('devicechange', this.onDeviceChange);
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribeOutput?.();
+    this.unsubscribeOutput = null;
     this.closeSession();
     this.state.phase = 'lobby';
     this.emit();
@@ -427,6 +442,7 @@ export class RoomSession {
     if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
     this.locallyTornDown = false;
     const token = ++this.prepareToken;
+    this.deviceGeneration += 1;
     const generation = this.generation;
     const promoted = this.state.phase === 'joined' && this.state.needsCaptureConsent;
     this.state.preparing = true;
@@ -443,8 +459,10 @@ export class RoomSession {
         return;
       }
       if (!prepared) return;
-      this.state.devices = await this.enumerateDevices();
+      const deviceRequest = ++this.deviceGeneration;
+      const devices = await this.enumerateDevices();
       if (token !== this.prepareToken || generation !== this.generation) return;
+      if (deviceRequest === this.deviceGeneration) this.state.devices = devices;
       const route = await this.media.setSpeaker(this.state.speakerId);
       if (token !== this.prepareToken || generation !== this.generation) return;
       this.state.sinkSupported = route.supported;
@@ -562,6 +580,7 @@ export class RoomSession {
       this.chat.connect(active);
       this.media.releaseLobby();
       this.syncFromStore();
+      void this.refreshDevices();
     } catch (failure) {
       if (generation !== this.generation || (active && this.connection !== active)) return;
       active?.close();
@@ -945,6 +964,7 @@ export class RoomSession {
     this.state.phase = 'joined';
     this.chat.connect(active);
     this.syncFromStore();
+    void this.refreshDevices();
   }
 
   /** Drops one failed attempt and leaves the 0/1/2/4-second schedule and resume credential in place. */

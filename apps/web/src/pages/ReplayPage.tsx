@@ -13,6 +13,7 @@ import {
   audioOutputSupported,
   selectAudioOutput,
   selectedOutputId,
+  subscribeAudioOutput,
 } from '../features/live/services/output-route';
 import {
   GuestEntryCancelled,
@@ -138,6 +139,14 @@ function ReplayOutput() {
   const devices = useOutputDevices();
   const [speakerId, setSpeakerId] = useState(() => selectedOutputId());
   const [speakerError, setSpeakerError] = useState('');
+  useEffect(
+    () =>
+      subscribeAudioOutput((result) => {
+        setSpeakerId(result.deviceId);
+        setSpeakerError(result.ok ? '' : result.message);
+      }),
+    [],
+  );
   return (
     <fieldset className="mt-6 min-w-0 border-0 p-0">
       <legend className="sr-only">Replay speaker</legend>

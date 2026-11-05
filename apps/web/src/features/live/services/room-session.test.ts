@@ -13,6 +13,7 @@ import type { PeerManager } from './peer-manager';
 import type { BroadcastRecorder, RecorderFinish } from '../../broadcast/services/stage-recorder';
 import type { InputKind } from './local-media';
 import { RoomSession, type RoomMedia, type RoomSessionOptions } from './room-session';
+import { bindAudioOutput, selectAudioOutput } from './output-route';
 import { useRoomStore } from '../stores/room-store';
 import type { RoomConnection } from './signaling';
 
@@ -325,13 +326,16 @@ function stubDeviceList() {
 
 describe('RoomSession', () => {
   const sessions: RoomSession[] = [];
+  const outputReleases: Array<() => void> = [];
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const release of outputReleases.splice(0)) release();
     for (const session of sessions) session.dispose();
     sessions.length = 0;
     useRoomStore.getState().clear();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    await selectAudioOutput('');
   });
 
   function open(options?: Parameters<typeof harness>[0]) {
@@ -2205,6 +2209,150 @@ describe('RoomSession', () => {
     expect(h.session.microphoneUnavailable).toBe(false);
     expect(h.session.cameraUnavailable).toBe(false);
     expect(h.session.phase).toBe('joined');
+  });
+
+  it('initializes attendee output choices on join without capture or invented labels', async () => {
+    const devices = stubDeviceList();
+    const allowed = [{ ...device('audiooutput', 'allowed-speaker'), label: '' }];
+    const enumerate = vi.fn(async () => allowed);
+    const h = open({ room: webinar, userId: 'guest', enumerateDevices: enumerate });
+    await joinRecoverable(h, 'ATTENDEE');
+    expect(enumerate).toHaveBeenCalledOnce();
+    expect(h.session.devices).toEqual(allowed);
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.media.replaceInput).not.toHaveBeenCalled();
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.peers.sync).not.toHaveBeenCalled();
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.error).toBe('');
+  });
+
+  it.each(['empty', 'rejected', 'unavailable'] as const)(
+    'keeps attendee join and default output available when enumeration is %s',
+    async (result) => {
+      const devices = stubDeviceList();
+      const enumerate = vi.fn(async () => {
+        if (result === 'rejected') throw new Error('not allowed');
+        if (result === 'unavailable') return navigator.mediaDevices.enumerateDevices();
+        return [];
+      });
+      const h = open({ room: webinar, userId: 'guest', enumerateDevices: enumerate });
+      await joinRecoverable(h, 'ATTENDEE');
+      expect(enumerate).toHaveBeenCalledOnce();
+      expect(h.session.devices).toEqual([]);
+      expect(h.session.speakerId).toBe('');
+      expect(h.session.phase).toBe('joined');
+      expect(h.session.error).toBe('');
+      expect(h.media.prepareCalls).toBe(0);
+      expect(devices.getUserMedia).not.toHaveBeenCalled();
+    },
+  );
+
+  it('ignores initial attendee enumeration after leave and lets a new join initialize again', async () => {
+    const devices = stubDeviceList();
+    let release!: (list: MediaDeviceInfo[]) => void;
+    const enumerate = vi
+      .fn<() => Promise<MediaDeviceInfo[]>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([device('audiooutput', 'current-speaker')]);
+    const h = open({ room: webinar, userId: 'guest', enumerateDevices: enumerate });
+    await joinRecoverable(h, 'ATTENDEE');
+    await h.session.leave();
+    await joinRecoverable(h, 'ATTENDEE');
+    expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]);
+    release([device('audiooutput', 'obsolete-speaker')]);
+    await Promise.resolve();
+    expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]);
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('lets a newer devicechange result win over initial attendee enumeration', async () => {
+    const devices = stubDeviceList();
+    let release!: (list: MediaDeviceInfo[]) => void;
+    const enumerate = vi
+      .fn<() => Promise<MediaDeviceInfo[]>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([device('audiooutput', 'current-speaker')]);
+    const h = open({ room: webinar, userId: 'guest', enumerateDevices: enumerate });
+    await joinRecoverable(h, 'ATTENDEE');
+    devices.dispatch();
+    await vi.waitFor(() =>
+      expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]),
+    );
+    release([device('audiooutput', 'obsolete-speaker')]);
+    await Promise.resolve();
+    expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]);
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it('updates visible speaker state when a new playback element rejects the saved output', async () => {
+    const devices = stubDeviceList();
+    await selectAudioOutput('missing-speaker');
+    const h = open({ room: webinar, userId: 'guest' });
+    await joinRecoverable(h, 'ATTENDEE');
+    const element = {
+      sinkId: '',
+      setSinkId: vi.fn(async () => {
+        throw new Error('device not found');
+      }),
+    } as unknown as HTMLMediaElement;
+    outputReleases.push(bindAudioOutput(element));
+    await vi.waitFor(() => expect(h.session.speakerError).toContain('device not found'));
+    expect(h.session.speakerId).toBe('');
+    expect(h.session.sinkSupported).toBe(true);
+    expect(h.session.phase).toBe('joined');
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
+    expect(h.media.prepareCalls).toBe(0);
+    h.session.dispose();
+    await selectAudioOutput('available-speaker');
+    expect(h.session.speakerId).toBe('');
+    expect(h.session.speakerError).toContain('device not found');
+  });
+
+  it('reports default output when a new playback element has no sink support', async () => {
+    await selectAudioOutput('saved-speaker');
+    const h = open({ room: webinar, userId: 'guest' });
+    await joinRecoverable(h, 'ATTENDEE');
+    outputReleases.push(bindAudioOutput({} as HTMLMediaElement));
+    await vi.waitFor(() => expect(h.session.speakerId).toBe(''));
+    expect(h.session.sinkSupported).toBe(false);
+    expect(h.session.speakerError).toBe('');
+  });
+
+  it('does not let prepare enumeration replace a newer devicechange result', async () => {
+    const devices = stubDeviceList();
+    let release!: (list: MediaDeviceInfo[]) => void;
+    const enumerate = vi
+      .fn<() => Promise<MediaDeviceInfo[]>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([device('audiooutput', 'current-speaker')]);
+    const h = open({ enumerateDevices: enumerate });
+    const preparing = h.session.prepare({} as HTMLVideoElement);
+    await vi.waitFor(() => expect(enumerate).toHaveBeenCalledOnce());
+    devices.dispatch();
+    await vi.waitFor(() =>
+      expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]),
+    );
+    release([device('audiooutput', 'obsolete-speaker')]);
+    await preparing;
+    expect(h.session.devices).toEqual([device('audiooutput', 'current-speaker')]);
+    expect(h.session.ready).toBe(true);
+    expect(devices.getUserMedia).not.toHaveBeenCalled();
   });
 
   it('marks a missing selected camera unavailable and keeps the default microphone', async () => {
