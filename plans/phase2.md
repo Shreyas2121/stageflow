@@ -1,6 +1,6 @@
 # V3 Phase 2 — Optional Google sign-in
 
-**Status:** in progress. C01 through C03 are verified. C04 and C05 remain planned.\
+**Status:** in progress. C01 through C04 are verified. C05 remains planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.3`, Sections 4, 6.4, and 12 (ID-05 and ID-06). Email and password accounts stay as shipped in `plans/phase1.md`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V3P2-C01 through V3P2-C05. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md) or the V2 commits in [V2/phase2/guide.md](V2/phase2/guide.md).\
@@ -128,7 +128,7 @@ A real Google browser round-trip is recorded only when the three settings and a 
 
 | ID    | Observable result                                                                                                                     | Method                                                                | Status                                                       |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
-| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | partial: config and routes verified; browser remains planned |
+| ID-05 | Unset Google returns `{ enabled: false }`, hides the control, refuses start, callback, ticket, and link, and register still works     | Config and route regressions, plus the home page with settings absent | verified: config/routes and unset browser registration/login |
 | ID-06 | A fake exchange creates a separate host, does not attach an equal email, and links only for the current host when the subject is free | Service regressions. A real Google browser pass is optional and named | verified with fake exchange; real Google round-trip not run  |
 
 ## 7. Verification commands
@@ -185,3 +185,9 @@ The optional Google HTTP flow now performs code exchange and token verification 
 All 398 API tests, workspace typecheck/lint, frozen installation, and dependency audit passed. The guide records the focused fake-exchange HTTP cases, real Redis TTL/single-use/shutdown coverage, and release-gate outcome. ID-05 still needs C04 browser acceptance. ID-06 is verified against a fake exchange; no real Google browser round-trip ran. Existing V1/V2 physical observations remain open.
 
 C03 release evidence: the ordinary full-gate run hit the existing cross-fixture Redis MONITOR race. The API retry, explicit serial API run, and all remaining release components passed, including both app builds, formatting, artifacts, live smoke, and real FFmpeg 6.0 broadcast/restart/missing-binary checks. This is component completion after a retry, not an uninterrupted full-gate pass. Disposable migration execution included all five registered migrations once, followed by an empty second run. These automated results do not close outstanding browser or physical-device observations.
+
+### V3P2-C04 ? Home control and return page (2026-11-05)
+
+The account panel probes optional Google availability, hides disabled/invalid/failed probes, distinguishes separate-host guest sign-in from current-host linking, and sends host link requests with the current bearer. `/auth/google` redeems one ticket across StrictMode effect replay, preserves the session after linking, renders the required rejection/conflict copy, and removes return queries from history.
+
+All 477 web tests, workspace typecheck/lint, web build, and web artifact checks passed. Chrome 156 headless at 1280 by 900 used real API/PostgreSQL/Redis fixtures with all Google settings empty: Google was absent and email registration plus fresh login succeeded. ID-05 is verified. Controlled enabled responses also verified guest/host controls, ticket persistence, one redemption, link-session preservation, return errors and history cleanup. These controls did not contact Google. The guide records browser details and owned-fixture cleanup. A real Google round-trip and existing V1/V2 physical/native-picker observations remain unverified. C05 remains planned.

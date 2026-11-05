@@ -21,6 +21,12 @@ describe('home entry', () => {
     expect(home).toContain('Rooms from this guest session');
     expect(home).toContain('Your rooms');
     const account = source('features/session/account-panel.tsx');
+    const google = source('pages/GoogleReturnPage.tsx');
+    expect(google.toLowerCase()).not.toContain('hls');
+    expect(google).not.toMatch(
+      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+    );
+    expect(source('App.tsx')).toContain('path="/auth/google"');
     expect(account.toLowerCase()).not.toContain('hls');
     expect(account).not.toMatch(
       /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,

@@ -2,6 +2,7 @@ import { Link, Route, Routes } from 'react-router';
 import { ReplayRoute, RoomRoute } from './app/route-error-boundary';
 import { PageState } from './components/ui/page-state';
 import { HomePage } from './pages/HomePage';
+import { GoogleReturnPage } from './pages/GoogleReturnPage';
 
 export function App() {
   return (
@@ -33,6 +34,7 @@ export function App() {
       <main id="main-content" tabIndex={-1} className="flex-1">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/auth/google" element={<GoogleReturnPage />} />
           <Route path="/r/:slug" element={<RoomRoute />} />
           <Route path="/replay/:broadcastId" element={<ReplayRoute />} />
           <Route

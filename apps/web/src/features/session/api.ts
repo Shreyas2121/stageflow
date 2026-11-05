@@ -80,3 +80,51 @@ export function changePassword(
 ): Promise<GuestSessionResponse> {
   return accountRequest('password', { currentPassword, password }, signal, token);
 }
+
+export async function googleEnabled(signal?: AbortSignal): Promise<boolean> {
+  try {
+    return await request(
+      '/sessions/google',
+      (body) => {
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body) ||
+          Object.keys(body).length !== 1 ||
+          !('enabled' in body) ||
+          typeof body.enabled !== 'boolean'
+        )
+          return false;
+        return body.enabled;
+      },
+      { signal },
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function redeemGoogleTicket(ticket: string): Promise<GuestSessionResponse> {
+  return accountRequest('google/ticket', { ticket });
+}
+
+export function linkGoogle(token: string, signal?: AbortSignal): Promise<string> {
+  return request(
+    '/sessions/google/link',
+    (body) => {
+      if (!body || typeof body !== 'object' || !('url' in body) || typeof body.url !== 'string')
+        throw new Error('Invalid Google link');
+      const url = new URL(body.url);
+      if (
+        url.protocol !== 'https:' ||
+        url.hostname !== 'accounts.google.com' ||
+        url.username ||
+        url.password ||
+        url.port
+      )
+        throw new Error('Invalid Google link');
+      return url.href;
+    },
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal },
+  );
+}

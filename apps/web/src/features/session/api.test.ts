@@ -117,3 +117,68 @@ it.each(routes)('POST $route does no work after cancellation', async ({ call }) 
   await expect(call(controller.signal)).rejects.toBe(controller.signal.reason);
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it.each([
+  null,
+  [],
+  {},
+  { enabled: 'true' },
+  { enabled: 1 },
+  { enabled: true, secret: 'unexpected' },
+  { enabled: false },
+])('treats malformed or disabled Google probes as disabled: %j', async (body) => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(body)));
+  const { googleEnabled } = await import('./api');
+  expect(await googleEnabled()).toBe(false);
+});
+it('enables only the valid Google probe and hides failed probes', async () => {
+  const { googleEnabled } = await import('./api');
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ enabled: true })));
+  expect(await googleEnabled()).toBe(true);
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+  expect(await googleEnabled()).toBe(false);
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(Response.json({ enabled: true }, { status: 503 })),
+  );
+  expect(await googleEnabled()).toBe(false);
+});
+it('redeems a Google ticket without a bearer and validates the session', async () => {
+  const { redeemGoogleTicket } = await import('./api');
+  const fetch = vi.fn().mockResolvedValue(Response.json(session));
+  vi.stubGlobal('fetch', fetch);
+  expect(await redeemGoogleTicket('one-time')).toEqual(session);
+  expect(fetch).toHaveBeenCalledWith(
+    'http://localhost:4000/api/sessions/google/ticket',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ ticket: 'one-time' }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+});
+it('links with the current bearer and accepts only Google authorization URLs', async () => {
+  const { linkGoogle } = await import('./api');
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(
+      Response.json({ url: 'https://accounts.google.com/o/oauth2/v2/auth?state=opaque' }),
+    );
+  vi.stubGlobal('fetch', fetch);
+  expect(await linkGoogle('host-token')).toBe(
+    'https://accounts.google.com/o/oauth2/v2/auth?state=opaque',
+  );
+  expect(fetch).toHaveBeenCalledWith(
+    'http://localhost:4000/api/sessions/google/link',
+    expect.objectContaining({ method: 'POST', headers: { Authorization: 'Bearer host-token' } }),
+  );
+  for (const url of [
+    'https://evil.test',
+    'javascript:alert(1)',
+    'http://accounts.google.com/auth',
+    'https://user@accounts.google.com/auth',
+  ]) {
+    fetch.mockResolvedValue(Response.json({ url }));
+    await expect(linkGoogle('host-token')).rejects.toThrow('invalid response');
+  }
+});

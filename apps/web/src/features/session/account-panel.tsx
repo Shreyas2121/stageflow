@@ -8,7 +8,8 @@ import { useMutation } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { FormField } from '../../components/ui/form-field';
-import { changePassword, login, promote, register } from './api';
+import { changePassword, login, promote, register, googleEnabled, linkGoogle } from './api';
+import { apiUrl } from '../../config/env';
 import { isHostSession, useSessionStore } from './session-store';
 
 type AccountAction = 'register' | 'login' | 'promote' | 'password';
@@ -25,6 +26,15 @@ export function AccountPanel({
   onPendingChange: (pending: boolean) => void;
 }) {
   const isHost = isHostSession(session);
+  const [google, setGoogle] = useState(false);
+  const [googleError, setGoogleError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    void googleEnabled(controller.signal).then((enabled) => {
+      if (!controller.signal.aborted) setGoogle(enabled);
+    });
+    return () => controller.abort();
+  }, []);
   const [mode, setMode] = useState<'login' | 'register'>('register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -80,6 +90,24 @@ export function AccountPanel({
     },
     onSettled: () => onPendingChange(false),
   });
+  const googleLink = useMutation({
+    mutationFn: async () => {
+      const token = session?.token;
+      if (!token || useSessionStore.getState().session?.token !== token)
+        throw new Error('Your session changed. Please try again.');
+      const controller = new AbortController();
+      pendingRequest.current = controller;
+      const url = await linkGoogle(token, controller.signal);
+      if (!controller.signal.aborted && useSessionStore.getState().session?.token === token)
+        window.location.assign(url);
+    },
+    onMutate: () => {
+      setGoogleError('');
+      onPendingChange(true);
+    },
+    onError: (error) => setGoogleError(error.message),
+    onSettled: () => onPendingChange(false),
+  });
 
   return (
     <section
@@ -87,8 +115,8 @@ export function AccountPanel({
       aria-labelledby="account-title"
     >
       <fieldset
-        disabled={disabled || submit.isPending}
-        aria-busy={submit.isPending}
+        disabled={disabled || submit.isPending || googleLink.isPending}
+        aria-busy={submit.isPending || googleLink.isPending}
         className="min-w-0 border-0 p-0"
       >
         <legend className="sr-only">Account options</legend>
@@ -142,6 +170,31 @@ export function AccountPanel({
             Logging in replaces this guest session. Rooms that were not promoted stay on this guest
             session.
           </p>
+        )}
+        {google && (
+          <div className="mb-5">
+            {isHost ? (
+              <Button type="button" onClick={() => googleLink.mutate()}>
+                Link Google
+              </Button>
+            ) : (
+              <a
+                className="inline-flex text-sm text-accent underline-offset-4 hover:underline"
+                href={`${apiUrl()}/sessions/google/start`}
+                aria-disabled={disabled || submit.isPending}
+                onClick={(event) => {
+                  if (disabled || submit.isPending) event.preventDefault();
+                }}
+              >
+                Continue with Google
+              </a>
+            )}
+            {session && !isHost && (
+              <p className="mt-3 text-sm text-muted">
+                Google sign-in starts a separate host. It does not promote this guest.
+              </p>
+            )}
+          </div>
         )}
         <form
           noValidate
@@ -205,6 +258,11 @@ export function AccountPanel({
           role="alert"
         >
           {submit.error.message}
+        </p>
+      )}
+      {googleError && (
+        <p role="alert" className="mt-4 text-sm text-danger">
+          {googleError}
         </p>
       )}
     </section>

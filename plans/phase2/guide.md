@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** in progress. C01 through C03 are verified. C04 and C05 remain planned.\
+**Status:** in progress. C01 through C04 are verified. C05 remains planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -141,9 +141,9 @@ pnpm lint
 
 ## 4. V3P2-C03 — Code exchange and routes
 
-**Status:** verified; awaiting implementation commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-auth): exchange a Google code on the server`\
-**Actual commit:**
+**Actual commit:** `693ed4973f7acec9b3b9abfb19d9a36a50a9aed7`
 
 **Why:** The browser must not be trusted for the subject. The API exchanges the code, keeps the secret, and hands the web app a one-time ticket. Covers the route half of ID-05 and the HTTP half of ID-06.
 
@@ -198,7 +198,7 @@ pnpm lint
 
 ## 5. V3P2-C04 — Home control and return page
 
-**Status:** planned\
+**Status:** verified; awaiting implementation commit\
 **Proposed commit message:** `feat(web-home): show Google sign-in only when it is configured`\
 **Actual commit:**
 
@@ -233,6 +233,19 @@ pnpm lint
 Then check the unset home page in the browser.
 
 **Done when:** Disabled Google adds no control, and the return page can store a redeemed session.
+
+**Verification record (2026-11-05):**
+
+- Added strict, failure-to-disabled Google probing, host-bearer linking, and ticket redemption through the existing session parser. The account panel shows Google only after the probe enables it, gives guests the separate-host sentence, and links hosts with their current bearer. Link results are restricted to HTTPS on `accounts.google.com`.
+- `/auth/google` redeems a ticket once across StrictMode effect replay, persists the validated session, and replaces the return entry with home. Linking preserves the current session. Supported errors use the contract sentences; unknown/ambiguous queries reject. The one-time query is removed from browser history immediately, including error and pending states.
+- `pnpm --filter @stageflow/web test -- src/features/session/api.test.ts src/pages/GoogleReturnPage.test.ts src/app/entry-graph.test.ts` passed all 40 focused cases. `pnpm --filter @stageflow/web test` passed all 477 tests in 33 files. `pnpm typecheck` and `pnpm lint` passed across the workspace.
+- The affected planner selected web checks/build/artifacts and formatting. `pnpm --filter @stageflow/web build` and `pnpm check:artifacts --web` passed. The home graph excludes the playback chunk; the return page, home, and account panel forbid the live room/chat/player imports. The existing 500 kB playback-chunk warning remains.
+- Chrome `156.0.8078.80` headless on Windows NT `10.0` x64, at `1280 by 900`, locale `en-US`, time zone `Asia/Calcutta`, used the real compiled API, an owned disposable PostgreSQL database with all migrations, and a unique Redis namespace. With all three Google settings empty, the probe returned disabled, home had no Google copy/control, and real email registration plus email login after clearing session storage and reloading succeeded. ID-05 is verified.
+- Controlled browser responses then enabled the probe: a guest saw the exact separate-host sentence and correct API start link; a host linked with the current bearer; one ticket redemption under StrictMode stored a valid real fixture session and returned home; `linked=1` preserved that session; linked/rejected/unknown errors showed the required copy and home link; all return queries left history; malformed probes hid Google. These observations simulate Google responses and navigation, not a real Google sign-in.
+- The first controlled-flow harness intercepted a ticket preflight as redemption; passing OPTIONS to the real API corrected that fixture. StrictMode cancels probe requests during effect cleanup, so the harness ignores only the resulting CDP `Invalid InterceptionId.` responses. The final browser run passed every assertion, observed one ticket POST, and cleaned up its browser, Vite, API, database and Redis fixtures. Developer services/data were preserved.
+- Local browser evidence is in `C:\Users\rasai\AppData\Local\Temp\sf-v3p2-c04-SfFb55`: `observations.json`, `unset-home.png`, `unset-host.png`, `enabled-guest.png`, and `return-error.png`. The enabled-guest layout was visually inspected. The temporary harness is `node_modules/.cache/v3p2-c04-browser.mjs` and was run with `node --env-file=.env node_modules/.cache/v3p2-c04-browser.mjs`; these generated/local artifacts are not staged.
+- `pnpm format:check` and `git diff --check` passed, and all 22 local links/anchors in the changed phase documents resolve.
+- A real Google round-trip was not run. Existing V1/V2 browser-media, physical-device and native-picker gaps remain open. No broadcast/media acceptance is claimed by these identity checks.
 
 ## 6. V3P2-C05 — README
 
