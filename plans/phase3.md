@@ -1,6 +1,6 @@
 # V3 Phase 3 — Replay visibility and deletion
 
-**Status:** C01 through C04 are committed. C05 documentation is verified and awaiting commit. LIB-01 through LIB-04 are verified; existing V1/V2 gaps remain open.\
+**Status:** complete. C01 through C05 are committed and the final slice hash is recorded. LIB-01 through LIB-04 are verified; existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.4`, Sections 4, 8, and 12 (LIB-01 through LIB-04). Identity stays as shipped in `plans/phase1.md` and `plans/phase2.md`.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V3P3-C01 through V3P3-C05. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md) or the V2 commits in [V2/phase3/guide.md](V2/phase3/guide.md).\

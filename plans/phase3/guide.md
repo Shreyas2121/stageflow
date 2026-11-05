@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** C01 through C04 are committed. C05 documentation is verified and awaiting commit. LIB-01 through LIB-04 are verified; existing V1/V2 gaps remain open.\
+**Status:** complete. C01 through C05 are committed and the final slice hash is recorded. LIB-01 through LIB-04 are verified; existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -221,9 +221,9 @@ LIB-01 is verified for replay privacy. These seeded browser playlists do not ver
 
 ## 6. V3P3-C05 — README
 
-**Status:** verified, awaiting commit\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe replay privacy and deletion`\
-**Actual commit:**
+**Actual commit:** `49834e4ac5bb5eef512c365dc790afd4e039f900`
 
 **Why:** The README has to state who can play a replay and what deletion removes.
 
@@ -256,6 +256,6 @@ Read the edited README against phase Sections 5 and 6.
 
 **Verification record (2026-11-05):** README now explains LINK/HOST playback, the registered-owner rule including Google-only hosts, ordinary not-found for others, confirmed READY/FAILED deletion with room preservation, live/active-attempt refusals, unchanged migration/promotion visibility, and no automatic sweeper. Phase 1/2 links remain; replay contract/guide links and the scoped C04 browser result are recorded. The master plan's status and next-execution note are aligned without changing its version or product contracts. No Phase 4 contract or code was created.
 
-`pnpm exec prettier --check README.md MASTER_PLAN_V3.md plans/phase3.md plans/phase3/guide.md plans/README.md` passed. All 70 local Markdown link targets across those five files exist. The affected plan selects formatting only. README was compared with phase Sections 5 and 6; LIB-01 through LIB-04 are verified using the recorded API, filesystem, migration, and C04 browser evidence. C05 ran no application suites, browser, migration, or smoke; existing V1/V2 and physical acceptance gaps stay open. C01 through C04 hashes are recorded. C05's actual hash will be recorded in the prescribed follow-up commit.
+`pnpm exec prettier --check README.md MASTER_PLAN_V3.md plans/phase3.md plans/phase3/guide.md plans/README.md` passed. All 70 local Markdown link targets across those five files exist. The affected plan selects formatting only. README was compared with phase Sections 5 and 6; LIB-01 through LIB-04 are verified using the recorded API, filesystem, migration, and C04 browser evidence. C05 ran no application suites, browser, migration, or smoke; existing V1/V2 and physical acceptance gaps stay open. C01 through C04 hashes are recorded. C05's actual hash is recorded above in the prescribed follow-up commit.
 
 **Handoff:** V3 phase 4 is scheduled rooms and waiting-room admission. Do not write `plans/phase4.md` until that phase is requested.
