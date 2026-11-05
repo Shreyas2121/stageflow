@@ -8,6 +8,7 @@ import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
 import { env } from '../config/env';
 import { hashPassword, verifyPassword } from './password';
+import type { GoogleProfile } from './google-identity';
 
 @Injectable()
 export class SessionsService {
@@ -162,10 +163,9 @@ export class SessionsService {
       const user = await this.users.manager.transaction(async (manager) => {
         const users = manager.getRepository(User);
         const current = await this.lockUser(users, caller);
-        if (
-          !current.passwordHash ||
-          !(await verifyPassword(currentPassword.value, current.passwordHash))
-        ) {
+        if (!current.passwordHash)
+          throw new ApiException(403, 'password_not_set', 'This account has no password.');
+        if (!(await verifyPassword(currentPassword.value, current.passwordHash))) {
           throw new ApiException(401, 'wrong_password', 'The current password is wrong.');
         }
         return users.save({
@@ -264,6 +264,85 @@ export class SessionsService {
       throw new ApiException(401, 'unauthorized', 'Sign in before changing this account.');
     }
     return user;
+  }
+
+  private validateGoogle(profile: GoogleProfile): void {
+    if (
+      typeof profile.subject !== 'string' ||
+      !profile.subject ||
+      profile.subject.length > 255 ||
+      /\s/.test(profile.subject) ||
+      Array.from(profile.subject).some((c) => c.charCodeAt(0) <= 31 || c.charCodeAt(0) === 127)
+    ) {
+      throw new ApiException(401, 'google_rejected', 'Google did not confirm this sign-in.');
+    }
+  }
+
+  async signInWithGoogle(profile: GoogleProfile): Promise<GuestSessionResponse> {
+    this.validateGoogle(profile);
+    const existing = await this.users.findOneBy({ googleSubject: profile.subject });
+    if (existing) {
+      if (existing.isGuest)
+        throw new ApiException(401, 'google_rejected', 'Google did not confirm this sign-in.');
+      return this.hostSession(existing);
+    }
+    const name = parseDisplayName(profile.name);
+    try {
+      return await this.hostSession(
+        await this.users.save(
+          this.users.create({
+            googleSubject: profile.subject,
+            displayName: name.ok ? name.value : 'Host',
+            email: null,
+            passwordHash: null,
+            isGuest: false,
+            sessionVersion: 0,
+          }),
+        ),
+      );
+    } catch (error: unknown) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === '23505'
+      ) {
+        const winner = await this.users.findOneBy({ googleSubject: profile.subject });
+        if (winner && !winner.isGuest) return this.hostSession(winner);
+      }
+      throw error;
+    }
+  }
+
+  async linkGoogle(caller: User, profile: GoogleProfile): Promise<GuestSessionResponse> {
+    if (caller.isGuest)
+      throw new ApiException(
+        403,
+        'google_host_required',
+        'Create a host account before linking Google.',
+      );
+    this.validateGoogle(profile);
+    const conflict = new ApiException(
+      409,
+      'google_linked',
+      'That Google account is already linked to another user.',
+    );
+    try {
+      const user = await this.users.manager.transaction(async (manager) => {
+        const users = manager.getRepository(User);
+        const current = await this.lockUser(users, caller);
+        const owner = await users.findOneBy({ googleSubject: profile.subject });
+        if (owner && owner.id !== current.id) throw conflict;
+        if (current.googleSubject === profile.subject) return current;
+        await users.update(current.id, { googleSubject: profile.subject });
+        return current;
+      });
+      return this.hostSession(user);
+    } catch (error: unknown) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505')
+        throw conflict;
+      throw error;
+    }
   }
 
   private async hostSession(user: User): Promise<GuestSessionResponse> {

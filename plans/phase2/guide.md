@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** in progress. V3P2-C01's optional configuration is verified. C02 through C05 remain planned.\
+**Status:** in progress. C01 configuration and C02 identity decisions are verified. C03 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -48,9 +48,9 @@ Keep guest create, register, login, promotion, demo peers, the mesh, reconnect, 
 
 ## 2. V3P2-C01 — Optional Google configuration
 
-**Status:** verified; awaiting implementation commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-config): accept an optional Google trio`\
-**Actual commit:**
+**Actual commit:** `f667c5093a0aa3404852f239edad43bfe06d6f1c`
 
 **Why:** The API must know whether Google is configured before any route calls it. Unset is the normal local setup. Covers the config half of ID-05.
 
@@ -95,7 +95,7 @@ pnpm lint
 
 ## 3. V3P2-C02 — Subject column and account decisions
 
-**Status:** planned\
+**Status:** verified; awaiting implementation commit\
 **Proposed commit message:** `feat(api-auth): identify a host by Google subject`\
 **Actual commit:**
 
@@ -131,6 +131,13 @@ pnpm lint
 ```
 
 **Done when:** The decisions in Section 5.4 pass against a fake profile, and no route redirects to Google yet.
+
+**Verification record (2026-11-05):**
+
+- Added the nullable, uniquely indexed Google subject migration, registered it, and updated the smoke and disposable-database migration assertions. Migration upgrade, repeat-run, uniqueness, and rollback tests passed on owned PostgreSQL databases.
+- Profile regressions cover separate Google hosts despite an equal email, known subjects, seven-day host tokens, invalid subjects, host-only linking, conflict/idempotency, preserved credentials/version, and the fallback display name. Password-only account behavior remains covered.
+- Workspace `pnpm typecheck` and `pnpm lint` passed. The affected planner selected `pnpm check:release`; all 49 tooling, 309 shared, 456 web, and 381 API tests passed in that run. Earlier API attempts exposed the old migration-list assertion (updated) and an existing Redis MONITOR test observing another fixture namespace; no live-state assertion was weakened.
+- `pnpm --filter @stageflow/api test -- --maxWorkers=1` also passed all 381 API tests. The release gate passed both builds, formatting, artifacts, and the live smoke, then failed only at the final broadcast smoke (`spawn ffmpeg ENOENT` at `ffmpeg -version`). No FFmpeg version or broadcast result was obtained. No Google route or real exchange was added in C02. The development database was not migrated; existing V1/V2 observation gaps stay open.
 
 ## 4. V3P2-C03 — Code exchange and routes
 

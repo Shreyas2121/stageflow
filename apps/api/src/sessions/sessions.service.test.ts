@@ -651,9 +651,10 @@ describe('credential changes', () => {
         service.changePassword(original, 'old-password', 'new-password'),
       ).rejects.toMatchObject({
         response: {
-          statusCode: 401,
-          error: 'wrong_password',
-          message: 'The current password is wrong.',
+          statusCode: reason === 'wrong' ? 401 : 403,
+          error: reason === 'wrong' ? 'wrong_password' : 'password_not_set',
+          message:
+            reason === 'wrong' ? 'The current password is wrong.' : 'This account has no password.',
         },
       });
       expect(hash).not.toHaveBeenCalled();
@@ -790,4 +791,115 @@ describe('credential changes', () => {
       expect(sign).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('Google identity', () => {
+  function setup() {
+    const ava = {
+      id: randomUUID(),
+      displayName: 'Ava',
+      email: 'ava@example.com',
+      passwordHash: 'hash',
+      sessionVersion: 3,
+      isGuest: false,
+      googleSubject: null,
+    } as User;
+    const rows = [ava];
+    const users = {
+      findOneBy: vi.fn(
+        async (fields: Partial<User>) =>
+          rows.find((row) =>
+            Object.entries(fields).every(([key, value]) => row[key as keyof User] === value),
+          ) ?? null,
+      ),
+      create: vi.fn((value: Partial<User>) => ({ id: randomUUID(), ...value }) as User),
+      save: vi.fn(async (user: User) => {
+        rows.push(user);
+        return user;
+      }),
+      update: vi.fn(async (id: string, fields: Partial<User>) => {
+        Object.assign(
+          rows.find((row) => row.id === id)!,
+          fields,
+        );
+      }),
+      createQueryBuilder: () => ({
+        addSelect() {
+          return this;
+        },
+        where() {
+          return this;
+        },
+        setLock() {
+          return this;
+        },
+        getOne: async () => ava,
+      }),
+      manager: {
+        transaction: async (work: (manager: EntityManager) => Promise<User>) =>
+          work({ getRepository: () => users } as unknown as EntityManager),
+      },
+    };
+    const jwt = new JwtService({ secret: randomUUID() });
+    const service = new SessionsService(users as unknown as Repository<User>, jwt);
+    return { ava, rows, users, jwt, service };
+  }
+  it('creates a separate Google host despite equal email, then reuses only its subject', async () => {
+    const { ava, rows, service, jwt, users } = setup();
+    const profile = { subject: 'subject-1', name: ' Google host ', email: ava.email };
+    const session = await service.signInWithGoogle(profile);
+    expect(session.userId).not.toBe(ava.id);
+    expect(rows[1]).toMatchObject({
+      email: null,
+      passwordHash: null,
+      googleSubject: 'subject-1',
+      isGuest: false,
+      sessionVersion: 0,
+      displayName: 'Google host',
+    });
+    expect(ava.email).toBe('ava@example.com');
+    const claims = jwt.verify<{ exp: number; iat: number }>(session.token);
+    expect(claims).toMatchObject({ sub: session.userId, guest: false, sv: 0 });
+    expect(claims.exp - claims.iat).toBe(7 * 86400);
+    expect((await service.signInWithGoogle({ ...profile, name: 'Changed' })).userId).toBe(
+      session.userId,
+    );
+    expect(users.save).toHaveBeenCalledTimes(1);
+  });
+  it.each(['', 'x'.repeat(256), 'with space', 'x\n', 'x\u0000', 'x\u007f'])(
+    'refuses invalid subject %j without writes',
+    async (subject) => {
+      const { service, users, ava } = setup();
+      await expect(service.signInWithGoogle({ subject, name: null })).rejects.toMatchObject({
+        response: { error: 'google_rejected' },
+      });
+      await expect(service.linkGoogle(ava, { subject, name: null })).rejects.toMatchObject({
+        response: { error: 'google_rejected' },
+      });
+      expect(users.save).not.toHaveBeenCalled();
+      expect(users.update).not.toHaveBeenCalled();
+    },
+  );
+  it('links only the current host and preserves credentials/version; repeat is write-free', async () => {
+    const { service, users, ava, rows } = setup();
+    const before = { ...ava };
+    await service.linkGoogle(ava, { subject: 'free', name: 'Ignored' });
+    expect(ava).toEqual({ ...before, googleSubject: 'free' });
+    await service.linkGoogle(ava, { subject: 'free', name: null });
+    expect(users.update).toHaveBeenCalledTimes(1);
+    rows.push({ ...ava, id: randomUUID(), googleSubject: 'taken' });
+    await expect(service.linkGoogle(ava, { subject: 'taken', name: null })).rejects.toMatchObject({
+      response: { error: 'google_linked' },
+    });
+    await expect(
+      service.linkGoogle({ ...ava, isGuest: true }, { subject: 'free', name: null }),
+    ).rejects.toMatchObject({ response: { error: 'google_host_required' } });
+    expect(users.update).toHaveBeenCalledTimes(1);
+  });
+  it('uses Host when the Google display name is invalid', async () => {
+    const { service } = setup();
+    expect((await service.signInWithGoogle({ subject: 'valid', name: null })).displayName).toBe(
+      'Host',
+    );
+  });
 });

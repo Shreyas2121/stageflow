@@ -1,6 +1,6 @@
 # V3 Phase 2 — Optional Google sign-in
 
-**Status:** in progress. V3P2-C01's optional configuration is verified. C02 through C05 remain planned.\
+**Status:** in progress. C01 configuration and C02 identity decisions are verified. C03 through C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.3`, Sections 4, 6.4, and 12 (ID-05 and ID-06). Email and password accounts stay as shipped in `plans/phase1.md`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V3P2-C01 through V3P2-C05. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md) or the V2 commits in [V2/phase2/guide.md](V2/phase2/guide.md).\
@@ -173,3 +173,7 @@ The API accepts the trimmed Google trio only when all settings are empty or all 
 All 46 config tests, 309 shared tests, and 371 API tests passed, as did workspace typecheck/lint and frozen installation. The affected-check planner selected `pnpm check:release`: 49 tooling tests, all package tests (including 456 web tests), both builds, formatting, artifact checks, and the live socket smoke passed. The final broadcast smoke failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`; no FFmpeg version or broadcast result was obtained. The [C01 verification record](phase2/guide.md#2-v3p2-c01--optional-google-configuration) records the commands and the shared-test timeout followed by a passing standalone rerun.
 
 Only ID-05's config half is verified. Its route and browser halves, ID-06, and a real Google browser round-trip remain unverified. Existing V1/V2 acceptance gaps stay open. C02 through C05 were not started.
+
+### V3P2-C02 ? Subject column and account decisions (2026-11-05)
+
+The nullable Google subject migration and direct-profile account decisions are implemented. New subjects create separate hosts, equal profile emails are discarded, linking requires the current host and refuses conflicts, and Google-only hosts cannot change a nonexistent password. The guide records disposable migration and service regressions. ID-06 HTTP exchange coverage remains planned; no Google routes or real round-trip are claimed.

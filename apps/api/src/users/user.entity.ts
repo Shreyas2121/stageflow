@@ -3,7 +3,14 @@ import { BaseEntity } from '../database/base.entity';
 
 @Entity('users')
 @Index('users_email_unique', ['email'], { unique: true, where: 'email IS NOT NULL' })
+@Index('users_google_subject_unique', ['googleSubject'], {
+  unique: true,
+  where: 'google_subject IS NOT NULL',
+})
 export class User extends BaseEntity {
+  @Column({ name: 'google_subject', type: 'varchar', length: 255, nullable: true })
+  googleSubject: string | null;
+
   @Column({ name: 'display_name', type: 'varchar', length: 40 })
   displayName: string;
 

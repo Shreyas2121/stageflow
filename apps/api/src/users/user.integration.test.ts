@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DataSource } from 'typeorm';
 import { databaseOptions } from '../database/data-source';
 import { AddHostCredentials1793923200000 } from '../migrations/1793923200000-AddHostCredentials';
+import { AddGoogleSubject1794009600000 } from '../migrations/1794009600000-AddGoogleSubject';
 import { User } from './user.entity';
 
 const adminUrl = process.env.DATABASE_URL;
@@ -28,7 +29,7 @@ beforeAll(async () => {
   dataSource = new DataSource({
     ...databaseOptions,
     url: databaseUrl.href,
-    migrations: databaseOptions.migrations.slice(0, -1),
+    migrations: databaseOptions.migrations.slice(0, -2),
     extra,
   });
   await dataSource.initialize();
@@ -42,6 +43,7 @@ beforeAll(async () => {
   await dataSource.initialize();
   expect((await dataSource.runMigrations()).map((migration) => migration.name)).toEqual([
     'AddHostCredentials1793923200000',
+    'AddGoogleSubject1794009600000',
   ]);
   expect(await dataSource.runMigrations()).toEqual([]);
 }, 30_000);
@@ -119,6 +121,7 @@ it('rolls back the credential columns without removing the existing guest', asyn
   await runner.connect();
   await runner.startTransaction();
   try {
+    await new AddGoogleSubject1794009600000().down(runner);
     await new AddHostCredentials1793923200000().down(runner);
     const table = await runner.getTable('users');
     const columns = table?.columns.map((column) => column.name);
@@ -131,4 +134,20 @@ it('rolls back the credential columns without removing the existing guest', asyn
     await runner.rollbackTransaction();
     await runner.release();
   }
+});
+
+it('enforces unique non-null Google subjects while preserving null password identities', async () => {
+  const users = database().getRepository(User);
+  const subject = 'migration-test-subject';
+  const host = await users.save(
+    users.create({ displayName: 'Google', isGuest: false, googleSubject: subject }),
+  );
+  expect(await users.findOneByOrFail({ id: host.id })).toMatchObject({
+    googleSubject: subject,
+    email: null,
+  });
+  await expect(
+    users.save(users.create({ displayName: 'Other', googleSubject: subject })),
+  ).rejects.toMatchObject({ driverError: { code: '23505' } });
+  expect(await users.findOneByOrFail({ id: legacyGuestId })).toMatchObject({ googleSubject: null });
 });

@@ -9,6 +9,7 @@ import { CreateUsersAndRooms1730332800000 } from '../migrations/1730332800000-Cr
 import { CreateBroadcasts1793577600000 } from '../migrations/1793577600000-CreateBroadcasts';
 import { IndexRoomsByHost1793664000000 } from '../migrations/1793664000000-IndexRoomsByHost';
 import { AddHostCredentials1793923200000 } from '../migrations/1793923200000-AddHostCredentials';
+import { AddGoogleSubject1794009600000 } from '../migrations/1794009600000-AddGoogleSubject';
 
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
@@ -21,6 +22,7 @@ export const databaseOptions: DataSourceOptions = {
     CreateBroadcasts1793577600000,
     IndexRoomsByHost1793664000000,
     AddHostCredentials1793923200000,
+    AddGoogleSubject1794009600000,
   ],
   synchronize: false,
   migrationsRun: false,

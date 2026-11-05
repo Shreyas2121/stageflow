@@ -298,6 +298,7 @@ try {
     'CreateBroadcasts1793577600000',
     'IndexRoomsByHost1793664000000',
     'AddHostCredentials1793923200000',
+    'AddGoogleSubject1794009600000',
   ];
   assert.deepEqual(
     migrations.map((m) => m.name),
