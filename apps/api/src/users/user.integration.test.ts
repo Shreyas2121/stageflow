@@ -56,6 +56,7 @@ beforeAll(async () => {
     'AddHostCredentials1793923200000',
     'AddGoogleSubject1794009600000',
     'AddBroadcastVisibility1794096000000',
+    'AddRoomSchedule1794182400000',
   ]);
   expect(await dataSource.runMigrations()).toEqual([]);
 }, 30_000);

@@ -2,7 +2,13 @@ import { encodeHistoryCursor } from '@stageflow/shared';
 import { skipToken } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useSessionStore } from '../session/session-store';
-import { deleteBroadcast, setBroadcastVisibility, listBroadcasts, listRooms } from './api';
+import {
+  parseRoom,
+  deleteBroadcast,
+  setBroadcastVisibility,
+  listBroadcasts,
+  listRooms,
+} from './api';
 import { roomBroadcastsQueryOptions, roomsQueryOptions } from './query-options';
 
 const userId = '550e8400-e29b-41d4-a716-446655440000';
@@ -21,7 +27,8 @@ function room(hostId = userId) {
     title: 'Design review',
     mode: 'MEETING',
     status: 'LIVE',
-    visibility: 'LINK',
+    scheduledStartAt: null,
+    requireAdmission: false,
     hostId,
     hostDisplayName: 'Ava',
     createdAt: '2026-11-03T15:04:05.006Z',
@@ -212,4 +219,25 @@ it('accepts an empty 204 delete and preserves mutation failure messages and toke
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   }
+});
+
+it('parses scheduled catalog fields, including a past instant', () => {
+  const scheduled = {
+    ...room(),
+    status: 'SCHEDULED',
+    scheduledStartAt: '2000-01-01T00:00:00.000Z',
+    requireAdmission: true,
+  };
+  expect(parseRoom(scheduled)).toEqual(scheduled);
+  expect(parseRoom(room())).toEqual(room());
+});
+it.each([
+  { scheduledStartAt: undefined },
+  { scheduledStartAt: '2026-02-30T00:00:00.000Z' },
+  { scheduledStartAt: '2026-11-05T12:00:00Z' },
+  { requireAdmission: undefined },
+  { requireAdmission: 'false' },
+  { status: 'UNKNOWN' },
+])('rejects invalid schedule response fields: %j', (fields) => {
+  expect(() => parseRoom({ ...room(), ...fields })).toThrow('Invalid room');
 });

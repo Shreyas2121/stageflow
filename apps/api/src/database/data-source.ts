@@ -13,6 +13,8 @@ import { AddGoogleSubject1794009600000 } from '../migrations/1794009600000-AddGo
 
 import { AddBroadcastVisibility1794096000000 } from '../migrations/1794096000000-AddBroadcastVisibility';
 
+import { AddRoomSchedule1794182400000 } from '../migrations/1794182400000-AddRoomSchedule';
+
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
   url: parseDatabaseConfig(process.env).DATABASE_URL,
@@ -26,6 +28,7 @@ export const databaseOptions: DataSourceOptions = {
     AddHostCredentials1793923200000,
     AddGoogleSubject1794009600000,
     AddBroadcastVisibility1794096000000,
+    AddRoomSchedule1794182400000,
   ],
   synchronize: false,
   migrationsRun: false,

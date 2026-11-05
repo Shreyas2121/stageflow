@@ -3,6 +3,7 @@ import {
   createRoomSlug,
   createRoomSlugFromCrypto,
   parseDisplayName,
+  isScheduledStartAt,
   parseRoomJoinTarget,
   parseRoomMode,
   parseRoomTitle,
@@ -158,5 +159,29 @@ describe('parseRoomJoinTarget', () => {
     `https://stageflow.test:443/r/${slug}`,
   ])('rejects %s', (input) => {
     expect(parseRoomJoinTarget(input, origin)).toEqual(failure);
+  });
+});
+
+describe('isScheduledStartAt', () => {
+  it.each(['2000-01-01T00:00:00.000Z', '2099-12-31T23:59:59.999Z', '2024-02-29T12:00:00.123Z'])(
+    'accepts canonical UTC instants including past times: %s',
+    (value) => {
+      expect(isScheduledStartAt(value)).toBe(true);
+    },
+  );
+  it.each([
+    null,
+    undefined,
+    42,
+    '',
+    '2026-02-30T00:00:00.000Z',
+    '2026-13-01T00:00:00.000Z',
+    '2026-11-05T12:00:00Z',
+    '2026-11-05T12:00:00.000+00:00',
+    '2026-11-05T24:00:00.000Z',
+    ' 2026-11-05T12:00:00.000Z',
+    '2026-11-05T12:00:00.000000Z',
+  ])('rejects noncanonical or invalid instants: %j', (value) => {
+    expect(isScheduledStartAt(value)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. C01 storage is implemented and verified; C02 through C06 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -52,7 +52,7 @@ Keep guest create, register, login, promotion, Google sign-in, replay visibility
 
 ## 2. V3P4-C01 — Record the schedule fields
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `feat(api-rooms): record scheduled fields on a room`\
 **Actual commit:**
 
@@ -91,6 +91,8 @@ pnpm lint
 ```
 
 **Done when:** The catalog carries the new fields, and no client can create a `SCHEDULED` room yet.
+
+**C01 verification (2026-11-05):** Shared tests passed (324), API tests passed (429), web tests passed (488), and `pnpm typecheck` and `pnpm lint` passed. The new owned disposable-Postgres fixture migrates legacy `LIVE` and `ENDED` rows, checks null/false defaults, reads a stored past schedule through the catalog, and verifies immediate create still ignores schedule fields. The smoke migration list and both existing migration-list assertions include `AddRoomSchedule1794182400000`. The affected-check plan selected `pnpm check:release`, which passed: all 49 tooling tests, package checks, builds, formatting, artifact checks, and both smokes. Broadcast smoke used the existing temporary FFmpeg 6.0 binary through a process-local `FFMPEG_PATH` override; it applied all seven migrations in its owned disposable database and verified five WebM chunks, two decoded HLS segments, ENDLIST/READY, restart cleanup, and missing-binary behavior. Edited plan links resolve. Initial API/tooling attempts failed while Docker/Postgres/Redis were unavailable; Docker Desktop was started and the API suite then passed. No developer database was migrated. SCH-01 create/browser and SCH-02 through SCH-05 remain planned; physical observations remain open.
 
 ## 3. V3P4-C02 — Host scheduling
 

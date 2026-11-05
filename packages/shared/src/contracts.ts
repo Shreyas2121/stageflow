@@ -2,7 +2,16 @@ import { isRoomSlug } from './identifiers';
 import { DISPLAY_NAME_MAX_LENGTH, ROOM_TITLE_MAX_LENGTH } from './limits';
 export { createRoomSlug, createRoomSlugFromCrypto } from './identifiers';
 export type RoomMode = 'MEETING' | 'WEBINAR';
-export type RoomStatus = 'LIVE' | 'ENDED';
+export type RoomStatus = 'SCHEDULED' | 'LIVE' | 'ENDED';
+
+/** Canonical UTC instant; advertised times may be in the past. */
+export function isScheduledStartAt(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return false;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
 
 export type GuestSessionResponse = {
   token: string;
@@ -21,6 +30,8 @@ export type RoomResponse = {
   title: string;
   mode: RoomMode;
   status: RoomStatus;
+  scheduledStartAt: string | null;
+  requireAdmission: boolean;
   hostId: string;
   hostDisplayName: string;
   createdAt: string;

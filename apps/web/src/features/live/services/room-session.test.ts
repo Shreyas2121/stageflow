@@ -23,6 +23,8 @@ const room: RoomResponse = {
   title: 'Demo',
   mode: 'MEETING',
   status: 'LIVE',
+  scheduledStartAt: null,
+  requireAdmission: false,
   hostId: 'user-1',
   hostDisplayName: 'Ada',
   createdAt: '2026-11-01T00:00:00.000Z',

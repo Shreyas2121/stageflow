@@ -26,6 +26,8 @@ function room(index: number, host: User): Room {
     title: `Room ${index}`,
     mode: 'MEETING',
     status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
     hostId: host.id,
     host,
     createdAt: new Date(Date.UTC(2026, 10, 3, 15, 4, 5, index)),
@@ -48,6 +50,31 @@ function fixture(rows: Room[]) {
   const service = new RoomsService(repository as unknown as Repository<Room>);
   return { service, repository };
 }
+
+it('creates an immediate room with explicit schedule defaults', async () => {
+  const host = guest();
+  const repository = {
+    create: vi.fn((fields: Partial<Room>) => ({ ...room(1, host), ...fields })),
+    insert: vi.fn(async () => undefined),
+  };
+  const service = new RoomsService(repository as unknown as Repository<Room>);
+  const response = await service.create(host, { title: 'Design review', mode: 'MEETING' });
+  expect(repository.create).toHaveBeenCalledWith(
+    expect.objectContaining({
+      title: 'Design review',
+      mode: 'MEETING',
+      status: 'LIVE',
+      scheduledStartAt: null,
+      requireAdmission: false,
+    }),
+  );
+  expect(repository.insert).toHaveBeenCalledOnce();
+  expect(response).toMatchObject({
+    status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
+  });
+});
 
 it('queries the caller when the query names another host', async () => {
   const host = guest();
@@ -115,6 +142,8 @@ it('returns 20 rooms and a cursor for the 20th row when another row exists', asy
     title: kept.title,
     mode: 'MEETING',
     status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
     hostId: host.id,
     hostDisplayName: 'Ava',
     createdAt: kept.createdAt.toISOString(),

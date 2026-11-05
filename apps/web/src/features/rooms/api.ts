@@ -1,5 +1,6 @@
 import {
   isUuid,
+  isScheduledStartAt,
   isRoomSlug,
   parseHistoryCursor,
   parseRoomTitle,
@@ -30,7 +31,11 @@ export function parseRoom(body: unknown): RoomResponse {
     !('mode' in body) ||
     (body.mode !== 'MEETING' && body.mode !== 'WEBINAR') ||
     !('status' in body) ||
-    (body.status !== 'LIVE' && body.status !== 'ENDED') ||
+    (body.status !== 'SCHEDULED' && body.status !== 'LIVE' && body.status !== 'ENDED') ||
+    !('scheduledStartAt' in body) ||
+    (body.scheduledStartAt !== null && !isScheduledStartAt(body.scheduledStartAt)) ||
+    !('requireAdmission' in body) ||
+    typeof body.requireAdmission !== 'boolean' ||
     !('hostId' in body) ||
     !isUuid(body.hostId) ||
     !('hostDisplayName' in body) ||
@@ -48,6 +53,8 @@ export function parseRoom(body: unknown): RoomResponse {
     title: body.title,
     mode: body.mode,
     status: body.status,
+    scheduledStartAt: body.scheduledStartAt,
+    requireAdmission: body.requireAdmission,
     hostId: body.hostId,
     hostDisplayName: body.hostDisplayName,
     createdAt: body.createdAt,
