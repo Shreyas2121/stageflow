@@ -6,8 +6,8 @@ V2 contracts, guides, and verification records are history in [V2/](V2/README.md
 
 The phase file is the contract. The guide is the only implementation sequence, and it contains every commit for that phase. One commit does not get its own guide. Writing this index does not implement the phase.
 
-| Phase | Contract               | Guide                              | State                                                                                                                               |
-| ----- | ---------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| V3-P1 | [phase1.md](phase1.md) | [phase1/guide.md](phase1/guide.md) | In progress. V3P1-C01 and V3P1-C02 add parsers, credential storage, and versioned tokens. V3P1-C03 through V3P1-C06 remain planned. |
+| Phase | Contract               | Guide                              | State                                                                                                                                                   |
+| ----- | ---------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V3-P1 | [phase1.md](phase1.md) | [phase1/guide.md](phase1/guide.md) | In progress. V3P1-C01 through V3P1-C03 add parsers, credentials, versioned tokens, and register/login routes. V3P1-C04 through V3P1-C06 remain planned. |
 
 Do not write `plans/phase2.md` until V3-P1's handoff says the next phase may be written. Google, scheduling, replay privacy, deletion, and Q&A stay in later V3 phases.

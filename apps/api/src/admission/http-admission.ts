@@ -5,6 +5,12 @@ import { retryAfterSeconds, WindowBudget } from './window-budget';
 
 export type HttpTrafficClass = 'exempt' | 'control' | 'media' | 'upload';
 
+const GUEST_SESSION_PATHS = new Set([
+  '/api/sessions/guest',
+  '/api/sessions/register',
+  '/api/sessions/login',
+]);
+
 // HLS reads and chunk posts do not spend the ordinary API budget. Playback on a
 // shared localhost or NAT address cannot exhaust the producer allowance.
 export function httpTrafficClass(method: string, path: string): HttpTrafficClass {
@@ -61,7 +67,7 @@ export function httpAdmission(config: ApiConfig): RequestHandler {
     } else if (!control.consume(identity)) rejected = control;
     else if (
       request.method === 'POST' &&
-      path === '/api/sessions/guest' &&
+      GUEST_SESSION_PATHS.has(path) &&
       !guests.consume(identity)
     )
       rejected = guests;

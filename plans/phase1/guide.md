@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** in progress. V3P1-C01 and V3P1-C02 supply shared parsers, credential storage, and versioned tokens. V3P1-C03 through V3P1-C06 are planned.\
+**Status:** in progress. V3P1-C01 through V3P1-C03 supply shared parsers, credential storage, versioned tokens, and register/login routes. V3P1-C04 through V3P1-C06 are planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -96,9 +96,9 @@ pnpm lint
 
 ## 3. V3P1-C02 — Password hash and token claims
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(api-auth): store a host password and version tokens`\
-**Actual commit:**
+**Actual commit:** `18ba20e23f73948048221234171b0671d8fcd1fa`
 
 **Why:** Guest tokens issued after this slice carry `sv` and `guest`, and old guest tokens still verify. Later slices can register against that row. Covers the token half of ID-02 and the guest-token half of ID-04.
 
@@ -155,7 +155,7 @@ pnpm lint
 
 ## 4. V3P1-C03 — Register and login
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `feat(api-auth): register and log in a host`\
 **Actual commit:**
 
@@ -168,6 +168,7 @@ pnpm lint
 - `apps/api/src/sessions/sessions.service.ts`
 - `apps/api/src/sessions/sessions.service.test.ts`
 - `apps/api/src/sessions/sessions.controller.ts`
+- `apps/api/src/sessions/sessions.controller.test.ts`
 - `apps/api/src/admission/http-admission.ts`
 - `apps/api/src/admission/http-admission.test.ts`
 
@@ -180,6 +181,8 @@ pnpm lint
 5. Share one in-flight counter for this password work, capped by `GUEST_PENDING_LIMIT`. The existing guest-insert counter stays separate. Over the cap throws `server_busy` with `Account sign-in is busy. Try again shortly.` and does not start another hash.
 6. Extend the guest network budget in `http-admission.ts` so `POST /api/sessions/register` and `POST /api/sessions/login` spend it the same way `/api/sessions/guest` does. The ordinary control budget still applies first. Cover both new paths in `http-admission.test.ts`.
 7. Service tests use mocked repositories and a real `hashPassword` for one register-and-login pair. Assert the wrong-password and missing-email responses are the same error code and message. Assert a second register with that email does not call `save` a second time after the uniqueness failure is simulated. Assert `signAsync` receives `guest: false` and `expiresIn: '7d'`.
+8. Exercise the actual controller routes on an owned loopback HTTP server with mocked persistence. Verify ignored bearer headers and extra fields, invalid JSON-object shapes and fields, and the host response/token shape. Service regressions also cover one shared cap across register/login, capacity release on success/failure, independence from guest inserts, and single-flight reuse of the lazy dummy hash.
+9. Enforce the phase's no-credential-logging boundary by mapping unexpected account-work failures to a clean `server_busy` API error. Raw database errors can retain email/hash query parameters and must not reach Nest's default error logger. Preserve intentional API errors, including `email_taken` and `unauthorized`.
 
 **Verification:**
 
@@ -190,6 +193,17 @@ pnpm lint
 ```
 
 **Done when:** Register and login match Section 5.4, guest create is unchanged, and promote is still absent.
+
+**Verification record (2026-11-05):**
+
+- `pnpm --filter @stageflow/api test -- src/sessions/sessions.service.test.ts src/sessions/sessions.controller.test.ts src/admission/http-admission.test.ts` passed all 67 focused cases in three files. `pnpm typecheck` and `pnpm lint` passed across the workspace.
+- The first full API test attempt could not reach the configured PostgreSQL/Redis services: PostgreSQL refused port 5432 and Redis closed its connection. The existing project containers were stopped. Owned temporary containers using the local `postgres:16` and `redis:7` images, tmpfs storage, random loopback ports, and process-only environment overrides supplied subsequent checks. After the final account-error sanitization, `pnpm --filter @stageflow/api test` passed all 302 tests in 26 files, including real Redis and disposable PostgreSQL regressions.
+- `pnpm --filter @stageflow/api build`, `pnpm check:artifacts --api`, and `pnpm smoke:live` passed. The affected-check planner selected the API checks, artifacts, and both smokes; it did not select a full release or audit gate. The temporary containers and their runtime configuration file were removed after the checks. Existing StageFlow project containers remained stopped; the developer database was not migrated.
+- `pnpm smoke:broadcast` was attempted with the isolated configuration and failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`. Broadcast verification and existing V1/V2 acceptance gaps remain open.
+- `pnpm format:check` and scoped Prettier checks passed; local links in changed phase records resolve. C02's recorded hash is included in this slice under the existing ledger rule.
+- Service coverage includes a real bcrypt register/login pair, normalized identity, current-version seven-day host signing, identical wrong-password/missing-email failures without writes, unique-constraint races and duplicate prechecks, invalid fields, one shared password-work cap, release on success/failure, guest-insert independence, and concurrent/later reuse of one lazy dummy hash. Unexpected account-work failures return a clean 503 `server_busy`; database error query/parameter/cause fields are discarded so email/hash parameters cannot reach Nest's default error logger. Intentional API errors are preserved.
+- Owned loopback HTTP tests exercise the actual controller/service with mocked persistence and password work, and real JWT signing. They verify the seven-day host response, ignored guest bearer and extra fields, existing display name on login, and rejected object/field shapes. Admission tests cover register/login aliases sharing the guest budget, rate rejection before JSON parsing, and the ordinary control budget applying first.
+- ID-01 has register/login API coverage; the fresh-client room-library browser flow remains planned for C05. Password change and promotion remain C04 work. No complete acceptance ID is closed by C03.
 
 ## 5. V3P1-C04 — Password change and promotion
 

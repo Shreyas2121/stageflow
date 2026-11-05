@@ -9,7 +9,12 @@ import { httpAdmission, httpTrafficClass } from './http-admission';
 async function fixture(
   test: (
     url: string,
-    activity: { guest: () => number; media: () => number; uploads: () => number },
+    activity: {
+      guest: () => number;
+      accounts: () => number;
+      media: () => number;
+      uploads: () => number;
+    },
   ) => Promise<void>,
   source: Record<string, string> = {},
 ) {
@@ -25,13 +30,17 @@ async function fixture(
   });
   const adapter = new ExpressAdapter();
   const app = adapter.getInstance() as Express;
-  const activity = { guest: 0, media: 0, uploads: 0 };
+  const activity = { guest: 0, accounts: 0, media: 0, uploads: 0 };
   adapter.enableCors({ origin: config.CORS_ORIGIN });
   app.use(httpAdmission(config));
   app.use('/api/broadcasts/:id/chunks', broadcastChunkParser);
   adapter.useBodyParser('json', false, { limit: config.HTTP_BODY_BYTES });
   app.post('/api/sessions/guest', (_request, response) => {
     activity.guest++;
+    response.json({ ok: true });
+  });
+  app.post(['/api/sessions/register', '/api/sessions/login'], (_request, response) => {
+    activity.accounts++;
     response.json({ ok: true });
   });
   app.get('/api/health', (_request, response) => {
@@ -57,6 +66,7 @@ async function fixture(
   try {
     await test(`http://127.0.0.1:${address.port}`, {
       guest: () => activity.guest,
+      accounts: () => activity.accounts,
       media: () => activity.media,
       uploads: () => activity.uploads,
     });
@@ -94,6 +104,56 @@ it('limits actual guest requests before writes, including case/trailing-slash al
     expect((await fetch(url + '/api/health')).status).toBe(200);
   });
 });
+it.each(['register', 'login'])(
+  'shares the guest network budget with %s and the other account route',
+  async (route) => {
+    await fixture(async (url, activity) => {
+      const otherRoute = route === 'register' ? 'login' : 'register';
+      for (const [path, status] of [
+        ['/api/sessions/guest', 200],
+        [`/API/sessions/${route.toUpperCase()}/?unused=1`, 200],
+        [`/api/sessions/${otherRoute}`, 429],
+        [`/api/sessions/${route}`, 429],
+      ] as const) {
+        const response = await fetch(url + path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Origin: 'http://allowed.test' },
+          body: status === 429 ? '{invalid-json' : '{}',
+        });
+        expect(response.status).toBe(status);
+        if (status === 429) {
+          expect(response.headers.get('retry-after')).toBe('60');
+          expect(response.headers.get('access-control-allow-origin')).toBe('http://allowed.test');
+          expect(await response.json()).toMatchObject({ error: 'rate_limited' });
+        } else await response.text();
+      }
+      expect(activity.guest()).toBe(1);
+      expect(activity.accounts()).toBe(1);
+      expect((await fetch(url + '/api/rooms/example')).status).toBe(200);
+    });
+  },
+);
+it.each(['register', 'login'])(
+  'applies the ordinary control budget before %s JSON parsing and account work',
+  async (route) => {
+    await fixture(
+      async (url, activity) => {
+        const control = await fetch(url + '/api/rooms/example');
+        expect(control.status).toBe(200);
+        await control.text();
+        const blocked = await fetch(`${url}/api/sessions/${route}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{invalid-json',
+        });
+        expect(blocked.status).toBe(429);
+        expect(await blocked.json()).toMatchObject({ error: 'rate_limited' });
+        expect(activity.accounts()).toBe(0);
+      },
+      { HTTP_RATE_LIMIT: '1' },
+    );
+  },
+);
 it('rejects oversized JSON and unwanted origins before a guest write; normal API work has its own budget', async () => {
   await fixture(async (url, writes) => {
     const oversized = await fetch(url + '/api/sessions/guest', {
