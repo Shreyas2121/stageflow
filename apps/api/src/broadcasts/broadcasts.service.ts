@@ -9,6 +9,7 @@ import {
   isUuid,
   parseCatalogLimit,
   parseHistoryCursor,
+  parseBroadcastVisibility,
   type BroadcastResponse,
   type CommandAck,
   type RoomSnapshot,
@@ -25,7 +26,17 @@ import { RoomsService } from '../rooms/rooms.service';
 import type { User } from '../users/user.entity';
 import { Broadcast } from './broadcast.entity';
 import { FfmpegSupervisor, type FfmpegExit } from './ffmpeg-supervisor';
-import { checkedHlsPath, checkedThumbnailPath, prepareBroadcastDirectory } from './hls-path';
+import {
+  checkedHlsPath,
+  checkedThumbnailPath,
+  prepareBroadcastDirectory,
+  removeBroadcastDirectory,
+} from './hls-path';
+
+export type ActiveBroadcastReader = {
+  read(roomId: string): Promise<string | null>;
+  close(): Promise<void>;
+};
 
 export type BroadcastHooks = {
   reserve(id: string): Promise<boolean>;
@@ -33,6 +44,7 @@ export type BroadcastHooks = {
   publish(): Promise<void>;
   onExit(action: () => Promise<void>): void;
 };
+const DELETE_FAILED = 'The replay could not be deleted. Try again.';
 const CLEANUP_ATTEMPTS = 3;
 const RESERVATION_CLEANUP_FAILED = 'Broadcast reservation cleanup failed.';
 type AttemptCleanup = { saved: boolean; cleared: boolean; published: boolean };
@@ -89,12 +101,19 @@ export class BroadcastsService {
   // Last projection for a room. A missing key is not loaded; null means no attempt was found.
   private readonly views = new Map<string, RoomSnapshot['broadcast']>();
   private closing = false;
+  private readonly deleting = new Set<string>();
   constructor(
     @InjectRepository(Broadcast) private readonly broadcasts: Repository<Broadcast>,
     private readonly rooms: RoomsService,
     private readonly createSupervisor = () => new FfmpegSupervisor(env.FFMPEG_PATH),
     private readonly dataRoot = resolve(__dirname, '../../../..', env.DATA_ROOT),
     private readonly uploads = new UploadAllowance(env),
+    private readonly activeBroadcast: ActiveBroadcastReader = {
+      read: async () => {
+        throw new Error('Active broadcast reader is unavailable.');
+      },
+      close: async () => {},
+    },
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
@@ -434,6 +453,11 @@ export class BroadcastsService {
 
   async onModuleDestroy(): Promise<void> {
     this.closing = true;
+    try {
+      await this.activeBroadcast.close();
+    } catch (error) {
+      this.logger.error(error instanceof Error ? error.message : 'Broadcast reader close failed.');
+    }
     await Promise.all(
       [...this.running.values()].map(async (entry) => {
         // Catalog/key cleanup is done by the next owning startup if shutdown cannot finish.
@@ -494,6 +518,97 @@ export class BroadcastsService {
     if (!nextCursor)
       throw new ApiException(500, 'server_busy', 'The broadcast page could not be read.');
     return { items, nextCursor };
+  }
+
+  async setVisibility(id: string, user: User, body: unknown): Promise<BroadcastResponse> {
+    const row = await this.ownedReplay(id, user);
+    if (row.status === 'DELETING') throw this.broadcastNotFound();
+    if (row.status !== 'READY' && row.status !== 'FAILED')
+      throw new ApiException(409, 'broadcast_not_ready', 'Hide a replay after it has finished.');
+    const visibility = parseBroadcastVisibility(body);
+    if (!visibility.ok) throw new ApiException(400, visibility.error, visibility.message);
+    if (visibility.value === row.visibility) return catalog(row);
+    const result = await this.broadcasts.update(
+      { id, status: In(['READY', 'FAILED']) },
+      { visibility: visibility.value },
+    );
+    if (!result.affected) throw this.broadcastNotFound();
+    return this.getById(id, user);
+  }
+
+  async deleteReplay(id: string, user: User): Promise<void> {
+    const row = await this.ownedReplay(id, user);
+    if (this.deleting.has(id)) throw this.broadcastNotFound();
+    this.deleting.add(id);
+    try {
+      await this.removeReplay(row);
+    } finally {
+      this.deleting.delete(id);
+    }
+  }
+
+  private async removeReplay(row: Broadcast): Promise<void> {
+    const id = row.id;
+    if (!['READY', 'FAILED', 'DELETING'].includes(row.status))
+      throw new ApiException(409, 'broadcast_not_deletable', 'A live broadcast cannot be deleted.');
+    let activeId: string | null;
+    try {
+      activeId = await this.activeBroadcast.read(row.roomId);
+    } catch {
+      throw new ApiException(500, 'broadcast_delete_failed', DELETE_FAILED);
+    }
+    if (activeId === id)
+      throw new ApiException(409, 'broadcast_not_deletable', 'A live broadcast cannot be deleted.');
+    const previousStatus = row.status;
+    if (previousStatus !== 'DELETING') {
+      const claim = await this.broadcasts.update(
+        { id, status: previousStatus },
+        { status: 'DELETING' },
+      );
+      if (!claim.affected) throw this.broadcastNotFound();
+    }
+    // Invalidate a cached completed projection; the next snapshot reloads the claimed row.
+    this.views.delete(row.roomId);
+    try {
+      await removeBroadcastDirectory(this.dataRoot, id);
+      const deleted = await this.broadcasts.delete({ id, status: 'DELETING' });
+      if (!deleted.affected && (await this.broadcasts.findOneBy({ id })))
+        throw new Error(DELETE_FAILED);
+    } catch (error) {
+      if (previousStatus !== 'DELETING') {
+        try {
+          await this.broadcasts.update(
+            { id, status: 'DELETING' },
+            { status: previousStatus, errorMessage: DELETE_FAILED },
+          );
+        } catch (restoreError) {
+          this.logger.error(restoreError instanceof Error ? restoreError.message : DELETE_FAILED);
+        }
+      }
+      this.views.delete(row.roomId);
+      this.logger.error(error instanceof Error ? error.message : DELETE_FAILED);
+      throw new ApiException(500, 'broadcast_delete_failed', DELETE_FAILED);
+    }
+    this.views.delete(row.roomId);
+  }
+
+  private broadcastNotFound(): ApiException {
+    return new ApiException(404, 'broadcast_not_found', 'No broadcast exists for that id.');
+  }
+
+  private async ownedReplay(id: string, user: User): Promise<Broadcast> {
+    if (!isUuid(id)) throw this.broadcastNotFound();
+    const row = await this.broadcasts.findOneBy({ id });
+    if (!row) throw this.broadcastNotFound();
+    const room = await this.rooms.getById(row.roomId);
+    if (!room || room.hostId !== user.id) throw this.broadcastNotFound();
+    if (user.isGuest !== false)
+      throw new ApiException(
+        403,
+        'replay_owner_required',
+        'Create a host account before changing this replay.',
+      );
+    return row;
   }
 
   async getById(id: string, user: User): Promise<BroadcastResponse> {

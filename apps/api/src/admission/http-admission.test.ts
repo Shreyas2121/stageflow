@@ -52,6 +52,12 @@ async function fixture(
       response.json({ ok: true });
     },
   );
+  app.post('/api/broadcasts/:id/visibility', (_request, response) => {
+    response.status(204).end();
+  });
+  app.delete('/api/broadcasts/:id', (_request, response) => {
+    response.status(204).end();
+  });
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true });
   });
@@ -194,6 +200,8 @@ it('classifies HLS reads, chunk posts, and ordinary requests separately', () => 
   expect(httpTrafficClass('GET', '/API/broadcasts/abc/hls/Index.m3u8/')).toBe('media');
   expect(httpTrafficClass('POST', '/api/broadcasts/abc/chunks?unused=1')).toBe('upload');
   expect(httpTrafficClass('GET', '/api/broadcasts/abc')).toBe('control');
+  expect(httpTrafficClass('POST', '/API/broadcasts/abc/visibility/?unused=1')).toBe('control');
+  expect(httpTrafficClass('DELETE', '/api/broadcasts/abc')).toBe('control');
   expect(httpTrafficClass('GET', '/api/rooms/slug/broadcasts')).toBe('control');
   expect(
     httpTrafficClass('GET', '/api/broadcasts/11111111-1111-4111-8111-111111111111/thumbnail.jpg'),
@@ -342,5 +350,25 @@ it('budgets Google action preflights and HEAD aliases while keeping CORS respons
       expect(blocked.headers.get('access-control-allow-origin')).toBe('http://allowed.test');
     },
     { HTTP_RATE_LIMIT: '100' },
+  );
+});
+
+it('charges visibility and delete only to the ordinary control budget', async () => {
+  await fixture(
+    async (url) => {
+      for (const [method, path, status] of [
+        ['POST', '/api/sessions/guest', 200],
+        ['POST', '/api/sessions/guest', 429],
+        ['POST', '/api/broadcasts/abc/visibility', 204],
+        ['DELETE', '/api/broadcasts/abc', 204],
+        ['POST', '/api/broadcasts/abc/visibility', 204],
+        ['DELETE', '/api/broadcasts/abc', 429],
+      ] as const) {
+        const response = await fetch(url + path, { method });
+        expect(response.status).toBe(status);
+        await response.text();
+      }
+    },
+    { GUEST_RATE_LIMIT: '1', HTTP_RATE_LIMIT: '5' },
   );
 });

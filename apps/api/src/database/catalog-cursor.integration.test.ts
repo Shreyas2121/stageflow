@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { prepareBroadcastDirectory } from '../broadcasts/hls-path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { encodeHistoryCursor, parseBroadcast, parseHistoryCursor } from '@stageflow/shared';
@@ -320,3 +324,61 @@ it('pages rooms and broadcasts across microseconds without skips or duplicates',
   const catalog = await broadcastPages.listByRoomSlug(slug, { limit: '1' }, caller(otherHostId));
   expect(parseBroadcast(catalog.items[0])).toEqual(catalog.items[0]);
 }, 30_000);
+
+it('claims a finished replay once under concurrent PostgreSQL deletes and preserves its room', async () => {
+  if (!dataSource || !rooms) throw new Error('Catalog services were not created.');
+  const source = dataSource;
+  const root = await mkdtemp(join(tmpdir(), 'sf-replay-pg-'));
+  try {
+    const replayRoomId = randomUUID();
+    await insertInstant('rooms', replayRoomId, instants[0]!, castHostId, 'DeleteCast01');
+    const repository = source.getRepository(Broadcast);
+    const replay = await repository.save(
+      repository.create({ roomId: replayRoomId, status: 'READY' }),
+    );
+    const directory = await prepareBroadcastDirectory(root, replay.id);
+    await writeFile(join(directory, 'index.m3u8'), '#EXTM3U');
+    let waiting = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reader = {
+      read: async () => {
+        if (++waiting === 2) release();
+        await gate;
+        return null;
+      },
+      close: async () => {},
+    };
+    const service = new BroadcastsService(repository, rooms, undefined, root, undefined, reader);
+    const secondService = new BroadcastsService(
+      repository,
+      rooms,
+      undefined,
+      root,
+      undefined,
+      reader,
+    );
+    const owner = { id: castHostId, isGuest: false } as User;
+    expect(await service.setVisibility(replay.id, owner, { visibility: 'HOST' })).toMatchObject({
+      status: 'READY',
+      visibility: 'HOST',
+    });
+    const results = await Promise.allSettled([
+      service.deleteReplay(replay.id, owner),
+      secondService.deleteReplay(replay.id, owner),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect(rejected).toMatchObject({
+      status: 'rejected',
+      reason: { response: { error: 'broadcast_not_found' } },
+    });
+    expect(await repository.findOneBy({ id: replay.id })).toBeNull();
+    await expect(readFile(join(directory, 'index.m3u8'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await source.getRepository(Room).findOneBy({ id: replayRoomId })).not.toBeNull();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -113,7 +113,9 @@ it('promotes one of two same-name users without moving either room or broadcast'
   );
   expect(session).toMatchObject({ userId: owner.id, displayName: owner.displayName });
   expect(await rooms.find({ order: { id: 'ASC' } })).toEqual(beforeRooms);
-  expect(await broadcasts.find({ order: { id: 'ASC' } })).toEqual(beforeBroadcasts);
+  const promotedBroadcasts = await broadcasts.find({ order: { id: 'ASC' } });
+  expect(promotedBroadcasts).toEqual(beforeBroadcasts);
+  expect(promotedBroadcasts.map((row) => row.visibility)).toEqual(['LINK', 'LINK']);
   expect(await credentials(other.id)).toEqual(beforeOther);
   await expect(service.verifyToken(oldToken)).rejects.toMatchObject({
     response: { error: 'unauthorized' },

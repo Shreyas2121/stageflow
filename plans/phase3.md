@@ -1,6 +1,6 @@
 # V3 Phase 3 — Replay visibility and deletion
 
-**Status:** in progress. C01 records replay visibility and C02 enforces owner-only reads. C03 through C05 remain planned.\
+**Status:** in progress. C01 and C02 are committed. C03 replay mutations are verified and awaiting commit. C04 and C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.4`, Sections 4, 8, and 12 (LIB-01 through LIB-04). Identity stays as shipped in `plans/phase1.md` and `plans/phase2.md`.\
 **Execution guide:** [phase3/guide.md](phase3/guide.md). That guide owns V3P3-C01 through V3P3-C05. Those ids are not the V1 commits in [V1/phase3/guide.md](V1/phase3/guide.md) or the V2 commits in [V2/phase3/guide.md](V2/phase3/guide.md).\
@@ -126,9 +126,9 @@ These controls stay on the home library. They do not import `hls.js`, the live r
 | ID     | Observable result                                                                                                                         | Method                                                                                  | Status                        |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------- |
 | LIB-01 | A guest plays `LINK` JSON and media. `HOST` plays for the registered owner and returns `broadcast_not_found` for a guest and another host | Route regressions, plus a browser replay of a seeded `LINK` row and a seeded `HOST` row | API verified; browser pending |
-| LIB-02 | Migrated rows and a promoted guest's replays stay `LINK`. A guest owner cannot set `HOST`. A live row cannot be hidden                    | Migration and service regressions                                                       | Storage verified; C03 pending |
-| LIB-03 | Owner delete removes the `READY` or `FAILED` row and that directory. An escaping path is left in place                                    | Service test on a disposable directory                                                  | planned                       |
-| LIB-04 | `STARTING`, `LIVE`, `STOPPING`, and the active Redis id cannot be deleted. A failed removal restores the row and reports failure          | Status and filesystem regressions                                                       | planned                       |
+| LIB-02 | Migrated rows and a promoted guest's replays stay `LINK`. A guest owner cannot set `HOST`. A live row cannot be hidden                    | Migration and service regressions                                                       | verified                      |
+| LIB-03 | Owner delete removes the `READY` or `FAILED` row and that directory. An escaping path is left in place                                    | Service test on a disposable directory                                                  | verified                      |
+| LIB-04 | `STARTING`, `LIVE`, `STOPPING`, and the active Redis id cannot be deleted. A failed removal restores the row and reports failure          | Status and filesystem regressions                                                       | verified                      |
 
 A seeded playlist is not an FFmpeg observation. MEDIA-04, REC-05, and the other open physical ids stay open.
 
@@ -176,3 +176,9 @@ Shared 309, API 400, web 477, and tooling 49 tests passed, as did workspace type
 ### V3P3-C02 ? Owner-only reads (2026-11-05)
 
 All 404 API tests passed, including real-JWT HTTP requests against disposable media files, service checks that reject before resolving files, and disposable PostgreSQL privacy filtering across keyset pages. Password and Google-only registered owners can read HOST catalogs, thumbnails, playlists and segments. Guest owners, other registered hosts and guests receive the same broadcast-not-found response as a missing id. LINK remains readable by any valid bearer, and DELETING is omitted for everyone. Workspace typecheck/lint, repository formatting, shared preparation, API build/artifacts, live smoke, and disposable FFmpeg broadcast smoke passed. The latter used the same existing temporary FFmpeg 6.0 executable as C01. LIB-01 API coverage is verified; the browser half remains open for C04. C03 through C05 are not implemented.
+
+### V3P3-C03 - Hide and delete (2026-11-05)
+
+Registered owners, including Google-only owners, can change only a finished replay's visibility or delete that attempt and its confined directory. Guest owners receive the account-required sentence; other callers receive broadcast-not-found. Live statuses and the active Redis id refuse deletion. A Redis read failure occurs before claiming. Conditional DELETING claims block playback and concurrent deletion; the owner can retry an interrupted persisted claim. Removal failures conditionally restore the previous status, retain the playlist and visibility, and record the retry sentence. Escaping junctions and their external targets remain untouched. Deleting a replay preserves the room. Guest promotion retains LINK visibility, and both mutations spend only the ordinary control budget.
+
+The final stable-source verification passed: shared 310 tests, API 425 tests, web 477 tests, workspace typecheck/lint, both builds, formatting, and artifact checks. The 49 tooling tests passed in the initial release invocation; its unused-fixture-argument lint failure was fixed before the final rerun. Live smoke and the disposable real-FFmpeg broadcast smoke both passed, using the same existing FFmpeg 6.0 executable recorded for C01. Focused mutation and concurrent PostgreSQL tests passed (20 tests). LIB-02, LIB-03, and LIB-04 are verified by these regressions. C04 library controls and C05 README work remain planned; LIB-01 browser and prior physical acceptance remain open.

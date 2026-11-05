@@ -5,6 +5,7 @@ import {
   broadcastThumbnailUrl,
   buildHlsArgs,
   parseBroadcast,
+  parseBroadcastVisibility,
   resolveBroadcastMediaUrl,
   type BroadcastResponse,
   type ChunkHistory,
@@ -213,4 +214,27 @@ describe('public broadcast response', () => {
     ];
     for (const resource of rejected) expect(resolveBroadcastMediaUrl(resource, apiBase)).toBeNull();
   });
+});
+
+it('parses only exact LINK/HOST visibility fields and ignores other keys', () => {
+  for (const visibility of ['LINK', 'HOST'] as const)
+    expect(parseBroadcastVisibility({ visibility, status: 'LIVE', roomId: 'ignored' })).toEqual({
+      ok: true,
+      value: visibility,
+    });
+  for (const body of [
+    null,
+    [],
+    'HOST',
+    {},
+    { visibility: null },
+    { visibility: 'host' },
+    { visibility: 'PUBLIC' },
+    { visibility: 1 },
+  ])
+    expect(parseBroadcastVisibility(body)).toEqual({
+      ok: false,
+      error: 'invalid_visibility',
+      message: 'Choose link or host visibility.',
+    });
 });

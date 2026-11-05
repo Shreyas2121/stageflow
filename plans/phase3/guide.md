@@ -1,6 +1,6 @@
 # Guide — V3 Phase 3, commit by commit
 
-**Status:** in progress. C01 records replay visibility and C02 enforces owner-only reads. C03 through C05 remain planned.\
+**Status:** in progress. C01 and C02 are committed. C03 replay mutations are verified and awaiting commit. C04 and C05 remain planned.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase3.md](../phase3.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.4`. Identity stays as shipped in [../phase1.md](../phase1.md) and [../phase2.md](../phase2.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -130,7 +130,7 @@ pnpm lint
 
 ## 4. V3P3-C03 — Hide and delete
 
-**Status:** planned\
+**Status:** verified, awaiting commit\
 **Proposed commit message:** `feat(api-broadcast): hide or delete a finished replay`\
 **Actual commit:**
 
@@ -168,6 +168,12 @@ pnpm lint
 ```
 
 **Done when:** The owner can hide and delete a finished replay, a live attempt is unchanged, and an escaping path is still on disk.
+
+**Implementation record (2026-11-05):** Added strict visibility parsing and the five error codes, authenticated visibility/delete routes, conditional finished-row writes and DELETING claims, and a dedicated bounded Redis reader with shutdown cleanup. Visibility changes write only that column. Concurrent deletes in the same service fail closed; an interrupted persisted claim can be retried by the owner, including when the directory is already absent. Removal verifies both the real parent and the id directory before deleting anything. Failure restores the previous status and failure sentence only while the row is still DELETING. Cached room projections are invalidated around claims and recovery.
+
+Regressions live in `replay-mutations.test.ts`, `hls-path.test.ts`, `broadcasts.controller.test.ts`, `catalog-cursor.integration.test.ts`, `http-admission.test.ts`, `accounts.integration.test.ts`, and the shared broadcast tests. They cover finished READY/FAILED operations, guest/foreign-owner refusals, Google-only owners, all in-flight statuses, active Redis id and read failure, partial-delete retries, removal and row-delete failure, conditional restore, concurrent claims against disposable PostgreSQL, and an external junction target that remains on disk. Admission tests prove the mutations use only the ordinary control budget, and promotion retains LINK visibility.
+
+**Verification record (2026-11-05):** The affected plan selected `check:release`. Tooling passed all 49 tests; that invocation then stopped at an unused test-fixture argument in lint. After fixing it and completing interrupted-claim handling, the final stable-source `pnpm check` passed workspace typechecks/lint, shared 310 tests, web 477 tests, API 425 tests (32 files), both production builds, and repository formatting. `pnpm check:artifacts`, `pnpm smoke:live`, and `pnpm smoke:broadcast` then passed. Broadcast smoke used `FFMPEG_PATH=C:/Users/rasai/AppData/Local/Temp/stageflow-ffmpeg-b6.0/ffmpeg.exe` (FFmpeg 6.0), ran all six migrations in an owned disposable database, confirmed an empty second run, decoded audio/video, and cleaned up its owned processes, keys, database, and media. Focused final mutation/concurrent-PostgreSQL tests also passed (20 tests). LIB-02, LIB-03, and LIB-04 are verified within their automated contracts. LIB-01 browser, C04/C05, and all existing physical-device observations remain open.
 
 ## 5. V3P3-C04 — Library controls
 

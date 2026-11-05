@@ -7,7 +7,7 @@ import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { Repository } from 'typeorm';
+import type { FindOperator, Repository } from 'typeorm';
 import { expect, it, vi } from 'vitest';
 import { ApiExceptionFilter } from '../http/api-exception.filter';
 import { RoomsService } from '../rooms/rooms.service';
@@ -47,7 +47,29 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
     .slice(0, 3)
     .map((user) => ({ id: randomUUID(), hostId: user.id, slug: randomUUID().slice(0, 12) }));
   const rows: Broadcast[] = [];
+  type MutationWhere = {
+    id: string;
+    status?: Broadcast['status'] | FindOperator<Broadcast['status'][]>;
+  };
+  const match = (row: Broadcast, where: MutationWhere) =>
+    row.id === where.id &&
+    (where.status === undefined ||
+      (typeof where.status === 'string'
+        ? row.status === where.status
+        : where.status.value.includes(row.status)));
   const repository = {
+    update: vi.fn(async (where: MutationWhere, patch: Partial<Broadcast>) => {
+      const row = rows.find((row) => match(row, where));
+      if (!row) return { affected: 0 };
+      Object.assign(row, patch);
+      return { affected: 1 };
+    }),
+    delete: vi.fn(async (where: MutationWhere) => {
+      const index = rows.findIndex((row) => match(row, where));
+      if (index < 0) return { affected: 0 };
+      rows.splice(index, 1);
+      return { affected: 1 };
+    }),
     findOneBy: vi.fn(async ({ id }: { id: string }) => rows.find((row) => row.id === id) ?? null),
     find: vi.fn(async ({ where }: { where: { roomId: string; visibility: unknown } }) =>
       rows.filter(
@@ -67,6 +89,8 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
     roomService as unknown as RoomsService,
     undefined,
     root,
+    undefined,
+    { read: async () => null, close: async () => {} },
   );
   const jwt = new JwtService({
     secret: randomUUID(),
@@ -120,11 +144,16 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.listen(0, '127.0.0.1');
     const url = await app.getUrl();
-    async function read(path: string, user?: User) {
+    async function read(path: string, user?: User, method = 'GET', body?: unknown) {
       const headers: Record<string, string> = {};
       if (user)
         headers.Authorization = `Bearer ${await jwt.signAsync({ sub: user.id, sv: user.sessionVersion, guest: user.isGuest })}`;
-      return fetch(`${url}/api/${path}`, { headers });
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      return fetch(`${url}/api/${path}`, {
+        headers,
+        method,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
     }
     const missing = {
       statusCode: 404,
@@ -195,6 +224,64 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
         items: [{ visibility: 'LINK' }],
         nextCursor: null,
       });
+    }
+
+    privateRow.status = 'READY';
+    for (const [user, expected] of [
+      [guest, 404],
+      [otherHost, 404],
+      [undefined, 401],
+    ] as const) {
+      const hidden = await read(`broadcasts/${privateRow.id}/visibility`, user, 'POST', {
+        visibility: 'LINK',
+      });
+      expect(hidden.status).toBe(expected);
+      await hidden.text();
+      const deleted = await read(`broadcasts/${privateRow.id}`, user, 'DELETE');
+      expect(deleted.status).toBe(expected);
+      await deleted.text();
+    }
+    const guestReplay = rows.find((row) => row.roomId === rooms[2]!.id)!;
+    for (const response of [
+      await read(`broadcasts/${guestReplay.id}/visibility`, guestOwner, 'POST', {
+        visibility: 'HOST',
+      }),
+      await read(`broadcasts/${guestReplay.id}`, guestOwner, 'DELETE'),
+    ]) {
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: 'replay_owner_required' });
+    }
+    for (const user of [owner, googleOwner]) {
+      const replay = rows.find(
+        (row) =>
+          row.roomId === rooms.find((room) => room.hostId === user.id)!.id &&
+          row.visibility === 'LINK',
+      )!;
+      for (const visibility of ['HOST', 'LINK']) {
+        const response = await read(`broadcasts/${replay.id}/visibility`, user, 'POST', {
+          visibility,
+          status: 'LIVE',
+        });
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ visibility, status: 'READY' });
+      }
+      const invalid = await read(`broadcasts/${replay.id}/visibility`, user, 'POST', {
+        visibility: 'host',
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ error: 'invalid_visibility' });
+      replay.status = 'LIVE';
+      expect((await read(`broadcasts/${replay.id}`, user, 'DELETE')).status).toBe(409);
+      expect(
+        (await read(`broadcasts/${replay.id}/visibility`, user, 'POST', { visibility: 'HOST' }))
+          .status,
+      ).toBe(409);
+      replay.status = 'READY';
+      const deleted = await read(`broadcasts/${replay.id}`, user, 'DELETE');
+      expect(deleted.status).toBe(204);
+      expect(await deleted.text()).toBe('');
+      expect(await (await read(`broadcasts/${replay.id}`, user)).json()).toEqual(missing);
+      expect(rooms.some((room) => room.id === replay.roomId)).toBe(true);
     }
   } finally {
     await app?.close();

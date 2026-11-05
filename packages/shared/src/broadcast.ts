@@ -1,3 +1,4 @@
+import type { ParseResult } from './contracts';
 import { isUuid } from './identifiers';
 
 export type BroadcastVisibility = 'LINK' | 'HOST';
@@ -209,4 +210,11 @@ export function parseBroadcast(value: unknown): BroadcastResponse | null {
     endedAt: value.endedAt,
     createdAt: value.createdAt,
   };
+}
+
+/** Read only the visibility field; additional request keys have no authority. */
+export function parseBroadcastVisibility(body: unknown): ParseResult<BroadcastVisibility> {
+  if (record(body) && (body.visibility === 'LINK' || body.visibility === 'HOST'))
+    return { ok: true, value: body.visibility };
+  return { ok: false, error: 'invalid_visibility', message: 'Choose link or host visibility.' };
 }

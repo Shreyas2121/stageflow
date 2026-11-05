@@ -1,5 +1,5 @@
 import { isUuid } from '@stageflow/shared';
-import { mkdir, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, realpath, rm, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 function inside(root: string, path: string): void {
@@ -84,4 +84,37 @@ export function hlsHeaders(file: string): Record<string, string> {
   return file === 'index.m3u8'
     ? { 'Cache-Control': 'no-cache', 'Content-Type': 'application/vnd.apple.mpegurl' }
     : { 'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Type': 'video/mp2t' };
+}
+
+/** Remove only this id's real directory. A missing attempt is an idempotent success. */
+export async function removeBroadcastDirectory(
+  dataRoot: string,
+  id: string,
+): Promise<'removed' | 'missing'> {
+  const directory = broadcastDirectory(dataRoot, id);
+  // Check the parent even when the id itself is absent: a junction must not disguise a retry.
+  try {
+    await lstat(dataRoot);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return 'missing';
+    throw error;
+  }
+  const root = await realpath(dataRoot);
+  const parent = resolve(dataRoot, 'broadcasts');
+  for (const path of [parent, directory]) {
+    try {
+      await lstat(path);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return 'missing';
+      throw error;
+    }
+    const expected =
+      path === parent ? resolve(root, 'broadcasts') : resolve(root, 'broadcasts', id);
+    if ((await realpath(path)) !== expected)
+      throw new Error('Symlink outside broadcast directory.');
+  }
+  if (!(await lstat(directory)).isDirectory())
+    throw new Error('Broadcast path is not a directory.');
+  await rm(resolve(root, 'broadcasts', id), { recursive: true, force: true });
+  return 'removed';
 }

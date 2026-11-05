@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -37,6 +38,22 @@ export class BroadcastsController {
   @Get('broadcasts/:id')
   get(@Param('id') id: string, @CurrentUser() user: User): Promise<BroadcastResponse> {
     return this.broadcasts.getById(id, user);
+  }
+
+  @Post('broadcasts/:id/visibility')
+  @HttpCode(200)
+  visibility(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+    @Body() body: unknown,
+  ): Promise<BroadcastResponse> {
+    return this.broadcasts.setVisibility(id, user, body);
+  }
+
+  @Delete('broadcasts/:id')
+  @HttpCode(204)
+  delete(@Param('id') id: string, @CurrentUser() user: User): Promise<void> {
+    return this.broadcasts.deleteReplay(id, user);
   }
 
   @Post('broadcasts/:id/chunks')
