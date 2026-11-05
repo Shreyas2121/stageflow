@@ -1,6 +1,6 @@
 # Guide — V3 Phase 1, commit by commit
 
-**Status:** in progress. V3P1-C01 through V3P1-C05 supply parsers, credentials, versioned tokens, account routes, and the home account flows. ID-01 through ID-04 are verified. V3P1-C06's README work is planned.\
+**Status:** verified. V3P1-C01 through V3P1-C05 are committed; C06's README work is verified and ready to commit. ID-01 through ID-04 are verified. Existing V1/V2 acceptance gaps remain open.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase1.md](../phase1.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.2`. Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -262,9 +262,9 @@ pnpm lint
 
 ## 6. V3P1-C05 — Home account panel
 
-**Status:** verified\
+**Status:** committed\
 **Proposed commit message:** `feat(web-home): sign in, promote a guest, and show the host library`\
-**Actual commit:**
+**Actual commit:** `41d485e85757f136b4d2560a9affa424ef10013c`
 
 **Why:** The API from C03 and C04 is reachable on the home page, and a host sees a different sentence from a guest. Covers the browser half of ID-01 through ID-04.
 
@@ -320,7 +320,7 @@ Then exercise the home flow in the browser. A missing browser leaves ID-01 throu
 
 ## 7. V3P1-C06 — README
 
-**Status:** planned\
+**Status:** verified\
 **Proposed commit message:** `docs(readme): describe host accounts and guest promotion`\
 **Actual commit:**
 
@@ -351,5 +351,13 @@ pnpm exec prettier --check README.md plans/phase1.md plans/phase1/guide.md plans
 Read the edited README against phase Sections 5 and 6.
 
 **Done when:** The README matches the shipped account limits and this guide records C01 through C05. C06's hash is recorded in the follow-up `docs(v3-phase1): record the final slice hash`.
+
+**Verification record (2026-11-05):**
+
+- Reviewed the README against phase Sections 5 and 6 and the implemented session routes, signing options, account controls, migration registration, and admission settings. It now describes email/password register/login, seven-day host and twelve-hour guest tokens, client logout, password replacement and token invalidation, same-user promotion, taken-email and live-membership refusal, guest limits, and absent Google/email-verification/password-reset services. HTTP, catalog, migration, and admission descriptions reflect both account kinds.
+- Identity links point to this guide and the phase contract; workspace, devices, reconnect, chat, and combined-acceptance links stay under `plans/V2/`. Historical V2 statements about accounts are explicitly scoped to that phase. C05's browser result is summarized in the README and remains recorded in the phase acceptance matrix without changing any acceptance status.
+- `pnpm exec prettier --check README.md plans/phase1.md plans/phase1/guide.md plans/README.md` passed. Local Markdown paths and heading anchors in all four files resolve, and `git diff --check` passed. The affected-check planner selected formatting only, with no package, smoke, or audit gate.
+- This slice changes documentation only. It ran no application suites, browser checks, migrations, developer services, or smokes. C05's 456-test/browser evidence and ID-01 through ID-04 verification remain as recorded. The latest V3 broadcast attempt remains C04's `spawn ffmpeg ENOENT` at `ffmpeg -version`; this slice supplies no new FFmpeg, recording, replay, physical-device, audible-output, or native-picker evidence. Existing V1/V2 gaps remain open.
+- C05's pre-existing status/hash update is preserved in this slice. C06's actual hash is left blank in its slice commit, then recorded with the phase completion statuses in the required `docs(v3-phase1): record the final slice hash` follow-up. No V3 phase 2 file or implementation is included.
 
 **Handoff:** V3 phase 2 is optional Google. Do not write `plans/phase2.md` until that phase is requested.
