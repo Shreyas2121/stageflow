@@ -1,6 +1,6 @@
 # V3 Phase 2 — Optional Google sign-in
 
-**Status:** in progress. C01 through C04 are verified. C05 remains planned.\
+**Status:** finishing. C01 through C04 are committed. C05 documentation is verified; the final commit/hash record remains.\
 **Last updated:** 2026-11-05.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.3`, Sections 4, 6.4, and 12 (ID-05 and ID-06). Email and password accounts stay as shipped in `plans/phase1.md`.\
 **Execution guide:** [phase2/guide.md](phase2/guide.md). That guide owns V3P2-C01 through V3P2-C05. Those ids are not the V1 commits in [V1/phase2/guide.md](V1/phase2/guide.md) or the V2 commits in [V2/phase2/guide.md](V2/phase2/guide.md).\
@@ -191,3 +191,9 @@ C03 release evidence: the ordinary full-gate run hit the existing cross-fixture 
 The account panel probes optional Google availability, hides disabled/invalid/failed probes, distinguishes separate-host guest sign-in from current-host linking, and sends host link requests with the current bearer. `/auth/google` redeems one ticket across StrictMode effect replay, preserves the session after linking, renders the required rejection/conflict copy, and removes return queries from history.
 
 All 477 web tests, workspace typecheck/lint, web build, and web artifact checks passed. Chrome 156 headless at 1280 by 900 used real API/PostgreSQL/Redis fixtures with all Google settings empty: Google was absent and email registration plus fresh login succeeded. ID-05 is verified. Controlled enabled responses also verified guest/host controls, ticket persistence, one redemption, link-session preservation, return errors and history cleanup. These controls did not contact Google. The guide records browser details and owned-fixture cleanup. A real Google round-trip and existing V1/V2 physical/native-picker observations remain unverified. C05 remains planned.
+
+### V3P2-C05 ? README (2026-11-05)
+
+The README now matches the optional Google limits: all settings are empty or set together; email/password and guest paths do not call Google; an unknown subject creates a separate host; equal email never merges accounts; linking uses the current host token; Google does not promote guests; and Google-only hosts have no password or set-password flow. Phase 1 identity links remain, with phase 2 contract/guide links added. Configuration, migration, admission budgets, and C03/C04 evidence are documented. A real Google browser round-trip was not run, and existing V1/V2 acceptance gaps remain open.
+
+C05 is documentation only. Changed-file Prettier, diff checks, all 58 local links/anchors, and seven referenced Git commits passed validation. The affected planner selected formatting only; application suites were not rerun. Commit/hash recording remains pending; no new runtime or browser observation is claimed.

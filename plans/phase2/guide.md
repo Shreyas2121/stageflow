@@ -1,6 +1,6 @@
 # Guide — V3 Phase 2, commit by commit
 
-**Status:** in progress. C01 through C04 are verified. C05 remains planned.\
+**Status:** finishing. C01 through C04 are committed. C05 documentation is verified; the final commit/hash record remains.\
 **Last updated:** 2026-11-05.\
 **Phase contract:** [../phase2.md](../phase2.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.3`. Host accounts stay as shipped in [../phase1.md](../phase1.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -198,9 +198,9 @@ pnpm lint
 
 ## 5. V3P2-C04 — Home control and return page
 
-**Status:** verified; awaiting implementation commit\
+**Status:** committed\
 **Proposed commit message:** `feat(web-home): show Google sign-in only when it is configured`\
-**Actual commit:**
+**Actual commit:** `48cc2e154ce4323ffb86b990f693fff4bec0cb8e`
 
 **Why:** The home page has to hide Google in the ordinary local setup and accept a ticket when sign-in is enabled. Covers the browser half of ID-05.
 
@@ -249,7 +249,7 @@ Then check the unset home page in the browser.
 
 ## 6. V3P2-C05 — README
 
-**Status:** planned\
+**Status:** verified; awaiting commit\
 **Proposed commit message:** `docs(readme): describe optional Google sign-in`\
 **Actual commit:**
 
@@ -280,5 +280,11 @@ pnpm exec prettier --check README.md plans/phase2.md plans/phase2/guide.md plans
 Read the edited README against phase Sections 5 and 6.
 
 **Done when:** The README matches the optional Google limits and this guide records C01 through C04. C05's hash is recorded in the follow-up `docs(v3-phase2): record the final slice hash`.
+
+**Verification record (2026-11-05):**
+
+- Reviewed the README against phase Sections 5 and 6 and the shipped configuration, account-panel, identity-service, and admission owners. It now describes the optional trio/default refusal, separate Google hosts, discarded email/no merge, explicit current-host linking, guest non-promotion, Google-only password limits, the callback URL, subject migration, and shared budgets. Existing phase 1 identity links remain in place.
+- Recorded C04's Chrome 156 headless unset-Google registration/login observations and controlled enabled/return flows. A real Google browser round-trip was not run. The C03 FFmpeg 6.0 smoke result and the standard release run's Redis MONITOR race/retry are named separately; previous historical failures are preserved. Open V1/V2 media, physical-device and native-picker observations remain open.
+- `pnpm exec prettier --check README.md plans/phase2.md plans/phase2/guide.md plans/README.md` and `git diff --check` passed. All 58 local links/anchors and seven referenced Git commits validated. `pnpm check:affected --plan --files README.md plans/phase2.md plans/phase2/guide.md plans/README.md` selected formatting only. This slice changes documentation only; no application suite, browser, or service restart was run.
 
 **Handoff:** V3 phase 3 is replay visibility and deletion. Do not write `plans/phase3.md` until that phase is requested.
