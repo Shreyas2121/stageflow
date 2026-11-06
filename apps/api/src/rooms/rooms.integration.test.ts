@@ -5,6 +5,14 @@ import { databaseOptions } from '../database/data-source';
 import { User } from '../users/user.entity';
 import { Room } from './room.entity';
 import { RoomsService } from './rooms.service';
+import { Module } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { RoomsController } from './rooms.controller';
+import { SessionsService } from '../sessions/sessions.service';
+import { JwtAuthGuard } from '../sessions/jwt-auth.guard';
+import { ApiExceptionFilter } from '../http/api-exception.filter';
 
 const adminUrl = process.env.DATABASE_URL;
 if (!adminUrl) throw new Error('DATABASE_URL is required.');
@@ -16,6 +24,16 @@ const legacyIds = [randomUUID(), randomUUID()];
 let admin: DataSource | undefined;
 let source: DataSource | undefined;
 let created = false;
+let app: NestExpressApplication | undefined;
+let url: string;
+const jwt = new JwtService({
+  secret: randomUUID(),
+  signOptions: { algorithm: 'HS256', expiresIn: '1h' },
+});
+
+// Vitest does not emit Nest constructor metadata.
+Reflect.defineMetadata('design:paramtypes', [RoomsService], RoomsController);
+Reflect.defineMetadata('design:paramtypes', [SessionsService], JwtAuthGuard);
 
 beforeAll(async () => {
   if (!/^sf_schedule_[a-f0-9]{32}$/.test(databaseName))
@@ -50,10 +68,29 @@ beforeAll(async () => {
     'AddRoomSchedule1794182400000',
   ]);
   expect(await source.runMigrations()).toEqual([]);
+  const rooms = new RoomsService(source.getRepository(Room));
+  const sessions = new SessionsService(source.getRepository(User), jwt);
+  class FixtureModule {}
+  Module({
+    controllers: [RoomsController],
+    providers: [
+      { provide: RoomsService, useValue: rooms },
+      { provide: SessionsService, useValue: sessions },
+    ],
+  })(FixtureModule);
+  app = await NestFactory.create<NestExpressApplication>(FixtureModule, {
+    logger: false,
+    abortOnError: false,
+  });
+  app.setGlobalPrefix('api');
+  app.useGlobalFilters(new ApiExceptionFilter());
+  await app.listen(0, '127.0.0.1');
+  url = await app.getUrl();
 }, 30_000);
 
 afterAll(async () => {
   try {
+    if (app) await app.close();
     if (source?.isInitialized) await source.destroy();
   } finally {
     try {
@@ -101,25 +138,153 @@ it('stores a past scheduled instant and exposes it through the catalog', async (
   });
 });
 
-it('keeps title/mode create immediate and does not accept scheduling fields yet', async () => {
+it('keeps guest title/mode create immediate', async () => {
   const db = database();
   const host = await db.getRepository(User).findOneByOrFail({ id: hostId });
   const service = new RoomsService(db.getRepository(Room));
-  for (const extra of [
-    {},
-    { status: 'SCHEDULED', scheduledStartAt: '2000-01-01T00:00:00.000Z', requireAdmission: true },
-  ]) {
-    const response = await service.create(host, { title: 'Immediate', mode: 'MEETING', ...extra });
-    expect(response).toMatchObject({
-      status: 'LIVE',
-      scheduledStartAt: null,
-      requireAdmission: false,
+  const response = await service.create(host, { title: 'Immediate', mode: 'MEETING' });
+  expect(response).toMatchObject({
+    status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
+  });
+  expect(await db.getRepository(Room).findOneByOrFail({ id: response.id })).toMatchObject({
+    status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
+  });
+  expect(await service.getBySlug(response.slug)).toEqual(response);
+});
+
+async function createOverHttp(user: User, fields: Record<string, unknown>) {
+  const token = await jwt.signAsync({ sub: user.id, sv: user.sessionVersion, guest: user.isGuest });
+  return fetch(`${url}/api/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ title: 'HTTP room', mode: 'MEETING', ...fields }),
+  });
+}
+
+it('creates and reads past schedules over authenticated HTTP for a Google-only host', async () => {
+  const db = database();
+  const host = await db.getRepository(User).save({
+    displayName: 'Google host',
+    isGuest: false,
+    email: null,
+    passwordHash: null,
+    googleSubject: `schedule-${randomUUID()}`,
+  });
+  for (const mode of ['MEETING', 'WEBINAR']) {
+    const response = await createOverHttp(host, {
+      status: 'SCHEDULED',
+      scheduledStartAt: '2000-01-01T00:00:00.123Z',
+      mode,
+      requireAdmission: mode === 'MEETING',
+      hostId,
+      isGuest: true,
     });
-    expect(await db.getRepository(Room).findOneByOrFail({ id: response.id })).toMatchObject({
-      status: 'LIVE',
-      scheduledStartAt: null,
-      requireAdmission: false,
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { id: string; slug: string };
+    expect(body).toMatchObject({
+      hostId: host.id,
+      status: 'SCHEDULED',
+      mode,
+      scheduledStartAt: '2000-01-01T00:00:00.123Z',
+      requireAdmission: mode === 'MEETING',
     });
-    expect(await service.getBySlug(response.slug)).toEqual(response);
+    const token = await jwt.signAsync({ sub: host.id, sv: host.sessionVersion, guest: false });
+    const fetched = await fetch(`${url}/api/rooms/${body.slug}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(fetched.status).toBe(200);
+    expect(await fetched.json()).toEqual(body);
+    expect(await db.getRepository(Room).findOneByOrFail({ id: body.id })).toMatchObject({
+      status: 'SCHEDULED',
+    });
   }
+  const immediate = await createOverHttp(host, {});
+  expect(immediate.status).toBe(201);
+  expect(await immediate.json()).toMatchObject({
+    status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
+  });
+});
+
+it('rejects guest scheduling and invalid host bodies over HTTP without inserting rows', async () => {
+  const db = database();
+  const guest = await db.getRepository(User).findOneByOrFail({ id: hostId });
+  const host = await db
+    .getRepository(User)
+    .save({ displayName: 'Host', isGuest: false, email: 'schedule@example.test' });
+  const cases = [
+    {
+      user: guest,
+      fields: { status: 'LIVE', isGuest: false },
+      status: 403,
+      error: 'schedule_not_allowed',
+      message: 'Create a host account before scheduling a room.',
+    },
+    {
+      user: guest,
+      fields: { scheduledStartAt: null },
+      status: 403,
+      error: 'schedule_not_allowed',
+      message: 'Create a host account before scheduling a room.',
+    },
+    {
+      user: guest,
+      fields: { requireAdmission: false },
+      status: 403,
+      error: 'schedule_not_allowed',
+      message: 'Create a host account before scheduling a room.',
+    },
+    {
+      user: host,
+      fields: { status: 'ENDED' },
+      status: 400,
+      error: 'invalid_schedule',
+      message: 'Choose a live or scheduled room.',
+    },
+    {
+      user: host,
+      fields: { status: 'SCHEDULED' },
+      status: 400,
+      error: 'invalid_schedule',
+      message: 'Enter a UTC start time.',
+    },
+    {
+      user: host,
+      fields: { status: 'LIVE', scheduledStartAt: '2000-01-01T00:00:00.000Z' },
+      status: 400,
+      error: 'invalid_schedule',
+      message: 'Enter a UTC start time.',
+    },
+    {
+      user: host,
+      fields: { mode: 'WEBINAR', requireAdmission: true },
+      status: 400,
+      error: 'invalid_admission',
+      message: 'Admission applies to meetings only.',
+    },
+  ];
+  const before = await db.getRepository(Room).count();
+  for (const test of cases) {
+    const response = await createOverHttp(test.user, test.fields);
+    expect(response.status).toBe(test.status);
+    expect(await response.json()).toEqual({
+      statusCode: test.status,
+      error: test.error,
+      message: test.message,
+    });
+    expect(await db.getRepository(Room).count()).toBe(before);
+  }
+  const immediate = await createOverHttp(guest, {});
+  expect(immediate.status).toBe(201);
+  expect(await immediate.json()).toMatchObject({
+    hostId: guest.id,
+    status: 'LIVE',
+    scheduledStartAt: null,
+    requireAdmission: false,
+  });
 });

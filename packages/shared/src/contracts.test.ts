@@ -7,7 +7,101 @@ import {
   parseRoomJoinTarget,
   parseRoomMode,
   parseRoomTitle,
+  parseCreateRoomRequest,
 } from './contracts';
+
+describe('parseCreateRoomRequest', () => {
+  const immediate = { title: 'Review', mode: 'MEETING' };
+  const scheduled = {
+    ...immediate,
+    status: 'SCHEDULED',
+    scheduledStartAt: '2000-01-01T00:00:00.123Z',
+  };
+
+  it.each([true, false])('keeps title/mode create immediate for isGuest=%s', (isGuest) => {
+    expect(parseCreateRoomRequest(immediate, isGuest)).toEqual({
+      ok: true,
+      value: { ...immediate, status: 'LIVE', scheduledStartAt: null, requireAdmission: false },
+    });
+  });
+  it.each(['MEETING', 'WEBINAR'])('accepts a past schedule for a registered %s host', (mode) => {
+    expect(parseCreateRoomRequest({ ...scheduled, mode }, false)).toEqual({
+      ok: true,
+      value: { ...scheduled, mode, requireAdmission: false },
+    });
+  });
+  it.each([
+    { status: 'LIVE' },
+    { status: undefined },
+    { scheduledStartAt: null },
+    { requireAdmission: false },
+    { requireAdmission: undefined },
+  ])('rejects every scheduling field for a guest: %j', (fields) => {
+    expect(parseCreateRoomRequest({ ...immediate, ...fields }, true)).toEqual({
+      ok: false,
+      error: 'schedule_not_allowed',
+      message: 'Create a host account before scheduling a room.',
+    });
+  });
+  it.each(['ENDED', 'scheduled', null, undefined, 1])('rejects invalid status %j', (status) => {
+    expect(parseCreateRoomRequest({ ...immediate, status }, false)).toEqual({
+      ok: false,
+      error: 'invalid_schedule',
+      message: 'Choose a live or scheduled room.',
+    });
+  });
+  it.each([
+    undefined,
+    null,
+    '',
+    '2026-02-30T00:00:00.000Z',
+    '2026-11-05T12:00:00Z',
+    '2026-11-05T12:00:00.000+00:00',
+  ])('rejects invalid scheduled instant %j', (scheduledStartAt) => {
+    expect(parseCreateRoomRequest({ ...scheduled, scheduledStartAt }, false)).toEqual({
+      ok: false,
+      error: 'invalid_schedule',
+      message: 'Enter a UTC start time.',
+    });
+  });
+  it.each([null, '2000-01-01T00:00:00.000Z'])(
+    'rejects a start field on LIVE: %j',
+    (scheduledStartAt) => {
+      expect(
+        parseCreateRoomRequest({ ...immediate, status: 'LIVE', scheduledStartAt }, false),
+      ).toMatchObject({
+        ok: false,
+        error: 'invalid_schedule',
+        message: 'Enter a UTC start time.',
+      });
+    },
+  );
+  it('allows admission on a meeting and rejects it on a webinar', () => {
+    expect(parseCreateRoomRequest({ ...scheduled, requireAdmission: true }, false)).toMatchObject({
+      ok: true,
+      value: { requireAdmission: true },
+    });
+    expect(
+      parseCreateRoomRequest({ ...scheduled, mode: 'WEBINAR', requireAdmission: true }, false),
+    ).toEqual({
+      ok: false,
+      error: 'invalid_admission',
+      message: 'Admission applies to meetings only.',
+    });
+  });
+  it.each([null, undefined, 'true', 1])('rejects nonboolean admission %j', (requireAdmission) => {
+    expect(parseCreateRoomRequest({ ...scheduled, requireAdmission }, false)).toMatchObject({
+      ok: false,
+      error: 'invalid_admission',
+    });
+  });
+  it.each([null, [], {}, { ...immediate, title: '' }, { ...immediate, mode: 'OTHER' }])(
+    'retains title/mode validation for %j',
+    (body) => {
+      expect(parseCreateRoomRequest(body, false).ok).toBe(false);
+    },
+  );
+});
 
 describe('parseDisplayName', () => {
   it.each(['', '   ', 'a'.repeat(41), 'Ava\nLee', null, undefined, 42, {}, []])(

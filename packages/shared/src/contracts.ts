@@ -22,6 +22,9 @@ export type GuestSessionResponse = {
 export type CreateRoomRequest = {
   title: string;
   mode: RoomMode;
+  status?: 'LIVE' | 'SCHEDULED';
+  scheduledStartAt?: string;
+  requireAdmission?: boolean;
 };
 
 export type RoomResponse = {
@@ -56,6 +59,9 @@ export type ApiErrorBody = {
     | 'password_not_set'
     | 'invalid_title'
     | 'invalid_mode'
+    | 'schedule_not_allowed'
+    | 'invalid_schedule'
+    | 'invalid_admission'
     | 'invalid_page'
     | 'invalid_cursor'
     | 'invalid_room_link'
@@ -123,6 +129,69 @@ export function parseRoomTitle(input: unknown): ParseResult<string> {
 export function parseRoomMode(input: unknown): ParseResult<RoomMode> {
   if (input === 'MEETING' || input === 'WEBINAR') return { ok: true, value: input };
   return { ok: false, error: 'invalid_mode', message: 'Choose a meeting or a webinar.' };
+}
+
+/** `isGuest` comes from the verified caller, never the request body. */
+export function parseCreateRoomRequest(
+  input: unknown,
+  isGuest: boolean,
+): ParseResult<{
+  title: string;
+  mode: RoomMode;
+  status: 'LIVE' | 'SCHEDULED';
+  scheduledStartAt: string | null;
+  requireAdmission: boolean;
+}> {
+  const body =
+    typeof input === 'object' && input !== null && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+  if (isGuest && ['status', 'scheduledStartAt', 'requireAdmission'].some((key) => key in body)) {
+    return {
+      ok: false,
+      error: 'schedule_not_allowed',
+      message: 'Create a host account before scheduling a room.',
+    };
+  }
+  const title = parseRoomTitle(body.title);
+  if (!title.ok) return title;
+  const mode = parseRoomMode(body.mode);
+  if (!mode.ok) return mode;
+  const status = 'status' in body ? body.status : 'LIVE';
+  if (status !== 'LIVE' && status !== 'SCHEDULED') {
+    return { ok: false, error: 'invalid_schedule', message: 'Choose a live or scheduled room.' };
+  }
+  if (
+    (status === 'SCHEDULED' && !isScheduledStartAt(body.scheduledStartAt)) ||
+    (status === 'LIVE' && 'scheduledStartAt' in body)
+  ) {
+    return { ok: false, error: 'invalid_schedule', message: 'Enter a UTC start time.' };
+  }
+  const requireAdmission = 'requireAdmission' in body ? body.requireAdmission : false;
+  if (typeof requireAdmission !== 'boolean') {
+    return {
+      ok: false,
+      error: 'invalid_admission',
+      message: 'Choose whether host admission is required.',
+    };
+  }
+  if (mode.value === 'WEBINAR' && requireAdmission) {
+    return {
+      ok: false,
+      error: 'invalid_admission',
+      message: 'Admission applies to meetings only.',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      title: title.value,
+      mode: mode.value,
+      status,
+      scheduledStartAt: status === 'SCHEDULED' ? (body.scheduledStartAt as string) : null,
+      requireAdmission,
+    },
+  };
 }
 
 const ROOM_LINK_MESSAGE = 'Enter a room slug or a link to a room on this app.';

@@ -51,29 +51,112 @@ function fixture(rows: Room[]) {
   return { service, repository };
 }
 
-it('creates an immediate room with explicit schedule defaults', async () => {
-  const host = guest();
-  const repository = {
-    create: vi.fn((fields: Partial<Room>) => ({ ...room(1, host), ...fields })),
-    insert: vi.fn(async () => undefined),
-  };
-  const service = new RoomsService(repository as unknown as Repository<Room>);
-  const response = await service.create(host, { title: 'Design review', mode: 'MEETING' });
-  expect(repository.create).toHaveBeenCalledWith(
-    expect.objectContaining({
-      title: 'Design review',
-      mode: 'MEETING',
+it.each([true, false])(
+  'creates an immediate room with defaults for isGuest=%s',
+  async (isGuest) => {
+    const host = { ...guest(), isGuest };
+    const repository = {
+      create: vi.fn((fields: Partial<Room>) => ({ ...room(1, host), ...fields })),
+      insert: vi.fn(async () => undefined),
+    };
+    const service = new RoomsService(repository as unknown as Repository<Room>);
+    const response = await service.create(host, { title: 'Design review', mode: 'MEETING' });
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Design review',
+        mode: 'MEETING',
+        status: 'LIVE',
+        scheduledStartAt: null,
+        requireAdmission: false,
+      }),
+    );
+    expect(repository.insert).toHaveBeenCalledOnce();
+    expect(response).toMatchObject({
       status: 'LIVE',
       scheduledStartAt: null,
       requireAdmission: false,
-    }),
-  );
-  expect(repository.insert).toHaveBeenCalledOnce();
-  expect(response).toMatchObject({
-    status: 'LIVE',
-    scheduledStartAt: null,
-    requireAdmission: false,
-  });
+    });
+  },
+);
+
+it.each(['MEETING', 'WEBINAR'] as const)(
+  'lets a Google-only host schedule a past %s',
+  async (mode) => {
+    const host = {
+      ...guest(),
+      isGuest: false,
+      email: null,
+      passwordHash: null,
+      googleSubject: 'google-only',
+    };
+    const repository = {
+      create: vi.fn((fields: Partial<Room>) => ({ ...room(1, host), ...fields })),
+      insert: vi.fn(async () => undefined),
+      update: vi.fn(),
+    };
+    const service = new RoomsService(repository as unknown as Repository<Room>);
+    expect(
+      await service.create(host, {
+        title: 'Scheduled review',
+        mode,
+        status: 'SCHEDULED',
+        scheduledStartAt: '2000-01-01T00:00:00.123Z',
+        requireAdmission: mode === 'MEETING',
+        hostId: otherId,
+      }),
+    ).toMatchObject({
+      hostId: host.id,
+      status: 'SCHEDULED',
+      scheduledStartAt: '2000-01-01T00:00:00.123Z',
+      requireAdmission: mode === 'MEETING',
+    });
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostId: host.id,
+        status: 'SCHEDULED',
+        scheduledStartAt: new Date('2000-01-01T00:00:00.123Z'),
+      }),
+    );
+    expect(repository.insert).toHaveBeenCalledOnce();
+    expect(repository.update).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  { isGuest: true, fields: { status: 'LIVE' }, statusCode: 403, error: 'schedule_not_allowed' },
+  {
+    isGuest: true,
+    fields: { scheduledStartAt: '2000-01-01T00:00:00.000Z' },
+    statusCode: 403,
+    error: 'schedule_not_allowed',
+  },
+  {
+    isGuest: true,
+    fields: { requireAdmission: false },
+    statusCode: 403,
+    error: 'schedule_not_allowed',
+  },
+  {
+    isGuest: false,
+    fields: { mode: 'WEBINAR', requireAdmission: true },
+    statusCode: 400,
+    error: 'invalid_admission',
+  },
+  {
+    isGuest: false,
+    fields: { scheduledStartAt: '2000-01-01T00:00:00.000Z' },
+    statusCode: 400,
+    error: 'invalid_schedule',
+  },
+  { isGuest: false, fields: { status: 'SCHEDULED' }, statusCode: 400, error: 'invalid_schedule' },
+])('rejects invalid create before writing: %j', async ({ isGuest, fields, statusCode, error }) => {
+  const repository = { create: vi.fn(), insert: vi.fn() };
+  const service = new RoomsService(repository as unknown as Repository<Room>);
+  await expect(
+    service.create({ ...guest(), isGuest }, { title: 'Review', mode: 'MEETING', ...fields }),
+  ).rejects.toMatchObject({ response: { statusCode, error } });
+  expect(repository.create).not.toHaveBeenCalled();
+  expect(repository.insert).not.toHaveBeenCalled();
 });
 
 it('queries the caller when the query names another host', async () => {

@@ -1,7 +1,7 @@
 # V3 Phase 4 — Scheduled rooms and waiting admission
 
-**Status:** in progress. C01 storage is implemented and verified; C02 through C06 remain planned.\
-**Last updated:** 2026-11-05.\
+**Status:** in progress. C01 storage and C02 host scheduling are implemented and verified; C03 through C06 remain planned.\
+**Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.5`, Sections 4, 7, and 12 (SCH-01 through SCH-05). Identity and replay lifecycle stay as shipped in `plans/phase1.md`, `plans/phase2.md`, and `plans/phase3.md`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns V3P4-C01 through V3P4-C06. Those ids are not the V1 commits in [V1/phase4/guide.md](V1/phase4/guide.md) or the V2 commits in [V2/phase4/guide.md](V2/phase4/guide.md).\
 **Requirement IDs:** SCH-01, SCH-02, SCH-03, SCH-04, SCH-05.
@@ -161,3 +161,7 @@ This phase does not make V2 acceptance complete. Leave the open ids open.
 ## 10. C01 storage evidence (2026-11-05)
 
 C01 adds the registered room schedule migration, entity fields, shared response contract, strict UTC instant validation, and client parser/fixture updates. Existing rows keep their status and gain null start/false admission. Immediate create explicitly stores `LIVE`, null start, and false admission; request scheduling fields are not accepted yet. Real disposable-Postgres tests cover legacy migration and newly inserted immediate rooms, plus catalog serialization of a past scheduled instant. Shared/API/web suites, typecheck, and lint pass. The execution guide records the broader affected checks. SCH-01 remains planned as an end-to-end requirement until create and browser slices ship; other acceptance ids and existing physical observation gaps are unchanged.
+
+## 11. C02 host scheduling evidence (2026-11-06)
+
+C02 adds create-body parsing and the three schedule/admission errors. A verified registered host, including a Google-only host with null email, can create `SCHEDULED` meetings and webinars with canonical UTC instants, including past times. Guests with any scheduling field receive 403 before insertion. Invalid status/start combinations and webinar admission receive 400. Omitted scheduling fields keep both host and guest creation immediate `LIVE`. Real authenticated HTTP tests use an owned disposable PostgreSQL database and verify stored status, response serialization, identity boundaries, and unchanged row counts on rejection. Shared/API suites, focused room tests, typecheck, and lint pass; the guide records broader affected checks. The C01 verification above remains historical evidence for that slice. SCH-01 remains incomplete until waiting/browser work ships; no later slice or physical observation is marked passed.

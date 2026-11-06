@@ -8,8 +8,7 @@ import {
   encodeHistoryCursor,
   parseCatalogLimit,
   parseHistoryCursor,
-  parseRoomMode,
-  parseRoomTitle,
+  parseCreateRoomRequest,
 } from '@stageflow/shared';
 import type { RoomResponse } from '@stageflow/shared';
 import { readOrderingInstant } from '../database/ordering-instant';
@@ -39,23 +38,24 @@ export class RoomsService {
   }
 
   async create(host: User, body: unknown): Promise<RoomResponse> {
-    const title = parseRoomTitle(
-      typeof body === 'object' && body !== null && 'title' in body ? body.title : undefined,
-    );
-    if (!title.ok) throw new ApiException(400, title.error, title.message);
-    const mode = parseRoomMode(
-      typeof body === 'object' && body !== null && 'mode' in body ? body.mode : undefined,
-    );
-    if (!mode.ok) throw new ApiException(400, mode.error, mode.message);
+    const parsed = parseCreateRoomRequest(body, host.isGuest);
+    if (!parsed.ok) {
+      throw new ApiException(
+        parsed.error === 'schedule_not_allowed' ? 403 : 400,
+        parsed.error,
+        parsed.message,
+      );
+    }
+    const request = parsed.value;
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
       const room = this.rooms.create({
         slug: createRoomSlugFromCrypto(),
-        title: title.value,
-        mode: mode.value,
-        status: 'LIVE',
-        scheduledStartAt: null,
-        requireAdmission: false,
+        title: request.title,
+        mode: request.mode,
+        status: request.status,
+        scheduledStartAt: request.scheduledStartAt ? new Date(request.scheduledStartAt) : null,
+        requireAdmission: request.requireAdmission,
         hostId: host.id,
         endedAt: null,
       });

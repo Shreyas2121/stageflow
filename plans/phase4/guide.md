@@ -1,7 +1,7 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** in progress. C01 storage is implemented and verified; C02 through C06 remain planned.\
-**Last updated:** 2026-11-05.\
+**Status:** in progress. C01 storage and C02 host scheduling are implemented and verified; C03 through C06 remain planned.\
+**Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
 **Deliverable:** A registered host can schedule a room, hold early joiners off stage, and start or cancel it, in six commits. This is the only V3 Phase 4 guide. Its commit ids are not the V1 Phase 4 commits in [../V1/phase4/guide.md](../V1/phase4/guide.md) or the V2 Phase 4 commits in [../V2/phase4/guide.md](../V2/phase4/guide.md).
@@ -52,9 +52,9 @@ Keep guest create, register, login, promotion, Google sign-in, replay visibility
 
 ## 2. V3P4-C01 — Record the schedule fields
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `feat(api-rooms): record scheduled fields on a room`\
-**Actual commit:**
+**Actual commit:** `5cf63844223af0f03082bdd9570279ea549e05ac`
 
 **Why:** Create and the lobby need a stored status, start instant, and admission flag before either one changes join. Covers the storage half of SCH-01.
 
@@ -96,7 +96,7 @@ pnpm lint
 
 ## 3. V3P4-C02 — Host scheduling
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `feat(api-rooms): let a host schedule a room`\
 **Actual commit:**
 
@@ -128,6 +128,8 @@ pnpm lint
 ```
 
 **Done when:** A registered host can create `SCHEDULED`, a guest still creates `LIVE`, and the scheduled row does not become `LIVE` by itself.
+
+**C02 verification (2026-11-06):** Shared tests passed (356), focused room service/integration tests passed (23), API tests passed (440), and `pnpm typecheck` and `pnpm lint` passed. Shared parsing covers omitted defaults, field-presence rejection for guests, exact UTC validation including past dates, invalid statuses, and meeting-only boolean admission. Service regressions verify rejected requests never call create/insert. The owned disposable-Postgres room fixture now serves the real controller, JWT guard, session verifier, and error filter on an ephemeral loopback HTTP port. It proves Google-only hosts with null email can schedule past meetings/webinars, request identity fields cannot override the authenticated caller, rejected bodies insert no row, and guest/registered title-mode create stays immediate. This replaces C01's historical ignored-field assertion with the authorized C02 rejection contract. No Google exchange is called and no timer starts a room. The affected-check plan selected `pnpm check:release`, which passed on full rerun: all 49 tooling tests; 356 shared, 440 API, and 488 web tests; typecheck; lint; both builds; formatting; artifact checks; and both smokes. Broadcast smoke used the existing temporary FFmpeg 6.0 binary with a process-local `FFMPEG_PATH` override and an owned disposable database/Redis namespace. Edited plan links resolve. Its initial attempt stopped in the existing cold app-build consumer tooling test on Windows `EPERM` while renaming an owned temporary writer-lock directory (48/49 tooling tests passed). The isolated `node --test --test-name-pattern="cold app-build consumers" scripts/shared-build.test.mjs` rerun passed; no tooling code changed. SCH-01 browser evidence remains planned, C03 through C06 are not implemented, and existing physical observation gaps remain open.
 
 ## 4. V3P4-C03 — Off-stage waiting
 
