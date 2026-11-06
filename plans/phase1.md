@@ -238,8 +238,8 @@ The target VPS has not been measured. These defaults are a pre-measurement ceili
 
 ## Maintenance: V3-R12 / V3M-C01 (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `chore(deps): resolve or re-evaluate expiring audit exceptions`.
-Actual commit:
+Status: committed. Proposed commit: `chore(deps): resolve or re-evaluate expiring audit exceptions`.
+Actual commit: `79b5c9f`.
 
 Rechecked the live npm registry manifests, stable dist-tags, current dependency paths (`pnpm why -r deepmerge glob minimatch`), and the three GitHub advisories. All three exceptions remain development-only. No compatible parent update fixes them, so manifests and the lockfile are unchanged. The exception owner remains StageFlow repository maintainer; the next review is 2026-11-13 (one week). This is a temporary risk review, not a claim that the vulnerabilities are patched.
 
