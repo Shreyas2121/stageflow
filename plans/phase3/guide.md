@@ -262,7 +262,7 @@ Read the edited README against phase Sections 5 and 6.
 
 ## Maintenance: V3M-C07 — Deletion integrity (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(replay): preserve non-playable state after file removal`.
-Actual commit:
+Status: committed. Proposed commit: `fix(replay): preserve non-playable state after file removal`.
+Actual commit: `c0ef435`.
 
 R06 supersedes the historical C03 behavior that restored finished status for every removal or row-delete failure. Restoration is now limited to failures before recursive removal starts; later failures and missing-directory retries retain DELETING. Focused failure-matrix, protected HTTP, and PostgreSQL tests passed (35); the selected API checks passed all 566 tests, typecheck/lint/build/artifacts, repository formatting, and live/broadcast smokes. Detailed scope, commands, and limitations are recorded in [phase3.md](../phase3.md). Discoverable deletion recovery remains the separate C08/R07 slice, and existing physical/VPS acceptance gaps remain open.

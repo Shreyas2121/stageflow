@@ -197,8 +197,8 @@ Changed-file Prettier verification passed for README.md, MASTER_PLAN_V3.md, this
 
 ## Maintenance: V3-R06 / V3M-C07 (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(replay): preserve non-playable state after file removal`.
-Actual commit:
+Status: committed. Proposed commit: `fix(replay): preserve non-playable state after file removal`.
+Actual commit: `c0ef435`.
 
 The confined directory helper now notifies the service immediately before recursive removal. A failed pre-removal validation may restore the original READY/FAILED status, but once removal starts the claim stays DELETING even if removal rejects before deleting a file, deletes only some files, or completes with a lost reply. A missing directory also prevents restoration if the subsequent database delete fails. Error recording matches only the still-DELETING row, so it cannot recreate a deleted row or overwrite a changed status; if that update also fails, the original durable claim remains. Cache invalidation preserves the null room projection. The existing ownership, active Redis id, finished-status, and canonical-directory checks remain. No migration or public DTO change was needed.
 
