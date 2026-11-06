@@ -22,9 +22,25 @@ it('validates through one Zod schema and infers parsed defaults', () => {
   expect(parsed.UPLOAD_NETWORK_RATE_LIMIT).toBe(240);
   expect(parsed.UPLOAD_USER_RATE_LIMIT).toBe(240);
   expect(parsed.UPLOAD_ATTEMPT_RATE_LIMIT).toBe(240);
+  expect(parsed.PASSWORD_WORKER_LIMIT).toBe(1);
+  expect(parsed.PASSWORD_QUEUE_LIMIT).toBe(4);
+  expect(parsed.PASSWORD_ACCOUNT_LIMIT).toBe(10);
   expect(parsed.LIVE_NAMESPACE).toBe('sf_development');
   expect(parseConfig({ ...valid, NODE_ENV: 'test' }).LIVE_NAMESPACE).toBe('sf_test');
 });
+it('rejects password budgets outside their supported range', () => {
+  for (const [key, value] of [
+    ['PASSWORD_WORKER_LIMIT', '0'],
+    ['PASSWORD_WORKER_LIMIT', '9'],
+    ['PASSWORD_QUEUE_LIMIT', '33'],
+    ['PASSWORD_ACCOUNT_LIMIT', '0'],
+    ['PASSWORD_ACCOUNT_LIMIT', '101'],
+  ] as const) {
+    expect(() => parseConfig({ ...valid, [key]: value })).toThrow(new RegExp(key));
+  }
+  expect(parseConfig({ ...valid, PASSWORD_QUEUE_LIMIT: '0' }).PASSWORD_QUEUE_LIMIT).toBe(0);
+});
+
 describe('optional Google configuration', () => {
   const google = {
     GOOGLE_CLIENT_ID: 'test-google-client',

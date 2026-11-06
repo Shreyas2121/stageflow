@@ -5,6 +5,11 @@
   "compilerOptions": {
     "deleteOutDir": true,
     "tsConfigPath": "tsconfig.build.json",
-    "assets": ["live/scripts/*.lua", "chat/scripts/*.lua", "qa/scripts/*.lua"]
+    "assets": [
+      "live/scripts/*.lua",
+      "chat/scripts/*.lua",
+      "qa/scripts/*.lua",
+      "sessions/password.worker.cjs"
+    ]
   }
 }

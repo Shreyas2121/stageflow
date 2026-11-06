@@ -91,12 +91,15 @@ if (!args.length || args.includes('--api')) {
       name,
     );
   new QaRepository({});
+  const workerSource = join(root, 'apps/api/src/sessions/password.worker.cjs');
+  const workerDist = join(dist, 'sessions/password.worker.cjs');
+  assert.deepEqual(await readFile(workerDist), await readFile(workerSource), 'password.worker.cjs');
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 10);
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci'))[5], 'sf_ci:room:probe:broadcast');
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, nineteen live, three chat, and eight Q&A Lua files match source, no emitted tests.',
+    'API artifacts: production modules load, nineteen live, three chat, and eight Q&A Lua files match source, the password worker matches source, no emitted tests.',
   );
 }
 

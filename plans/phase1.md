@@ -219,3 +219,19 @@ Evidence:
 - `pnpm check:affected --plan --files apps/api/src/live/signaling.gateway.ts apps/api/src/sessions/sessions.service.ts scripts/smoke-live.mjs` selected the full release gate. `pnpm check:release` passed: 49 tooling, 454 shared, 525 web, and 522 API tests; workspace typecheck/lint; builds; formatting; artifacts; and both smokes. FFmpeg came from the existing temporary `stageflow-ffmpeg-b6.0/ffmpeg.exe` through process-local `FFMPEG_PATH`; no environment file changed. The broadcast smoke applied all seven migrations, decoded video/audio, and preserved READY media across restart.
 
 No physical-device acceptance, Google provider round trip, VPS capacity, or production launch approval is claimed. The untracked review report remains outside the commit.
+
+## Maintenance: V3-R03 / V3M-C04 (2026-11-06)
+
+Status: verified. Proposed commit: `fix(auth): bound and isolate password computation`.
+Actual commit:
+
+Cost-12 bcryptjs now runs on a reusable worker pool. The pool defaults to one worker and a queue of four, clamped to available CPUs, and rejects overflow with `server_busy` before the password is retained. Register, login, promotion, and password change use that pool. Guest creation and Google exchange keep `GUEST_PENDING_LIMIT`. Each email, and each signed-in user, has ten password attempts per rate window. The window expires, the message is the same for a missing email and a bad password, and a full pool does not consume that window. Wrong-credential responses, the dummy compare, UTF-8 validation, and cost 12 stay as they were. Idle workers are unreferenced so a one-shot script can exit. Nest shutdown closes the pool. Three consecutive worker boot failures stop further spawn attempts. A timed-out or crashed worker does not keep the password.
+
+Evidence:
+
+- Focused password, session, and config tests passed, including queue overflow, close, a crashed worker, repeated boot failure, per-account limits without a permanent lock, and a child process that exits after one hash without an explicit pool close.
+- Isolated fixture, with owned Nest readiness and a socket.io handshake on `127.0.0.1`, four parallel cost-12 hashes: event-loop delay 21.7 ms while the slowest hash took 578.4 ms; readiness max 44 ms; socket handshake max 25.3 ms. The configured budget admitted 5 jobs. The review's main-thread probe on this machine was about 95 ms of timer delay for one hash and 799 ms for eight.
+- During the full API suite the same fixture stayed inside its bounds: event-loop delay 38.4 ms, readiness max 129.4 ms, socket max 36.8 ms, slowest parallel hash 1334.5 ms.
+- `pnpm check:release` passed with process-local `FFMPEG_PATH` pointing at the existing temporary FFmpeg 6.0 binary: 49 tooling, 454 shared, 525 web, and 541 API tests; workspace typecheck/lint; both builds; formatting; artifacts, including a byte-identical password worker; and live and broadcast smokes. The first release run reached a passing live smoke and then stayed up because idle workers kept that process alive. The unref fix is what this passing run includes. No environment file changed. The Vite large-chunk warning remains.
+
+The target VPS has not been measured. These defaults are a pre-measurement ceiling, not a capacity promise. No physical-device acceptance or production launch approval is claimed. The untracked review report remains outside the commit.

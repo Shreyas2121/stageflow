@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { JwtService } from '@nestjs/jwt';
 import { QueryFailedError, type EntityManager, type Repository } from 'typeorm';
 import type { User } from '../users/user.entity';
 import { SessionsService } from './sessions.service';
 import { env } from '../config/env';
 import * as passwords from './password';
+import { closePasswordWorkers, passwordAdmissionLimit } from './password';
 import { ApiException } from '../http/api.exception';
 
 afterEach(() => vi.restoreAllMocks());
+afterAll(() => closePasswordWorkers());
 
 it('bounds in-flight guest creation even if callers close their HTTP connections', async () => {
   let release!: (user: User) => void;
@@ -389,6 +391,38 @@ describe('host accounts', () => {
     expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 
+  it('limits password attempts per email without a permanent lock or a different message', async () => {
+    vi.spyOn(passwords, 'hashPassword').mockResolvedValue('dummy-hash-marker');
+    vi.spyOn(passwords, 'verifyPassword').mockResolvedValue(false);
+    const limited = {
+      response: {
+        statusCode: 429,
+        error: 'rate_limited',
+        message: 'Too many password attempts. Try again shortly.',
+      },
+      retryAfterSeconds: expect.any(Number),
+    };
+    for (const email of ['ava@example.com', 'missing@example.com']) {
+      const { service: attempts } = setup();
+      for (let attempt = 0; attempt < env.PASSWORD_ACCOUNT_LIMIT; attempt += 1) {
+        await expect(attempts.login(email, 'wrong-password')).rejects.toMatchObject({
+          response: {
+            statusCode: 401,
+            error: 'unauthorized',
+            message: 'Email or password is wrong.',
+          },
+        });
+      }
+      await expect(attempts.login(email, 'wrong-password')).rejects.toMatchObject(limited);
+      await expect(attempts.register('Ava', email, 'another-password')).rejects.toMatchObject(
+        limited,
+      );
+      await expect(attempts.login('other@example.com', 'wrong-password')).rejects.toMatchObject({
+        response: { statusCode: 401, error: 'unauthorized' },
+      });
+    }
+  });
+
   it.each([false, true])(
     'bounds mixed register/login work and releases all slots after failure=%s',
     async (fail) => {
@@ -402,14 +436,14 @@ describe('host accounts', () => {
         await gate.promise;
         return true;
       });
-      const active = Array.from({ length: env.GUEST_PENDING_LIMIT }, (_, index) =>
+      const active = Array.from({ length: passwordAdmissionLimit() }, (_, index) =>
         index % 2 === 0
-          ? service.register('Ava', 'ava@example.com', 'test-password')
-          : service.login('ava@example.com', 'test-password'),
+          ? service.register('Ava', `user${index}@example.com`, 'test-password')
+          : service.login(`user${index}@example.com`, 'test-password'),
       );
       const settled = Promise.allSettled(active);
       await vi.waitFor(() =>
-        expect(hash.mock.calls.length + compare.mock.calls.length).toBe(env.GUEST_PENDING_LIMIT),
+        expect(hash.mock.calls.length + compare.mock.calls.length).toBe(passwordAdmissionLimit()),
       );
       const failure = {
         response: {
@@ -424,7 +458,7 @@ describe('host accounts', () => {
       await expect(service.login('ava@example.com', 'test-password')).rejects.toMatchObject(
         failure,
       );
-      expect(hash.mock.calls.length + compare.mock.calls.length).toBe(env.GUEST_PENDING_LIMIT);
+      expect(hash.mock.calls.length + compare.mock.calls.length).toBe(passwordAdmissionLimit());
       await expect(service.createGuest('Guest')).resolves.toMatchObject({
         token: 'host-token',
         displayName: 'Guest',
@@ -698,6 +732,29 @@ describe('credential changes', () => {
     },
   );
 
+  it('limits password changes per account and still allows a different account', async () => {
+    const { service, original, compare, hash, users } = setup(false);
+    compare.mockResolvedValue(false);
+    for (let attempt = 0; attempt < env.PASSWORD_ACCOUNT_LIMIT; attempt += 1) {
+      await expect(
+        service.changePassword(original, 'old-password', 'new-password'),
+      ).rejects.toMatchObject({ response: { statusCode: 401, error: 'wrong_password' } });
+    }
+    await expect(
+      service.changePassword(original, 'old-password', 'new-password'),
+    ).rejects.toMatchObject({
+      response: { statusCode: 429, error: 'rate_limited' },
+      retryAfterSeconds: expect.any(Number),
+    });
+    expect(users.manager.transaction).toHaveBeenCalledTimes(env.PASSWORD_ACCOUNT_LIMIT);
+    expect(hash).not.toHaveBeenCalled();
+    compare.mockResolvedValue(true);
+    await expect(
+      service.changePassword({ ...original, id: randomUUID() }, 'old-password', 'new-password'),
+    ).resolves.toMatchObject({ displayName: original.displayName });
+    expect(hash).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['password', 'promote'])(
     'shares register/login capacity with %s and releases it on failure',
     async (route) => {
@@ -707,11 +764,11 @@ describe('credential changes', () => {
         reject = fail;
       });
       hash.mockReturnValue(gate);
-      const active = Array.from({ length: env.GUEST_PENDING_LIMIT }, () =>
-        service.register('Ava', 'ava@example.com', 'test-password'),
+      const active = Array.from({ length: passwordAdmissionLimit() }, (_, index) =>
+        service.register('Ava', `ava${index}@example.com`, 'test-password'),
       );
       const settled = Promise.allSettled(active);
-      await vi.waitFor(() => expect(hash).toHaveBeenCalledTimes(env.GUEST_PENDING_LIMIT));
+      await vi.waitFor(() => expect(hash).toHaveBeenCalledTimes(passwordAdmissionLimit()));
       const result =
         route === 'password'
           ? service.changePassword(original, 'old-password', 'new-password')
@@ -746,10 +803,25 @@ describe('credential changes', () => {
         route === 'password'
           ? service.changePassword(original, 'old-password', 'new-password')
           : service.promote(original, 'ava@example.com', 'new-password', membership);
-      const active = Promise.allSettled(Array.from({ length: env.GUEST_PENDING_LIMIT }, run));
+      const active = Promise.allSettled(
+        Array.from({ length: passwordAdmissionLimit() }, (_, index) =>
+          route === 'password'
+            ? service.changePassword(
+                { ...original, id: randomUUID() },
+                'old-password',
+                'new-password',
+              )
+            : service.promote(
+                { ...original, id: randomUUID() },
+                `ava${index}@example.com`,
+                'new-password',
+                membership,
+              ),
+        ),
+      );
       await vi.waitFor(() =>
         expect(route === 'password' ? compare : membership).toHaveBeenCalledTimes(
-          env.GUEST_PENDING_LIMIT,
+          passwordAdmissionLimit(),
         ),
       );
       for (const result of [

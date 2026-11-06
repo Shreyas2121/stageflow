@@ -1,8 +1,10 @@
-import { expect, it } from 'vitest';
-import { hashPassword, verifyPassword } from './password';
+import { afterAll, expect, it } from 'vitest';
+import { closePasswordWorkers, hashPassword, verifyPassword } from './password';
 
-it('hashes at cost 12 and verifies only the matching password', async () => {
-  const password = 'test-password';
+afterAll(() => closePasswordWorkers());
+
+it('hashes at cost 12 and verifies only the matching UTF-8 password', async () => {
+  const password = 'pässwörd-test';
   const passwordHash = await hashPassword(password);
   expect(passwordHash).toContain('$12$');
   expect(passwordHash).not.toContain(password);

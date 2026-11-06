@@ -9,6 +9,7 @@ Paths below are relative to `apps/api`. This is a Nest/CommonJS application with
 | Bootstrap, module wiring, shutdown                        | [main.ts](src/main.ts), [app.module.ts](src/app.module.ts), [dev-shutdown.ts](src/dev-shutdown.ts)                                                                                         |
 | Validated environment                                     | [config/env.ts](src/config/env.ts), [config/parse-config.ts](src/config/parse-config.ts)                                                                                                   |
 | Guest JWT, HTTP authentication, current user              | [sessions/](src/sessions/)                                                                                                                                                                 |
+| Password hashing off the API event loop                   | [sessions/password.ts](src/sessions/password.ts), [sessions/password.worker.cjs](src/sessions/password.worker.cjs)                                                                         |
 | Browser-bound optional Google transactions                | [sessions/google.controller.ts](src/sessions/google.controller.ts), [sessions/google-browser.ts](src/sessions/google-browser.ts), [sessions/google-state.ts](src/sessions/google-state.ts) |
 | Room creation, slug access, host catalog                  | [rooms/rooms.controller.ts](src/rooms/rooms.controller.ts), [rooms/rooms.service.ts](src/rooms/rooms.service.ts)                                                                           |
 | Shared catalog ordering/cursors                           | [database/catalog-cursor.ts](src/database/catalog-cursor.ts), [database/ordering-instant.ts](src/database/ordering-instant.ts)                                                             |
@@ -29,6 +30,7 @@ Tests are adjacent to these modules. The broadcast test names above are in `src/
 - Add a new migration for schema changes; do not edit applied migrations or enable automatic synchronization. Update data-source registration and explicit migration-list assertions in integration/smoke fixtures together.
 - An ambiguous reservation failure can leave a committed claim. Retain cleanup evidence and conditionally clear only the known attempt; stale cleanup must preserve a newer claim. Keep cleanup idempotent and bounded.
 - Preserve admission/media budgets and media-path confinement. Missing FFmpeg must not prevent ordinary API/stage use. Keep chat work independent from the stage operation queue.
+- Password hashes stay at bcrypt cost 12 on the bounded worker pool. Do not hash on the API thread, lower the cost to hide latency, or share that budget with guest creation or Google exchange. Idle workers are unreferenced so a one-shot script can exit; Nest shutdown still closes the pool.
 
 ## Checks and prerequisites
 

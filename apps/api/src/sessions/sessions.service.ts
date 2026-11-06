@@ -1,19 +1,24 @@
 import { isUuid, parseDisplayName, parseEmail, parsePassword } from '@stageflow/shared';
-import { Injectable } from '@nestjs/common';
+import { Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Repository } from 'typeorm';
 import type { GuestSessionResponse } from '@stageflow/shared';
 import { User } from '../users/user.entity';
 import { ApiException } from '../http/api.exception';
+import { retryAfterSeconds, WindowBudget } from '../admission/window-budget';
 import { env } from '../config/env';
-import { hashPassword, verifyPassword } from './password';
+import { admitPasswordWork, closePasswordWorkers, hashPassword, verifyPassword } from './password';
 import type { GoogleProfile, GoogleCodeExchange } from './google-identity';
 import { googleUnavailable } from './google-exchange';
 import { EventEmitter } from 'node:events';
 
+function accountBusy(): ApiException {
+  return new ApiException(503, 'server_busy', 'Account sign-in is busy. Try again shortly.');
+}
+
 @Injectable()
-export class SessionsService {
+export class SessionsService implements OnApplicationShutdown {
   private readonly changes = new EventEmitter();
 
   onSessionChange(listener: (userId: string) => void): () => void {
@@ -30,8 +35,18 @@ export class SessionsService {
       : 0;
   }
   private pendingGuests = 0;
-  private pendingPasswords = 0;
+  private pendingExchanges = 0;
   private dummyPasswordHash: Promise<string> | undefined;
+  // One service per process. The window expires, so a key is not permanently locked out.
+  private readonly passwordAttempts = new WindowBudget(
+    env.PASSWORD_ACCOUNT_LIMIT,
+    env.RATE_WINDOW_MS,
+    env.RATE_KEYS_MAX,
+  );
+
+  async onApplicationShutdown(): Promise<void> {
+    await closePasswordWorkers();
+  }
   constructor(
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly jwt: JwtService,
@@ -110,7 +125,7 @@ export class SessionsService {
     if (!password.ok) throw new ApiException(400, password.error, password.message);
     const emailTaken = new ApiException(409, 'email_taken', 'That email is already registered.');
 
-    return this.withPasswordWork(async () => {
+    return this.withPasswordWork(`email:${email.value}`, async () => {
       if (await this.users.findOneBy({ email: email.value })) throw emailTaken;
       const draft = this.users.create({
         displayName: displayName.value,
@@ -143,7 +158,7 @@ export class SessionsService {
     const password = parsePassword(passwordInput);
     if (!password.ok) throw new ApiException(400, password.error, password.message);
 
-    return this.withPasswordWork(async () => {
+    return this.withPasswordWork(`email:${email.value}`, async () => {
       const user = await this.users
         .createQueryBuilder('user')
         .addSelect('user.passwordHash')
@@ -176,7 +191,7 @@ export class SessionsService {
     const password = parsePassword(passwordInput);
     if (!password.ok) throw new ApiException(400, password.error, password.message);
 
-    return this.withPasswordWork(async () => {
+    return this.withPasswordWork(`user:${caller.id}`, async () => {
       const user = await this.users.manager.transaction(async (manager) => {
         const users = manager.getRepository(User);
         const current = await this.lockUser(users, caller);
@@ -210,7 +225,7 @@ export class SessionsService {
     const password = parsePassword(passwordInput);
     if (!password.ok) throw new ApiException(400, password.error, password.message);
 
-    return this.withPasswordWork(async () => {
+    return this.withPasswordWork(`user:${caller.id}`, async () => {
       let user: User;
       try {
         user = await this.users.manager.transaction(async (manager) => {
@@ -304,7 +319,7 @@ export class SessionsService {
     linkToken?: string,
   ): Promise<GuestSessionResponse> {
     if (!env.GOOGLE_ENABLED) throw googleUnavailable();
-    return this.withPasswordWork(async () => {
+    return this.withExchangeWork(async () => {
       if (linkToken !== undefined) await this.verifyToken(linkToken);
       const profile = await exchange(code, verifier);
       if (linkToken !== undefined) {
@@ -398,18 +413,37 @@ export class SessionsService {
     return this.dummyPasswordHash;
   }
 
-  private async withPasswordWork<T>(work: () => Promise<T>): Promise<T> {
-    if (this.pendingPasswords >= env.GUEST_PENDING_LIMIT) {
-      throw new ApiException(503, 'server_busy', 'Account sign-in is busy. Try again shortly.');
+  private async withPasswordWork<T>(accountKey: string, work: () => Promise<T>): Promise<T> {
+    let release: (() => void) | undefined;
+    try {
+      release = admitPasswordWork();
+      if (!this.passwordAttempts.consume(accountKey)) {
+        throw new ApiException(
+          429,
+          'rate_limited',
+          'Too many password attempts. Try again shortly.',
+          retryAfterSeconds(this.passwordAttempts.blockedForMs(accountKey)),
+        );
+      }
+      return await work();
+    } catch (error: unknown) {
+      if (error instanceof ApiException) throw error;
+      throw accountBusy();
+    } finally {
+      release?.();
     }
-    this.pendingPasswords++;
+  }
+
+  private async withExchangeWork<T>(work: () => Promise<T>): Promise<T> {
+    if (this.pendingExchanges >= env.GUEST_PENDING_LIMIT) throw accountBusy();
+    this.pendingExchanges += 1;
     try {
       return await work();
     } catch (error: unknown) {
       if (error instanceof ApiException) throw error;
-      throw new ApiException(503, 'server_busy', 'Account sign-in is busy. Try again shortly.');
+      throw accountBusy();
     } finally {
-      this.pendingPasswords--;
+      this.pendingExchanges -= 1;
     }
   }
 }
