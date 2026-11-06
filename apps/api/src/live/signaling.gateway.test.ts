@@ -10,6 +10,100 @@ import { createHash } from 'node:crypto';
 import type { ChatService } from '../chat/chat.service';
 import type { QaService } from '../qa/qa.service';
 
+it('strictly parses host moderation and publishes the board returned by each service command', async () => {
+  const state = {
+    submissionsOpen: false,
+    featured: { questionId: '1', text: 'Hello', authorName: 'Sam' },
+    questions: [],
+  };
+  const ack = { ok: true as const, ...state, votedQuestionIds: [] };
+  const qa = {
+    dismiss: vi.fn<QaService['dismiss']>(async (session, _id, transport) => {
+      transport.state(session.room!.roomId, state);
+      return ack;
+    }),
+    feature: vi.fn<QaService['feature']>(async (session, _id, transport) => {
+      transport.state(session.room!.roomId, state);
+      return ack;
+    }),
+    clearFeature: vi.fn<QaService['clearFeature']>(async (session, transport) => {
+      transport.state(session.room!.roomId, state);
+      return ack;
+    }),
+    setSubmissions: vi.fn<QaService['setSubmissions']>(async (session, _open, transport) => {
+      transport.state(session.room!.roomId, state);
+      return ack;
+    }),
+  };
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    {} as LiveService,
+    {} as LiveConnection,
+    {} as ChatService,
+    qa as unknown as QaService,
+  );
+  const emit = vi.fn(),
+    to = vi.fn(() => ({ emit }));
+  gateway.server = { to } as never;
+  const client = {
+    id: 'socket',
+    connected: true,
+    data: {
+      user: { id: 'guest-host', displayName: 'Host' },
+      participantId: 'host-member',
+      generation: 3,
+      room: { roomId: 'bound-room', hostId: 'guest-host', mode: 'MEETING', status: 'LIVE' },
+    },
+  };
+  for (const method of ['dismissQuestion', 'featureQuestion'] as const) {
+    for (const payload of [
+      undefined,
+      null,
+      {},
+      { questionId: '01' },
+      { questionId: '1', authorName: 'Forged' },
+      { questionId: '1', roomId: 'other' },
+    ])
+      expect(await gateway[method](client as never, payload)).toMatchObject({
+        error: 'invalid_payload',
+      });
+    expect(await gateway[method](client as never, { questionId: '1' })).toEqual(ack);
+  }
+  for (const payload of [null, [], true, '1', { questionId: '1' }, { role: 'HOST' }])
+    expect(await gateway.clearFeaturedQuestion(client as never, payload)).toMatchObject({
+      error: 'invalid_payload',
+    });
+  for (const payload of [
+    undefined,
+    null,
+    {},
+    { open: 'false' },
+    { open: true, role: 'HOST' },
+    { open: false, roomId: 'other' },
+  ])
+    expect(await gateway.setQuestionSubmissions(client as never, payload)).toMatchObject({
+      error: 'invalid_payload',
+    });
+  expect(qa.clearFeature).not.toHaveBeenCalled();
+  expect(qa.setSubmissions).not.toHaveBeenCalled();
+  expect(await gateway.clearFeaturedQuestion(client as never, undefined)).toEqual(ack);
+  expect(await gateway.clearFeaturedQuestion(client as never, {})).toEqual(ack);
+  expect(await gateway.setQuestionSubmissions(client as never, { open: false })).toEqual(ack);
+  expect(await gateway.setQuestionSubmissions(client as never, { open: true })).toEqual(ack);
+  expect(qa.feature.mock.calls[0]![0]).toMatchObject({
+    id: 'socket',
+    participantId: 'host-member',
+    generation: 3,
+    room: client.data.room,
+  });
+  expect(qa.dismiss.mock.calls[0]![1]).toBe('1');
+  expect(qa.feature.mock.calls[0]![1]).toBe('1');
+  expect(qa.setSubmissions.mock.calls.map((args) => args[1])).toEqual([false, true]);
+  expect(to).toHaveBeenCalledWith('bound-room');
+  expect(emit).toHaveBeenCalledTimes(6);
+  expect(emit).toHaveBeenCalledWith('qa:state', state);
+});
+
 it('parses Q&A strictly, binds commands to the socket room, and delivers the public board', async () => {
   const state = { submissionsOpen: true, featured: null, questions: [] };
   const ack = { ok: true as const, ...state, votedQuestionIds: ['1'] };
@@ -431,6 +525,10 @@ it('charges chat and Q&A events to the socket event budget and preserves the lea
     'qa:submit',
     'qa:vote',
     'qa:state',
+    'qa:dismiss',
+    'qa:feature',
+    'qa:clear-feature',
+    'qa:set-submissions',
   ]) {
     const ack = vi.fn(),
       next = vi.fn();

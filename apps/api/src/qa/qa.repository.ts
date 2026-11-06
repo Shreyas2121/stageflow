@@ -6,6 +6,7 @@ import type { QaState, QaSubmitRequest, TransportBinding } from '@stageflow/shar
 
 export type QaStoreError =
   | 'stale_transport'
+  | 'not_host'
   | 'qa_not_allowed'
   | 'qa_closed'
   | 'qa_full'
@@ -39,7 +40,16 @@ export function qaKeys(prefix: string): string[] {
   ].map((suffix) => `${prefix}:qa:${suffix}`);
 }
 
-const scriptNames = ['submit', 'vote', 'state', 'delete'] as const;
+const scriptNames = [
+  'submit',
+  'vote',
+  'state',
+  'delete',
+  'dismiss',
+  'feature',
+  'clear-feature',
+  'set-submissions',
+] as const;
 type ScriptName = (typeof scriptNames)[number];
 
 export class QaRepository {
@@ -77,6 +87,41 @@ export class QaRepository {
 
   state(prefix: string, binding: TransportBinding): Promise<QaStoreResult> {
     return this.execute('state', prefix, { binding });
+  }
+
+  dismiss(
+    prefix: string,
+    binding: TransportBinding,
+    questionId: string,
+    ttlSeconds: number,
+  ): Promise<QaStoreResult> {
+    return this.execute('dismiss', prefix, { binding, questionId, ttlSeconds });
+  }
+
+  feature(
+    prefix: string,
+    binding: TransportBinding,
+    questionId: string,
+    ttlSeconds: number,
+  ): Promise<QaStoreResult> {
+    return this.execute('feature', prefix, { binding, questionId, ttlSeconds });
+  }
+
+  clearFeature(
+    prefix: string,
+    binding: TransportBinding,
+    ttlSeconds: number,
+  ): Promise<QaStoreResult> {
+    return this.execute('clear-feature', prefix, { binding, ttlSeconds });
+  }
+
+  setSubmissions(
+    prefix: string,
+    binding: TransportBinding,
+    open: boolean,
+    ttlSeconds: number,
+  ): Promise<QaStoreResult> {
+    return this.execute('set-submissions', prefix, { binding, open, ttlSeconds });
   }
 
   async delete(prefix: string): Promise<void> {

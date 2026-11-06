@@ -128,6 +128,10 @@ try {
       ['qa:submit', 'submitQuestion'],
       ['qa:vote', 'voteQuestion'],
       ['qa:state', 'questionState'],
+      ['qa:dismiss', 'dismissQuestion'],
+      ['qa:feature', 'featureQuestion'],
+      ['qa:clear-feature', 'clearFeaturedQuestion'],
+      ['qa:set-submissions', 'setQuestionSubmissions'],
     ]) {
       socket.on(event, (payload, ack) => {
         Promise.resolve(gateway[method](socket, payload))
@@ -442,6 +446,28 @@ try {
     (await command(samSocket, 'qa:submit', { text: 'Forged', authorName: 'Ava' })).error,
     'invalid_payload',
   );
+  const featureEvent = once(samSocket, 'qa:state');
+  const featured = await command(avaSocket, 'qa:feature', { questionId });
+  assert.deepEqual(featured.featured, { questionId, text: 'Can we ship?', authorName: 'Sam' });
+  assert.deepEqual((await featureEvent).featured, featured.featured);
+  assert.equal('votedQuestionIds' in (await featureEvent), false);
+  const closed = await command(avaSocket, 'qa:set-submissions', { open: false });
+  assert.equal(closed.submissionsOpen, false);
+  assert.deepEqual(closed.featured, featured.featured);
+  assert.equal((await command(avaSocket, 'qa:submit', { text: 'Closed' })).error, 'qa_closed');
+  assert.equal((await command(samSocket, 'qa:feature', { questionId })).error, 'not_host');
+  for (let i = 0; i < 2; i++)
+    assert.equal((await command(avaSocket, 'qa:clear-feature')).featured, null);
+  assert.equal((await command(avaSocket, 'qa:feature', { questionId })).ok, true);
+  const dismissed = await command(avaSocket, 'qa:dismiss', { questionId });
+  assert.equal(dismissed.featured, null);
+  assert.deepEqual(dismissed.questions, []);
+  assert.equal(await redis.exists(`${discussionPrefix}:qa:votes:${questionId}`), 0);
+  assert.equal(
+    (await command(avaSocket, 'qa:set-submissions', { open: true })).submissionsOpen,
+    true,
+  );
+  assert.equal(await redis.get(`${discussionPrefix}:broadcast`), null);
   assert.equal(await redis.get(`${discussionPrefix}:rev`), stageRevision);
   const discussionEnded = once(samSocket, 'room:ended');
   assert.equal((await command(avaSocket, 'room:leave')).ok, true);
@@ -457,7 +483,7 @@ try {
   assert.equal((await command(samSocket, 'chat:history')).error, 'not_joined');
   assert.equal((await command(samSocket, 'qa:state')).error, 'not_joined');
   console.log(
-    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, Q&A submit/one-vote/private acknowledgements, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, Q&A submit/one-vote/private acknowledgements/host moderation, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();

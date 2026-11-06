@@ -46,16 +46,30 @@ function gate() {
   return { promise, release };
 }
 const disposers: (() => Promise<void> | void)[] = [];
+const moderationMethods = ['dismiss', 'feature', 'clearFeature', 'setSubmissions'] as const;
+function moderate(
+  qa: QaService,
+  method: (typeof moderationMethods)[number],
+  client: LiveSession,
+  transport: QaTransport,
+) {
+  if (method === 'clearFeature') return qa.clearFeature(client, transport);
+  if (method === 'setSubmissions') return qa.setSubmissions(client, false, transport);
+  return qa[method](client, '1', transport);
+}
 afterEach(async () => {
   for (const dispose of disposers.splice(0)) await dispose();
   vi.restoreAllMocks();
 });
 
-async function fixture(status: 'LIVE' | 'SCHEDULED' = 'LIVE') {
+async function fixture(
+  status: 'LIVE' | 'SCHEDULED' = 'LIVE',
+  mode: 'WEBINAR' | 'MEETING' = 'WEBINAR',
+) {
   let state: LiveState = {
     roomId: 'room',
     hostId: 'host',
-    mode: 'WEBINAR',
+    mode,
     status,
     participants: [],
     stageParticipantIds: [],
@@ -66,7 +80,8 @@ async function fixture(status: 'LIVE' | 'SCHEDULED' = 'LIVE') {
   };
   let revision = 0;
   const stage = {
-    readBroadcast: vi.fn(async () => 'broadcast'),
+    readBroadcast: vi.fn(async () => (mode === 'WEBINAR' ? 'broadcast' : null)),
+    tryBeginBroadcast: vi.fn(),
     apply: vi.fn<LiveRepository['apply']>(async (_prefix, _room, command) => {
       const result = applyStageCommand(state, command);
       if (result.ok) {
@@ -93,14 +108,22 @@ async function fixture(status: 'LIVE' | 'SCHEDULED' = 'LIVE') {
     vote: vi.fn<QaRepository['vote']>(async () => ({ ok: true, value: board })),
     state: vi.fn<QaRepository['state']>(async () => ({ ok: true, value: board })),
     delete: vi.fn<QaRepository['delete']>(async () => {}),
+    dismiss: vi.fn<QaRepository['dismiss']>(async () => ({ ok: true, value: board })),
+    feature: vi.fn<QaRepository['feature']>(async () => ({ ok: true, value: board })),
+    clearFeature: vi.fn<QaRepository['clearFeature']>(async () => ({ ok: true, value: board })),
+    setSubmissions: vi.fn<QaRepository['setSubmissions']>(async () => ({ ok: true, value: board })),
   };
   const broadcast = {
-    snapshot: vi.fn(async () => ({
-      id: 'broadcast',
-      status: 'LIVE' as const,
-      playlistUrl: '/live/index.m3u8',
-      errorMessage: null,
-    })),
+    snapshot: vi.fn(async () =>
+      mode === 'WEBINAR'
+        ? {
+            id: 'broadcast',
+            status: 'LIVE' as const,
+            playlistUrl: '/live/index.m3u8',
+            errorMessage: null,
+          }
+        : null,
+    ),
     start: vi.fn(),
     stopRoom: vi.fn(async () => {}),
     failInterrupted: vi.fn(),
@@ -125,7 +148,7 @@ async function fixture(status: 'LIVE' | 'SCHEDULED' = 'LIVE') {
   const operations = new SerializedOperations();
   const live = new LiveService(
     {
-      getById: async () => ({ id: 'room', hostId: 'host', mode: 'WEBINAR', status }) as never,
+      getById: async () => ({ id: 'room', hostId: 'host', mode, status }) as never,
       startScheduled: vi.fn(async () => true),
       cancelScheduled: vi.fn(async () => true),
       end: vi.fn(async () => {}),
@@ -226,6 +249,117 @@ it('publishes only after mutation, strips caller votes from events, and supplies
   expect(f.broadcast.stopRoom).not.toHaveBeenCalled();
 });
 
+it.each(moderationMethods)(
+  'publishes %s only after the host script commits and retains caller-only votes',
+  async (method) => {
+    const f = await fixture();
+    const pending = gate();
+    const value = { ...board, featured: { questionId: '1', text: 'Hello', authorName: 'host' } };
+    const before = structuredClone(f.snapshots.at(-1));
+    const gateSpy = vi.spyOn(f.live, 'authorizeQa');
+    f.repository[method].mockImplementationOnce(async () => {
+      await pending.promise;
+      return { ok: true, value };
+    });
+    const running = moderate(f.qa, method, f.host, f.delivery);
+    await vi.waitFor(() => expect(f.repository[method]).toHaveBeenCalledOnce());
+    expect(f.delivery.state).not.toHaveBeenCalled();
+    expect(gateSpy).toHaveBeenCalledWith(f.host, f.host.room, true);
+    const expectedArgs: unknown[] = [
+      'sf_test:room:room',
+      { participantId: 'host', socketId: 'socket-host', generation: 1 },
+    ];
+    if (method === 'setSubmissions') expectedArgs.push(false);
+    else if (method !== 'clearFeature') expectedArgs.push('1');
+    expect(f.repository[method]).toHaveBeenCalledWith(...expectedArgs, 86_400);
+    pending.release();
+    expect(await running).toEqual({ ok: true, ...value });
+    expect(f.delivery.state).toHaveBeenCalledExactlyOnceWith('room', {
+      ...publicBoard,
+      featured: value.featured,
+    });
+    expect(f.snapshots.at(-1)).toEqual(before);
+    expect(f.broadcast.start).not.toHaveBeenCalled();
+    expect(f.broadcast.stopRoom).not.toHaveBeenCalled();
+    expect(f.stage.tryBeginBroadcast).not.toHaveBeenCalled();
+  },
+);
+
+it.each(moderationMethods)(
+  'rejects non-host %s for speakers, attendees, waiters and demo peers',
+  async (method) => {
+    const f = await fixture();
+    const participant = f.readState().participants.find((p) => p.participantId === 'guest')!;
+    for (const role of ['SPEAKER', 'ATTENDEE', 'WAITING'] as const) {
+      participant.role = role;
+      expect(await moderate(f.qa, method, f.guest, f.delivery)).toMatchObject({
+        error: 'not_host',
+        message: 'Only the host can do that.',
+      });
+    }
+    participant.role = 'SPEAKER';
+    participant.isSyntheticBot = true;
+    expect(await moderate(f.qa, method, f.guest, f.delivery)).toMatchObject({ error: 'not_host' });
+    expect(f.repository[method]).not.toHaveBeenCalled();
+    expect(f.delivery.state).not.toHaveBeenCalled();
+    expect(f.broadcast.start).not.toHaveBeenCalled();
+  },
+);
+
+it.each(moderationMethods)(
+  'isolates %s repository errors, throws and stale/ended bindings',
+  async (method) => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    const f = await fixture();
+    const before = structuredClone(f.snapshots.at(-1));
+    for (const error of ['qa_missing', 'not_host', 'stale_transport'] as const) {
+      f.repository[method].mockResolvedValueOnce({ ok: false, error });
+      expect(await moderate(f.qa, method, f.host, f.delivery)).toMatchObject({ error });
+    }
+    f.repository[method].mockRejectedValueOnce(new Error('Q&A Redis unavailable'));
+    expect(await moderate(f.qa, method, f.host, f.delivery)).toMatchObject({ error: 'qa_busy' });
+    expect(await moderate(f.qa, method, { ...f.host, generation: 2 }, f.delivery)).toMatchObject({
+      error: 'stale_transport',
+    });
+    expect(await moderate(f.qa, method, { ...f.host, connected: false }, f.delivery)).toMatchObject(
+      { error: 'stale_transport' },
+    );
+    expect(f.repository[method]).toHaveBeenCalledTimes(4);
+    expect(f.delivery.state).not.toHaveBeenCalled();
+    expect(f.snapshots.at(-1)).toEqual(before);
+    expect(f.broadcast.stopRoom).not.toHaveBeenCalled();
+    f.host.room!.status = 'ENDED';
+    expect(await moderate(f.qa, method, f.host, f.delivery)).toMatchObject({ error: 'room_ended' });
+    expect(f.repository[method]).toHaveBeenCalledTimes(4);
+  },
+);
+
+it('features a meeting question without reserving or starting a broadcast, and retains meeting rejection', async () => {
+  const f = await fixture('LIVE', 'MEETING');
+  const before = structuredClone(f.snapshots.at(-1));
+  expect(before?.broadcast).toBeNull();
+  const start = vi.spyOn(f.live, 'startBroadcast');
+  const value = { ...board, featured: { questionId: '1', text: 'Hello', authorName: 'host' } };
+  f.repository.feature.mockResolvedValueOnce({ ok: true, value });
+  expect(await f.qa.feature(f.host, '1', f.delivery)).toEqual({ ok: true, ...value });
+  expect(start).not.toHaveBeenCalled();
+  expect(f.stage.tryBeginBroadcast).not.toHaveBeenCalled();
+  expect(f.broadcast.start).not.toHaveBeenCalled();
+  expect(f.snapshots.at(-1)).toEqual(before);
+  expect(await f.live.startBroadcast(f.host, f.transport)).toMatchObject({
+    error: 'broadcast_not_available',
+  });
+  expect(f.stage.tryBeginBroadcast).not.toHaveBeenCalled();
+  expect(f.broadcast.start).not.toHaveBeenCalled();
+});
+
+it('allows host moderation before scheduled Start using the membership role', async () => {
+  const f = await fixture('SCHEDULED');
+  for (const method of moderationMethods)
+    expect((await moderate(f.qa, method, f.host, f.delivery)).ok).toBe(true);
+  expect(f.delivery.state).toHaveBeenCalledTimes(4);
+});
+
 it.each([
   'qa_closed',
   'qa_full',
@@ -289,6 +423,8 @@ it('bounds the queue at 32 waiting and completes leave while Q&A is blocked', as
     });
     expect(await f.qa.vote(f.host, '1', f.delivery)).toMatchObject({ error: 'qa_busy' });
     expect(await f.qa.state(f.host)).toMatchObject({ error: 'qa_busy' });
+    for (const method of moderationMethods)
+      expect(await moderate(f.qa, method, f.host, f.delivery)).toMatchObject({ error: 'qa_busy' });
     expect(f.snapshots.at(-1)).toEqual(before);
     expect(await f.live.leave(f.guest, f.transport)).toEqual({ ok: true });
     expect(f.broadcast.stopRoom).not.toHaveBeenCalled();

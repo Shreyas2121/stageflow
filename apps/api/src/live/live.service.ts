@@ -252,8 +252,8 @@ export class LiveService {
     return { ok: true };
   }
 
-  // Q&A has a separate availability error and excludes waiters and demo peers.
-  async authorizeQa(client: LiveSession, room: LiveRoom): Promise<CommandAck> {
+  // Moderation checks host authority before the submit/vote/state eligibility rules.
+  async authorizeQa(client: LiveSession, room: LiveRoom, hostOnly = false): Promise<CommandAck> {
     if (!this.availability.isReady()) return failure('qa_busy');
     if (!client.room) return failure('not_joined');
     if (!client.connected || client.room !== room) return failure('stale_transport');
@@ -272,6 +272,7 @@ export class LiveService {
     )
       return failure('stale_transport');
     if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
+    if (hostOnly && participant.role !== 'HOST') return failure('not_host');
     if (!['HOST', 'SPEAKER', 'ATTENDEE'].includes(participant.role) || participant.isSyntheticBot)
       return failure('qa_not_allowed');
     return { ok: true };

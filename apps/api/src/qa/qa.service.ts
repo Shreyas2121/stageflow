@@ -45,7 +45,10 @@ export class QaService {
   });
 
   constructor(
-    private readonly repository: Pick<QaRepository, 'submit' | 'vote' | 'state'>,
+    private readonly repository: Pick<
+      QaRepository,
+      'submit' | 'vote' | 'state' | 'dismiss' | 'feature' | 'clearFeature' | 'setSubmissions'
+    >,
     private readonly live: Pick<LiveService, 'authorizeQa'>,
     private readonly namespace = 'sf',
     private readonly now = () => Date.now(),
@@ -59,6 +62,7 @@ export class QaService {
     client: LiveSession,
     action: (prefix: string, binding: TransportBinding) => Promise<QaStoreResult>,
     transport?: QaTransport,
+    hostOnly = false,
   ): Promise<QaStateAck> {
     const room = client.room;
     if (!room) return Promise.resolve(failure('not_joined'));
@@ -75,7 +79,7 @@ export class QaService {
           client.generation !== binding.generation
         )
           return failure('stale_transport');
-        const authorized = await this.live.authorizeQa(client, room);
+        const authorized = await this.live.authorizeQa(client, room, hostOnly);
         if (!authorized.ok) return authorized;
         const result = await action(roomPrefix(room.roomId, this.namespace), binding);
         if (!result.ok) return failure(result.error);
@@ -114,5 +118,44 @@ export class QaService {
 
   state(client: LiveSession): Promise<QaStateAck> {
     return this.execute(client, (prefix, binding) => this.repository.state(prefix, binding));
+  }
+
+  dismiss(client: LiveSession, questionId: string, transport: QaTransport): Promise<QaStateAck> {
+    return this.execute(
+      client,
+      (prefix, binding) =>
+        this.repository.dismiss(prefix, binding, questionId, QA_IDLE_TTL_SECONDS),
+      transport,
+      true,
+    );
+  }
+
+  feature(client: LiveSession, questionId: string, transport: QaTransport): Promise<QaStateAck> {
+    return this.execute(
+      client,
+      (prefix, binding) =>
+        this.repository.feature(prefix, binding, questionId, QA_IDLE_TTL_SECONDS),
+      transport,
+      true,
+    );
+  }
+
+  clearFeature(client: LiveSession, transport: QaTransport): Promise<QaStateAck> {
+    return this.execute(
+      client,
+      (prefix, binding) => this.repository.clearFeature(prefix, binding, QA_IDLE_TTL_SECONDS),
+      transport,
+      true,
+    );
+  }
+
+  setSubmissions(client: LiveSession, open: boolean, transport: QaTransport): Promise<QaStateAck> {
+    return this.execute(
+      client,
+      (prefix, binding) =>
+        this.repository.setSubmissions(prefix, binding, open, QA_IDLE_TTL_SECONDS),
+      transport,
+      true,
+    );
   }
 }

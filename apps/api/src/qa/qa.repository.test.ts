@@ -88,10 +88,13 @@ describe('Q&A scripts against Redis', () => {
     }
   });
 
-  async function fixture(status: 'LIVE' | 'SCHEDULED' = 'LIVE') {
+  async function fixture(
+    status: 'LIVE' | 'SCHEDULED' = 'LIVE',
+    mode: 'WEBINAR' | 'MEETING' = 'WEBINAR',
+  ) {
     const prefix = `sf:itest:${randomUUID()}`;
     prefixes.add(prefix);
-    const room = { roomId: randomUUID(), hostId: 'host', mode: 'WEBINAR', status } as const;
+    const room = { roomId: randomUUID(), hostId: 'host', mode, status } as const;
     for (const id of ['host', 'guest', 'other', 'bot']) {
       if (status === 'SCHEDULED' && id === 'bot') continue;
       expect(
@@ -137,6 +140,178 @@ describe('Q&A scripts against Redis', () => {
       );
     await redis.set(`${prefix}:qa:seq`, count);
   }
+
+  it('lets the host feature, replace, clear, close, dismiss and reopen without losing the board', async () => {
+    const f = await fixture();
+    await f.submit();
+    await f.submit('guest');
+    await f.vote('1');
+    expect(await repository.feature(f.prefix, binding(), '1', limits.ttlSeconds)).toMatchObject({
+      value: {
+        featured: { questionId: '1', text: 'Hello', authorName: 'Name host' },
+        votedQuestionIds: [],
+      },
+    });
+    expect(await repository.feature(f.prefix, binding(), '2', limits.ttlSeconds)).toMatchObject({
+      value: {
+        featured: { questionId: '2', text: 'Hello', authorName: 'Name guest' },
+      },
+    });
+    const closed = await repository.setSubmissions(f.prefix, binding(), false, limits.ttlSeconds);
+    expect(closed).toMatchObject({
+      value: {
+        submissionsOpen: false,
+        featured: { questionId: '2' },
+        questions: [{ id: '1', voteCount: 1 }, { id: '2' }],
+      },
+    });
+    expect(await redis.get(`${f.prefix}:qa:submissions`)).toBe('0');
+    for (const id of ['host', 'guest'])
+      expect(await f.submit(id)).toEqual({ ok: false, error: 'qa_closed' });
+    expect((await f.vote('2')).ok).toBe(true);
+    expect(await repository.clearFeature(f.prefix, binding(), limits.ttlSeconds)).toMatchObject({
+      value: { featured: null, submissionsOpen: false },
+    });
+    expect(await repository.clearFeature(f.prefix, binding(), limits.ttlSeconds)).toMatchObject({
+      value: { featured: null },
+    });
+    await repository.feature(f.prefix, binding(), '2', limits.ttlSeconds);
+    expect(await repository.dismiss(f.prefix, binding(), '1', limits.ttlSeconds)).toMatchObject({
+      value: { featured: { questionId: '2' }, questions: [{ id: '2' }] },
+    });
+    expect(await redis.exists(`${f.prefix}:qa:votes:1`)).toBe(0);
+    expect(await repository.dismiss(f.prefix, binding(), '2', limits.ttlSeconds)).toMatchObject({
+      value: { featured: null, questions: [], votedQuestionIds: [] },
+    });
+    expect(await redis.exists(`${f.prefix}:qa:votes:2`, `${f.prefix}:qa:featured`)).toBe(0);
+    expect(
+      await repository.setSubmissions(f.prefix, binding(), true, limits.ttlSeconds),
+    ).toMatchObject({ value: { submissionsOpen: true } });
+    expect(await redis.get(`${f.prefix}:qa:submissions`)).toBe('1');
+    expect(await f.submit()).toMatchObject({ value: { questions: [{ id: '3' }] } });
+  });
+
+  it('requires the current connected host for all four commands, including against a closed board', async () => {
+    const f = await fixture();
+    await f.submit();
+    await f.vote();
+    await repository.setSubmissions(f.prefix, binding(), false, limits.ttlSeconds);
+    const guest = (await live.readParticipant(f.prefix, 'guest'))!;
+    const attempts = (member: TransportBinding) => [
+      () => repository.dismiss(f.prefix, member, '1', limits.ttlSeconds),
+      () => repository.feature(f.prefix, member, '1', limits.ttlSeconds),
+      () => repository.clearFeature(f.prefix, member, limits.ttlSeconds),
+      () => repository.setSubmissions(f.prefix, member, true, limits.ttlSeconds),
+    ];
+    const keys = [...qaKeys(f.prefix), `${f.prefix}:qa:votes:1`];
+    const before = await Promise.all(keys.map((key) => redis.dump(key)));
+    for (const role of ['SPEAKER', 'ATTENDEE', 'WAITING'] as const) {
+      await redis.hset(`${f.prefix}:participants`, 'guest', JSON.stringify({ ...guest, role }));
+      for (const attempt of attempts(binding('guest')))
+        expect(await attempt()).toEqual({ ok: false, error: 'not_host' });
+    }
+    for (const attempt of attempts(binding('bot')))
+      expect(await attempt()).toEqual({ ok: false, error: 'not_host' });
+    for (const member of [
+      binding('missing'),
+      { ...binding(), generation: 2 },
+      { ...binding(), socketId: 'old' },
+    ])
+      for (const attempt of attempts(member))
+        expect(await attempt()).toEqual({ ok: false, error: 'stale_transport' });
+    const host = (await live.readParticipant(f.prefix, 'host'))!;
+    await redis.hset(
+      `${f.prefix}:participants`,
+      'host',
+      JSON.stringify({ ...host, presence: 'suspended', socketId: null }),
+    );
+    for (const attempt of attempts(binding()))
+      expect(await attempt()).toEqual({ ok: false, error: 'stale_transport' });
+    expect(await Promise.all(keys.map((key) => redis.dump(key)))).toEqual(before);
+  });
+
+  it('rejects missing ids before writes or TTL refresh and dismiss frees a full board slot', async () => {
+    const f = await fixture();
+    await seedQuestions(f.prefix, 100);
+    await redis.set(`${f.prefix}:qa:featured`, '1');
+    await redis.expire(`${f.prefix}:qa:questions`, 20);
+    const before = await Promise.all(qaKeys(f.prefix).map((key) => redis.dump(key)));
+    for (const method of ['dismiss', 'feature'] as const) {
+      expect(await repository[method](f.prefix, binding(), '101', limits.ttlSeconds)).toEqual({
+        ok: false,
+        error: 'qa_missing',
+      });
+      expect(await Promise.all(qaKeys(f.prefix).map((key) => redis.dump(key)))).toEqual(before);
+      expect(await redis.ttl(`${f.prefix}:qa:questions`)).toBeLessThanOrEqual(20);
+    }
+    expect(await f.submit()).toEqual({ ok: false, error: 'qa_full' });
+    await repository.dismiss(f.prefix, binding(), '1', limits.ttlSeconds);
+    expect(await f.submit()).toMatchObject({
+      value: { questions: expect.arrayContaining([expect.objectContaining({ id: '101' })]) },
+    });
+  });
+
+  it('atomically chooses one of two concurrent features and returns the state of each command', async () => {
+    const f = await fixture();
+    await f.submit();
+    await f.submit('guest');
+    const results = await Promise.all(
+      ['1', '2'].map((id) => repository.feature(f.prefix, binding(), id, limits.ttlSeconds)),
+    );
+    expect(results.map((r) => r.ok && r.value.featured?.questionId)).toEqual(['1', '2']);
+    const stored = await redis.get(`${f.prefix}:qa:featured`);
+    expect(['1', '2']).toContain(stored);
+    expect(await f.state()).toMatchObject({ value: { featured: { questionId: stored } } });
+    expect(await redis.type(`${f.prefix}:qa:featured`)).toBe('string');
+  });
+
+  it('supports a pre-start host and a meeting host without writing stage, broadcast or chat keys', async () => {
+    for (const [status, mode] of [
+      ['SCHEDULED', 'WEBINAR'],
+      ['LIVE', 'MEETING'],
+    ] as const) {
+      const f = await fixture(status, mode);
+      await f.submit();
+      const keys = [...liveKeys(f.prefix), ...chatKeys(f.prefix)];
+      const before = await Promise.all(keys.map((key) => redis.dump(key)));
+      expect(await repository.feature(f.prefix, binding(), '1', limits.ttlSeconds)).toMatchObject({
+        value: { featured: { questionId: '1' } },
+      });
+      await repository.setSubmissions(f.prefix, binding(), false, limits.ttlSeconds);
+      await repository.clearFeature(f.prefix, binding(), limits.ttlSeconds);
+      await repository.dismiss(f.prefix, binding(), '1', limits.ttlSeconds);
+      expect(await Promise.all(keys.map((key) => redis.dump(key)))).toEqual(before);
+      expect(await redis.get(`${f.prefix}:broadcast`)).toBeNull();
+    }
+  });
+
+  it('refreshes retained Q&A TTLs on every moderation command without refreshing membership', async () => {
+    const f = await fixture();
+    await f.submit();
+    await f.submit();
+    await f.vote('1');
+    await f.vote('2');
+    await redis.expire(`${f.prefix}:participants`, 120);
+    for (const command of [
+      () => repository.setSubmissions(f.prefix, binding(), false, limits.ttlSeconds),
+      () => repository.feature(f.prefix, binding(), '1', limits.ttlSeconds),
+      () => repository.dismiss(f.prefix, binding(), '2', limits.ttlSeconds),
+      () => repository.clearFeature(f.prefix, binding(), limits.ttlSeconds),
+    ]) {
+      const keys = [
+        ...qaKeys(f.prefix),
+        ...(await redis.hkeys(`${f.prefix}:qa:questions`)).map(
+          (id) => `${f.prefix}:qa:votes:${id}`,
+        ),
+      ];
+      for (const key of keys) await redis.expire(key, 20);
+      expect((await command()).ok).toBe(true);
+      for (const key of keys)
+        if (await redis.exists(key)) expect(await redis.ttl(key)).toBeGreaterThanOrEqual(86_399);
+    }
+    expect(await redis.ttl(`${f.prefix}:participants`)).toBeGreaterThanOrEqual(119);
+    expect(await redis.ttl(`${f.prefix}:participants`)).toBeLessThanOrEqual(120);
+  });
 
   it('returns empty arrays without creating Q&A keys, including for the pre-start host', async () => {
     const f = await fixture('SCHEDULED');

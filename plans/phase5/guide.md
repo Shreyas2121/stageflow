@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 is committed and C02 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C03 through C06 remain planned.\
+**Status:** in progress. V3P5-C01 and C02 are committed; C03 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C04 through C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -98,9 +98,9 @@ Then `pnpm typecheck` and `pnpm lint` if the affected-check plan selects them.
 
 ## 3. V3P5-C02 — Accept a question and one vote
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-qa): accept a question and one vote`\
-**Actual commit:**
+**Actual commit:** `dedc7b3`
 
 **Why:** The board has to exist, ignore forged names, and enforce the cap and rates before the host can moderate it. Covers the server half of QA3-01 and the server half of QA3-04.
 
@@ -160,7 +160,7 @@ Redis tests require `REDIS_URL` and an owned prefix, as `chat.repository.test.ts
 
 ## 4. V3P5-C03 — Host feature and dismiss
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `feat(api-qa): let the host feature or dismiss a question`\
 **Actual commit:**
 
@@ -179,6 +179,10 @@ Redis tests require `REDIS_URL` and an owned prefix, as `chat.repository.test.ts
 - `apps/api/src/qa/qa.repository.test.ts`
 - `apps/api/src/qa/qa.service.test.ts`
 - `apps/api/src/live/signaling.gateway.ts`
+- `apps/api/src/live/signaling.gateway.test.ts`
+- `apps/api/src/live/live.service.ts` (host-command authorization returns `not_host` for waiters)
+- `scripts/check-artifacts.mjs` (verify all eight Q&A Lua assets)
+- `scripts/smoke-live.mjs` (exercise host moderation over compiled sockets)
 
 **Implementation:**
 
@@ -196,6 +200,16 @@ pnpm --filter @stageflow/api test -- src/qa/qa.repository.test.ts src/qa/qa.serv
 Then typecheck, lint, and the affected-check selection. Include a concurrent double feature if the Redis harness can issue two scripts; the stored featured id is one of the two questions, never both.
 
 **Done when:** Host moderation matches the matrix for QA3-02. A speaker, an attendee, and a waiter cannot moderate. Featuring a meeting question does not create a broadcast. `Actual commit` is recorded after the slice commit.
+
+**Verification record (2026-11-06):**
+
+- Added atomic dismiss, feature, clear-feature, and set-submissions scripts, repository/service methods, and gateway handlers. Each successful host command publishes the public board and returns the caller's votes privately. Dismiss removes the question and vote set and clears a matching feature. Feature replaces the one stored id; clear also succeeds when absent. Close/open preserves retained questions and the feature.
+- Extended `authorizeQa` with a host-command option so a connected non-host waiter receives `not_host` for moderation while submit/vote/state retain `qa_not_allowed`. Every moderation script independently checks the connected socket/generation and persisted `HOST` role before writes. Authority does not use account registration or Google identity.
+- Real Redis coverage in the 18-test repository suite verifies all four commands while submissions are closed, host submit rejection while closed, speaker/attendee/waiter/demo refusal, stale/suspended bindings, missing-id no-write/no-TTL-refresh behavior, dismissal freeing a full board slot without id reuse, concurrent double feature with one stored id, and Q&A-only TTL refresh. Pre-start and meeting moderation leave all ten live keys and chat keys unchanged. All fixtures use owned `sf:itest:` prefixes and existing cleanup.
+- The 28-test service suite includes per-command publication-after-commit, private votes, store errors/throws, non-host/stale/ended refusal, and the shared 32-waiting Q&A queue. The meeting feature regression shows unchanged stage/broadcast projection and no calls to `startBroadcast`, `BroadcastsService.start`, or `tryBeginBroadcast`; an explicit meeting start still returns `broadcast_not_available`. Existing webinar broadcast failure-isolation tests remain green.
+- `pnpm --filter @stageflow/api test -- src/qa/qa.repository.test.ts src/qa/qa.service.test.ts src/live/live.service.test.ts src/live/signaling.gateway.test.ts` passed: 4 files / 116 tests. Gateway regressions cover strict id/open/empty payloads, forged fields, socket-room binding, public state events, and moderation event budgets. `pnpm typecheck` and `pnpm lint` passed.
+- `pnpm check:affected --plan --files <all changed paths>` selected `check:release`. `pnpm check:release` passed tooling (49), workspace typechecks/lint, shared (454), web (499), API (519) tests, both builds, repository formatting, artifacts, and the compiled live socket smoke. Artifacts verify all eight Q&A Lua files are copied and byte-identical. The owned socket smoke exercises feature, non-host refusal, close with host submit refusal, repeated clear, dismiss/vote-set cleanup, reopen, unchanged stage revision, and absence of a new broadcast key.
+- The final broadcast smoke failed at `ffmpeg -version` with `spawn ffmpeg ENOENT`; FFmpeg is absent from `PATH`. The selected release gate is not fully passed. Vite retained its existing large-chunk warning. QA3-02 has server evidence; its browser controls remain planned for C04. QA3-03 has the meeting server regression only; canvas and played-HLS work remain planned. Existing V1/V2 gaps remain open.
 
 ## 5. V3P5-C04 — Question list and host banner
 

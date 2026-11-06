@@ -25,6 +25,7 @@ import {
   parseChatSetPausedRequest,
   parseQaSubmit,
   parseQaQuestionId,
+  parseQaSetSubmissions,
 } from '@stageflow/shared';
 
 import type {
@@ -51,6 +52,16 @@ import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
 import { ChatService, type ChatTransport } from '../chat/chat.service';
 import { QaService, type QaTransport } from '../qa/qa.service';
+
+function isEmptyPayload(payload: unknown): boolean {
+  return (
+    payload === undefined ||
+    (typeof payload === 'object' &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      Object.keys(payload).length === 0)
+  );
+}
 
 type SocketData = {
   user: User;
@@ -541,15 +552,47 @@ export class SignalingGateway
     @ConnectedSocket() client: GuestSocket,
     @MessageBody() payload: unknown,
   ): Promise<QaStateAck> | QaStateAck {
-    if (
-      payload !== undefined &&
-      (typeof payload !== 'object' ||
-        payload === null ||
-        Array.isArray(payload) ||
-        Object.keys(payload).length !== 0)
-    )
-      return failure('invalid_payload');
+    if (!isEmptyPayload(payload)) return failure('invalid_payload');
     return this.qa.state(this.session(client));
+  }
+
+  @SubscribeMessage('qa:dismiss')
+  dismissQuestion(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    const request = parseQaQuestionId(payload);
+    if (!request.ok) return failure(request.error);
+    return this.qa.dismiss(this.session(client), request.value.questionId, this.qaTransport);
+  }
+
+  @SubscribeMessage('qa:feature')
+  featureQuestion(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    const request = parseQaQuestionId(payload);
+    if (!request.ok) return failure(request.error);
+    return this.qa.feature(this.session(client), request.value.questionId, this.qaTransport);
+  }
+
+  @SubscribeMessage('qa:clear-feature')
+  clearFeaturedQuestion(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    if (!isEmptyPayload(payload)) return failure('invalid_payload');
+    return this.qa.clearFeature(this.session(client), this.qaTransport);
+  }
+
+  @SubscribeMessage('qa:set-submissions')
+  setQuestionSubmissions(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    const request = parseQaSetSubmissions(payload);
+    if (!request.ok) return failure(request.error);
+    return this.qa.setSubmissions(this.session(client), request.value.open, this.qaTransport);
   }
 
   handleDisconnect(client: GuestSocket): void {
