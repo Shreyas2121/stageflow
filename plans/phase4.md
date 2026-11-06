@@ -154,7 +154,7 @@ The next phase may rely on these once the slices are committed:
 - Waiters are off stage until Start or Admit. Webinar attendees still have zero peer connections.
 - The stage cap is still four, including suspended reservations.
 
-V3 phase 5 may add moderated Q&A and the canvas lower-third. Do not write `plans/phase5.md` until that phase is requested.
+V3 phase 5 is specified in [phase5.md](phase5.md). It adds moderated Q&A and the canvas lower-third. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
 
