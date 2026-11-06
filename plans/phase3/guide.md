@@ -154,9 +154,9 @@ pnpm lint
 
 1. Add `invalid_visibility`, `replay_owner_required`, `broadcast_not_ready`, `broadcast_not_deletable`, and `broadcast_delete_failed` to `ApiErrorBody['error']`. Add `parseBroadcastVisibility` for the `visibility` field. Other body keys are ignored.
 2. `POST /api/broadcasts/:id/visibility` implements phase Section 5.3. The guest-owner message is `Create a host account before changing this replay.` Saving `HOST` or `LINK` changes only that column.
-3. `DELETE /api/broadcasts/:id` implements phase Section 5.4 and returns 204. Add `removeBroadcastDirectory` next to the existing path helpers. It returns missing when the directory is absent. It throws, and removes nothing, when the real path is not `{dataRoot}/broadcasts/{id}`. The service restores the previous status only while the row is still `DELETING`.
+3. `DELETE /api/broadcasts/:id` implements phase Section 5.4 and returns 204. Add `removeBroadcastDirectory` next to the existing path helpers. It returns missing when the directory is absent. It throws, and removes nothing, when the real path is not `{dataRoot}/broadcasts/{id}`. As corrected by V3M-C07, restore the previous status only after a pre-removal validation failure and only while the row is still `DELETING`. Once removal starts, or the directory is known missing, failures retain `DELETING` and refuse playback.
 4. Classify both routes as ordinary control traffic. Do not add them to the guest or Google budget sets. HLS stays media. Chunk upload stays upload.
-5. Tests use a disposable directory. Cover a `READY` delete, a `FAILED` delete, each in-flight status, an active Redis id, a Redis read error before the claim, a missing directory retry, a removal failure that restores `READY` and the failure sentence, and a symlink or parent path that remains. Assert promotion of a guest leaves `visibility` at `LINK`. Do not delete `apps/api/data`.
+5. Tests use a disposable directory. Cover a `READY` delete, a `FAILED` delete, each in-flight status, an active Redis id, a Redis read error before the claim, a missing directory retry, a pre-removal failure that restores `READY`, partial/uncertain removal and row-delete failures that keep `DELETING`, lost replies, and a symlink or parent path that remains. Verify JSON/history/thumbnail/HLS cannot advertise or serve a partially deleted replay. Assert promotion of a guest leaves `visibility` at `LINK`. Do not delete `apps/api/data`.
 
 **Verification:**
 
@@ -259,3 +259,10 @@ Read the edited README against phase Sections 5 and 6.
 `pnpm exec prettier --check README.md MASTER_PLAN_V3.md plans/phase3.md plans/phase3/guide.md plans/README.md` passed. All 70 local Markdown link targets across those five files exist. The affected plan selects formatting only. README was compared with phase Sections 5 and 6; LIB-01 through LIB-04 are verified using the recorded API, filesystem, migration, and C04 browser evidence. C05 ran no application suites, browser, migration, or smoke; existing V1/V2 and physical acceptance gaps stay open. C01 through C04 hashes are recorded. C05's actual hash is recorded above in the prescribed follow-up commit.
 
 **Handoff:** V3 phase 4 is specified in [../phase4.md](../phase4.md). It adds scheduled rooms and waiting-room admission. That file does not authorize implementation.
+
+## Maintenance: V3M-C07 — Deletion integrity (2026-11-06)
+
+Status: verified; awaiting commit. Proposed commit: `fix(replay): preserve non-playable state after file removal`.
+Actual commit:
+
+R06 supersedes the historical C03 behavior that restored finished status for every removal or row-delete failure. Restoration is now limited to failures before recursive removal starts; later failures and missing-directory retries retain DELETING. Focused failure-matrix, protected HTTP, and PostgreSQL tests passed (35); the selected API checks passed all 566 tests, typecheck/lint/build/artifacts, repository formatting, and live/broadcast smokes. Detailed scope, commands, and limitations are recorded in [phase3.md](../phase3.md). Discoverable deletion recovery remains the separate C08/R07 slice, and existing physical/VPS acceptance gaps remain open.

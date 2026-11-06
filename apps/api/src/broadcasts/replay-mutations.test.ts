@@ -225,7 +225,7 @@ it('refuses the active Redis id and fails a Redis read before claiming', async (
   expect(await readFile(join(f.directory, 'index.m3u8'), 'utf8')).toBe('#EXTM3U');
 });
 
-it('restores READY on removal failure and allows the owner to retry', async () => {
+it('restores READY on a pre-removal validation failure and allows the owner to retry', async () => {
   const f = await fixture();
   const remove = vi
     .spyOn(paths, 'removeBroadcastDirectory')
@@ -292,17 +292,113 @@ it('does not remove files after a lost claim and does not restore a changed row'
   expect(f.stored()?.status).toBe('FAILED');
 });
 
-it('keeps a failed row deletion retryable and closes its active reader on shutdown', async () => {
+it.each(['READY', 'FAILED', 'DELETING'] as const)(
+  'keeps %s non-playable after file removal and a failed row delete, then retries safely',
+  async (status) => {
+    const f = await fixture(status);
+    await f.service.snapshot(f.room.id, f.row.id);
+    f.repository.delete.mockRejectedValueOnce(new Error('database down'));
+    await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+      response: { error: 'broadcast_delete_failed' },
+    });
+    expect(f.stored()).toMatchObject({ status: 'DELETING', errorMessage: failure });
+    await expect(readFile(join(f.directory, 'index.m3u8'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    expect(await f.service.snapshot(f.room.id, f.row.id)).toBeNull();
+    await expect(f.service.getById(f.row.id, f.owner)).rejects.toMatchObject({
+      response: { error: 'broadcast_not_found' },
+    });
+    await f.service.deleteReplay(f.row.id, f.owner);
+    expect(f.stored()).toBeNull();
+    await f.service.onModuleDestroy();
+    expect(f.active.close).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['before-files', 'partial', 'lost-removal-reply'] as const)(
+  'keeps deletion intent after removal starts: %s',
+  async (point) => {
+    const f = await fixture();
+    await writeFile(join(f.directory, 'segment000001.ts'), 'segment');
+    const original = paths.removeBroadcastDirectory;
+    vi.spyOn(paths, 'removeBroadcastDirectory').mockImplementationOnce(
+      async (root, id, onRemovalStart) => {
+        if (point === 'lost-removal-reply') await original(root, id, onRemovalStart);
+        else {
+          onRemovalStart?.();
+          if (point === 'partial') await rm(join(f.directory, 'segment000001.ts'));
+        }
+        throw new Error(point);
+      },
+    );
+    await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+      response: { error: 'broadcast_delete_failed', message: failure },
+    });
+    expect(f.stored()).toMatchObject({ status: 'DELETING', errorMessage: failure });
+    expect(f.repository.delete).not.toHaveBeenCalled();
+    if (point !== 'lost-removal-reply')
+      expect(await readFile(join(f.directory, 'index.m3u8'), 'utf8')).toBe('#EXTM3U');
+    if (point !== 'before-files')
+      await expect(readFile(join(f.directory, 'segment000001.ts'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    await f.service.deleteReplay(f.row.id, f.owner);
+    expect(f.stored()).toBeNull();
+  },
+);
+
+it('does not resurrect a deleted row after a lost database reply', async () => {
   const f = await fixture();
+  const deleted = f.repository.delete.getMockImplementation()!;
+  f.repository.delete.mockImplementationOnce(async (where) => {
+    await deleted(where);
+    throw new Error('lost database reply');
+  });
+  await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+    response: { error: 'broadcast_delete_failed' },
+  });
+  expect(f.stored()).toBeNull();
+  await expect(readFile(join(f.directory, 'index.m3u8'))).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+    response: { error: 'broadcast_not_found' },
+  });
+});
+
+it('keeps an already missing directory unplayable when row deletion fails', async () => {
+  const f = await fixture();
+  await rm(f.directory, { recursive: true });
   f.repository.delete.mockRejectedValueOnce(new Error('database down'));
   await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
     response: { error: 'broadcast_delete_failed' },
   });
-  expect(f.stored()?.status).toBe('READY');
+  expect(f.stored()?.status).toBe('DELETING');
   await f.service.deleteReplay(f.row.id, f.owner);
   expect(f.stored()).toBeNull();
-  await f.service.onModuleDestroy();
-  expect(f.active.close).toHaveBeenCalledOnce();
+});
+
+it('keeps deletion intent when a conditional row delete affects nothing', async () => {
+  const f = await fixture();
+  f.repository.delete.mockResolvedValueOnce({ affected: 0 });
+  await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+    response: { error: 'broadcast_delete_failed' },
+  });
+  expect(f.stored()).toMatchObject({ status: 'DELETING', errorMessage: failure });
+  await f.service.deleteReplay(f.row.id, f.owner);
+  expect(f.stored()).toBeNull();
+});
+
+it('retains the durable claim even if recording the deletion error also fails', async () => {
+  const f = await fixture();
+  const update = f.repository.update.getMockImplementation()!;
+  f.repository.update.mockImplementationOnce(update).mockRejectedValueOnce(new Error('still down'));
+  f.repository.delete.mockRejectedValueOnce(new Error('database down'));
+  await expect(f.service.deleteReplay(f.row.id, f.owner)).rejects.toMatchObject({
+    response: { error: 'broadcast_delete_failed' },
+  });
+  expect(f.stored()?.status).toBe('DELETING');
+  await f.service.deleteReplay(f.row.id, f.owner);
+  expect(f.stored()).toBeNull();
 });
 
 it('fails a second delete closed while the first is removing files', async () => {

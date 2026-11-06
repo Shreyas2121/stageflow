@@ -801,21 +801,24 @@ export class BroadcastsService {
     }
     // Invalidate a cached completed projection; the next snapshot reloads the claimed row.
     this.views.delete(row.roomId);
+    let canRestore = previousStatus !== 'DELETING';
     try {
-      await removeBroadcastDirectory(this.dataRoot, id);
+      await removeBroadcastDirectory(this.dataRoot, id, () => {
+        canRestore = false;
+      });
+      // Also retain deletion intent if the directory was already missing.
+      canRestore = false;
       const deleted = await this.broadcasts.delete({ id, status: 'DELETING' });
       if (!deleted.affected && (await this.broadcasts.findOneBy({ id })))
         throw new Error(DELETE_FAILED);
     } catch (error) {
-      if (previousStatus !== 'DELETING') {
-        try {
-          await this.broadcasts.update(
-            { id, status: 'DELETING' },
-            { status: previousStatus, errorMessage: DELETE_FAILED },
-          );
-        } catch (restoreError) {
-          this.logger.error(restoreError instanceof Error ? restoreError.message : DELETE_FAILED);
-        }
+      try {
+        await this.broadcasts.update(
+          { id, status: 'DELETING' },
+          { ...(canRestore ? { status: previousStatus } : {}), errorMessage: DELETE_FAILED },
+        );
+      } catch (updateError) {
+        this.logger.error(updateError instanceof Error ? updateError.message : DELETE_FAILED);
       }
       this.views.delete(row.roomId);
       this.logger.error(error instanceof Error ? error.message : DELETE_FAILED);

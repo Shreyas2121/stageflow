@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Module } from '@nestjs/common';
@@ -277,6 +277,43 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
           .status,
       ).toBe(409);
       replay.status = 'READY';
+      // A failed catalog delete after media removal must not publish the old READY projection.
+      expect(await service.snapshot(replay.roomId, replay.id)).toMatchObject({ status: 'READY' });
+      repository.delete.mockRejectedValueOnce(new Error('database unavailable after removal'));
+      const failedDelete = await read(`broadcasts/${replay.id}`, user, 'DELETE');
+      expect(failedDelete.status).toBe(500);
+      expect(await failedDelete.json()).toMatchObject({
+        error: 'broadcast_delete_failed',
+        message: 'The replay could not be deleted. Try again.',
+      });
+      expect(replay.status).toBe('DELETING');
+      expect(await service.snapshot(replay.roomId, replay.id)).toBeNull();
+      await expect(lstat(join(root, 'broadcasts', replay.id))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      for (const reader of [user, otherHost, guest]) {
+        for (const suffix of ['', '/thumbnail.jpg', '/hls/index.m3u8', '/hls/segment000001.ts']) {
+          const response = await read(`broadcasts/${replay.id}${suffix}`, reader);
+          expect(response.status).toBe(404);
+          expect(await response.json()).toEqual(missing);
+        }
+        const history = await read(
+          `rooms/${rooms.find((room) => room.id === replay.roomId)!.slug}/broadcasts`,
+          reader,
+        );
+        expect(history.status).toBe(200);
+        expect(await history.json()).toMatchObject({
+          items: expect.not.arrayContaining([expect.objectContaining({ id: replay.id })]),
+        });
+      }
+      const foreignRetry = await read(`broadcasts/${replay.id}`, otherHost, 'DELETE');
+      expect(foreignRetry.status).toBe(404);
+      expect(await foreignRetry.json()).toEqual(missing);
+      const visibilityRetry = await read(`broadcasts/${replay.id}/visibility`, user, 'POST', {
+        visibility: 'LINK',
+      });
+      expect(visibilityRetry.status).toBe(404);
+      expect(await visibilityRetry.json()).toEqual(missing);
       const deleted = await read(`broadcasts/${replay.id}`, user, 'DELETE');
       expect(deleted.status).toBe(204);
       expect(await deleted.text()).toBe('');

@@ -90,6 +90,7 @@ export function hlsHeaders(file: string): Record<string, string> {
 export async function removeBroadcastDirectory(
   dataRoot: string,
   id: string,
+  onRemovalStart?: () => void,
 ): Promise<'removed' | 'missing'> {
   const directory = broadcastDirectory(dataRoot, id);
   // Check the parent even when the id itself is absent: a junction must not disguise a retry.
@@ -115,6 +116,8 @@ export async function removeBroadcastDirectory(
   }
   if (!(await lstat(directory)).isDirectory())
     throw new Error('Broadcast path is not a directory.');
+  // From this point even a rejected rm can have removed some media. Notify before invoking it.
+  onRemovalStart?.();
   await rm(resolve(root, 'broadcasts', id), { recursive: true, force: true });
   return 'removed';
 }

@@ -2,7 +2,8 @@ import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { afterEach, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   broadcastDirectory,
   checkedHlsPath,
@@ -107,10 +108,16 @@ it('removes only the confined directory and treats missing attempts as missing',
   const other = await prepareBroadcastDirectory(root, randomUUID());
   await writeFile(join(directory, 'index.m3u8'), 'remove');
   await writeFile(join(other, 'index.m3u8'), 'keep');
-  expect(await removeBroadcastDirectory(root, id)).toBe('removed');
+  const onRemovalStart = vi.fn(() => {
+    expect(existsSync(join(directory, 'index.m3u8'))).toBe(true);
+  });
+  expect(await removeBroadcastDirectory(root, id, onRemovalStart)).toBe('removed');
+  expect(onRemovalStart).toHaveBeenCalledOnce();
   await expect(lstat(directory)).rejects.toMatchObject({ code: 'ENOENT' });
   expect(await readFile(join(other, 'index.m3u8'), 'utf8')).toBe('keep');
-  expect(await removeBroadcastDirectory(root, id)).toBe('missing');
+  onRemovalStart.mockClear();
+  expect(await removeBroadcastDirectory(root, id, onRemovalStart)).toBe('missing');
+  expect(onRemovalStart).not.toHaveBeenCalled();
   expect(await removeBroadcastDirectory(join(root, 'missing'), id)).toBe('missing');
   for (const invalid of ['..', '../outside', '/tmp', 'C:\\outside'])
     await expect(removeBroadcastDirectory(root, invalid)).rejects.toThrow('Invalid broadcast id');
@@ -124,7 +131,9 @@ it('refuses linked attempt and parent directories, including a missing child bel
   await writeFile(join(outside, 'index.m3u8'), 'keep');
   const link = broadcastDirectory(root, id);
   await symlink(outside, link, 'junction');
-  await expect(removeBroadcastDirectory(root, id)).rejects.toThrow('Symlink');
+  const onRemovalStart = vi.fn();
+  await expect(removeBroadcastDirectory(root, id, onRemovalStart)).rejects.toThrow('Symlink');
+  expect(onRemovalStart).not.toHaveBeenCalled();
   expect((await lstat(link)).isSymbolicLink()).toBe(true);
   const parentRoot = await mkdtemp(join(tmpdir(), 'sf-remove-parent-'));
   roots.push(parentRoot);
