@@ -166,8 +166,8 @@ This phase does not make V2 acceptance complete. Leave the open ids open.
 
 ## Maintenance: V3-R02 / V3M-C03 (2026-11-06)
 
-Status: verified. Proposed commit: `fix(auth): bind Google flows to their initiating browser`.
-Actual commit:
+Status: committed. Proposed commit: `fix(auth): bind Google flows to their initiating browser`.
+Actual commit: `ec318fa`.
 
 State/PKCE and the redemption ticket now require the same random browser proof. Only its hash is stored in Redis. HTTPS uses a Secure HttpOnly host-only `__Host-` cookie with SameSite=Lax; HTTP callbacks are restricted to loopback development. The API allows credentials for its configured frontend origin and the Google web requests include credentials. Frontend and API must be same-site with the same scheme. Each browser has one active proof, so older concurrent attempts fail closed. Callback/state and ticket consumption remain atomic and single-use, with five-minute state and one-minute ticket TTLs. Proof cookies clear on callback failure or redemption, including rejection; abandoned cookies expire.
 
