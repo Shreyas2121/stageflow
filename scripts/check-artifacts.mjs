@@ -67,12 +67,27 @@ if (!args.length || args.includes('--api')) {
       name,
     );
   new ChatRepository({});
+  const { QaRepository } = require(join(dist, 'qa/qa.repository.js'));
+  const qaSource = join(root, 'apps/api/src/qa/scripts');
+  const qaLua = (await readdir(qaSource)).filter((name) => name.endsWith('.lua')).sort();
+  assert.deepEqual(qaLua, ['delete.lua', 'state.lua', 'submit.lua', 'vote.lua']);
+  assert.deepEqual(
+    (await readdir(join(dist, 'qa/scripts'))).filter((name) => name.endsWith('.lua')).sort(),
+    qaLua,
+  );
+  for (const name of qaLua)
+    assert.deepEqual(
+      await readFile(join(dist, 'qa/scripts', name)),
+      await readFile(join(qaSource, name)),
+      name,
+    );
+  new QaRepository({});
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 10);
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci'))[5], 'sf_ci:room:probe:broadcast');
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, nineteen live and three chat Lua files match source, no emitted tests.',
+    'API artifacts: production modules load, nineteen live, three chat, and four Q&A Lua files match source, no emitted tests.',
   );
 }
 

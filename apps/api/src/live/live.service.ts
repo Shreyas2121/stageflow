@@ -18,6 +18,7 @@ import { SerializedOperations, WorkCapacityError } from './serialized-operations
 import { failure } from './signaling.messages';
 import type { BroadcastsService } from '../broadcasts/broadcasts.service';
 import type { ChatRepository } from '../chat/chat.repository';
+import type { QaRepository } from '../qa/qa.repository';
 export type BroadcastControl = {
   service: Pick<BroadcastsService, 'snapshot' | 'start' | 'stopRoom' | 'failInterrupted'>;
   repository: Pick<
@@ -105,6 +106,7 @@ export class LiveService {
     private readonly broadcasts?: BroadcastControl,
     private readonly clock: LiveClock = systemClock,
     private readonly chat?: Pick<ChatRepository, 'delete'>,
+    private readonly qa?: Pick<QaRepository, 'delete'>,
   ) {}
 
   private binding(client: LiveSession): TransportBinding {
@@ -247,6 +249,31 @@ export class LiveService {
     const invalid = await this.validateBinding(client, room);
     if (invalid) return failure(invalid);
     if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
+    return { ok: true };
+  }
+
+  // Q&A has a separate availability error and excludes waiters and demo peers.
+  async authorizeQa(client: LiveSession, room: LiveRoom): Promise<CommandAck> {
+    if (!this.availability.isReady()) return failure('qa_busy');
+    if (!client.room) return failure('not_joined');
+    if (!client.connected || client.room !== room) return failure('stale_transport');
+    if (this.ending.has(room.roomId) || room.status === 'ENDED') return failure('room_ended');
+    const participant = client.participantId
+      ? await this.live.readParticipant(
+          roomPrefix(room.roomId, this.namespace),
+          client.participantId,
+        )
+      : null;
+    if (
+      !participant ||
+      participant.presence !== 'connected' ||
+      participant.socketId !== client.id ||
+      participant.connectionGeneration !== client.generation
+    )
+      return failure('stale_transport');
+    if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
+    if (!['HOST', 'SPEAKER', 'ATTENDEE'].includes(participant.role) || participant.isSyntheticBot)
+      return failure('qa_not_allowed');
     return { ok: true };
   }
 
@@ -993,6 +1020,7 @@ export class LiveService {
       await this.rooms.end(room.roomId);
       await this.live.deleteRoom(roomPrefix(room.roomId, this.namespace));
       await this.chat?.delete(roomPrefix(room.roomId, this.namespace));
+      await this.qa?.delete(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
       this.ending.delete(room.roomId);
       this.roomViews.delete(room.roomId);

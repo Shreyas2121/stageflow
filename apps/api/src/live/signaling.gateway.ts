@@ -23,6 +23,8 @@ import {
   parseChatSendRequest,
   parseChatHistoryRequest,
   parseChatSetPausedRequest,
+  parseQaSubmit,
+  parseQaQuestionId,
 } from '@stageflow/shared';
 
 import type {
@@ -35,6 +37,7 @@ import type {
   ChatSendAck,
   ChatHistoryAck,
   ChatSetPausedAck,
+  QaStateAck,
 } from '@stageflow/shared';
 import { env } from '../config/env';
 import { SessionsService } from '../sessions/sessions.service';
@@ -47,6 +50,7 @@ import { socketOptions } from './socket-options';
 import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
 import { ChatService, type ChatTransport } from '../chat/chat.service';
+import { QaService, type QaTransport } from '../qa/qa.service';
 
 type SocketData = {
   user: User;
@@ -97,6 +101,7 @@ export class SignalingGateway
     private readonly live: LiveService,
     private readonly connection: LiveConnection,
     private readonly chat: ChatService,
+    private readonly qa: QaService,
   ) {}
   private session(client: GuestSocket): LiveSession {
     return {
@@ -187,6 +192,11 @@ export class SignalingGateway
     },
     paused: (roomId, payload) => {
       this.server.to(roomId).emit('chat:paused', payload);
+    },
+  };
+  private readonly qaTransport: QaTransport = {
+    state: (roomId, state) => {
+      this.server.to(roomId).emit('qa:state', state);
     },
   };
   afterInit(server: RoomServer): void {
@@ -506,6 +516,42 @@ export class SignalingGateway
     if (!request.ok) return failure(request.error);
     return this.chat.setPaused(this.session(client), request.value.paused, this.chatTransport);
   }
+  @SubscribeMessage('qa:submit')
+  submitQuestion(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    const request = parseQaSubmit(payload);
+    if (!request.ok) return failure(request.error);
+    return this.qa.submit(this.session(client), request.value, this.qaTransport);
+  }
+
+  @SubscribeMessage('qa:vote')
+  voteQuestion(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    const request = parseQaQuestionId(payload);
+    if (!request.ok) return failure(request.error);
+    return this.qa.vote(this.session(client), request.value.questionId, this.qaTransport);
+  }
+
+  @SubscribeMessage('qa:state')
+  questionState(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<QaStateAck> | QaStateAck {
+    if (
+      payload !== undefined &&
+      (typeof payload !== 'object' ||
+        payload === null ||
+        Array.isArray(payload) ||
+        Object.keys(payload).length !== 0)
+    )
+      return failure('invalid_payload');
+    return this.qa.state(this.session(client));
+  }
+
   handleDisconnect(client: GuestSocket): void {
     delete client.data?.joinCredential;
     if (!this.shuttingDown) void this.live.disconnect(this.session(client), this.transport);

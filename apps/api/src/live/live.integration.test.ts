@@ -1468,8 +1468,11 @@ describe('Redis Lua stage transitions', () => {
       await vi.waitFor(() =>
         expect(observed.some((args) => args[0] === 'echo' && args[1] === marker)).toBe(true),
       );
-      return observed.filter((args) =>
-        /^(hset|hdel|sadd|srem|zadd|zrem|del)$/i.test(args[0] ?? ''),
+      // MONITOR sees every client on this Redis instance, including concurrent owned fixtures.
+      return observed.filter(
+        (args) =>
+          /^(hset|hdel|sadd|srem|zadd|zrem|del)$/i.test(args[0] ?? '') &&
+          args.slice(1).some((argument) => argument.startsWith(`${value}:`)),
       );
     }
     try {

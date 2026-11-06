@@ -13,6 +13,8 @@ import { BroadcastsModule } from '../broadcasts/broadcasts.module';
 import { BroadcastsService } from '../broadcasts/broadcasts.service';
 import { ChatRepository } from '../chat/chat.repository';
 import { ChatService } from '../chat/chat.service';
+import { QaRepository } from '../qa/qa.repository';
+import { QaService } from '../qa/qa.service';
 
 @Module({
   imports: [SessionsModule, RoomsModule, BroadcastsModule],
@@ -35,6 +37,11 @@ import { ChatService } from '../chat/chat.service';
       useFactory: (connection: LiveConnection) => new ChatRepository(connection.client),
     },
     {
+      provide: QaRepository,
+      inject: [LiveConnection],
+      useFactory: (connection: LiveConnection) => new QaRepository(connection.client),
+    },
+    {
       provide: SerializedOperations,
       useFactory: () =>
         new SerializedOperations({
@@ -52,6 +59,7 @@ import { ChatService } from '../chat/chat.service';
         LiveConnection,
         BroadcastsService,
         ChatRepository,
+        QaRepository,
       ],
       useFactory: (
         rooms: RoomsService,
@@ -60,6 +68,7 @@ import { ChatService } from '../chat/chat.service';
         connection: LiveConnection,
         broadcasts: BroadcastsService,
         chat: ChatRepository,
+        qa: QaRepository,
       ) =>
         new LiveService(
           rooms,
@@ -73,6 +82,7 @@ import { ChatService } from '../chat/chat.service';
           },
           undefined,
           chat,
+          qa,
         ),
     },
     {
@@ -80,6 +90,12 @@ import { ChatService } from '../chat/chat.service';
       inject: [ChatRepository, LiveService],
       useFactory: (repository: ChatRepository, live: LiveService) =>
         new ChatService(repository, live, env.LIVE_NAMESPACE),
+    },
+    {
+      provide: QaService,
+      inject: [QaRepository, LiveService],
+      useFactory: (repository: QaRepository, live: LiveService) =>
+        new QaService(repository, live, env.LIVE_NAMESPACE),
     },
     SignalingGateway,
   ],

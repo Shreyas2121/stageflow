@@ -13,6 +13,7 @@ import { SerializedOperations } from './serialized-operations';
 import type { LiveRepository } from './live.repository';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { ChatRepository } from '../chat/chat.repository';
+import type { QaRepository } from '../qa/qa.repository';
 function fixture(
   mode: LiveState['mode'] = 'MEETING',
   availability: { isReady(): boolean } = { isReady: () => true },
@@ -139,6 +140,7 @@ function fixture(
     }),
   };
   const chat = { delete: vi.fn<ChatRepository['delete']>(async () => {}) };
+  const qa = { delete: vi.fn<QaRepository['delete']>(async () => {}) };
   const service = new LiveService(
     rooms,
     live,
@@ -148,6 +150,7 @@ function fixture(
     broadcasts,
     clock,
     chat,
+    qa,
   );
   const join = (peer: LiveSession, isSyntheticBot = false) =>
     service.join(
@@ -164,6 +167,7 @@ function fixture(
     rooms,
     live,
     chat,
+    qa,
     transport,
     client,
     join,
@@ -175,6 +179,43 @@ function fixture(
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+
+it('deletes Q&A immediately after chat and retries failed Q&A cleanup before ending transport', async () => {
+  const logger = silenceErrors();
+  const f = fixture();
+  try {
+    const host = f.client('host'),
+      guest = f.client('guest');
+    await f.join(host);
+    await f.join(guest);
+    f.chat.delete.mockImplementation(async () => {
+      f.events.push('chat:delete');
+    });
+    f.qa.delete.mockImplementation(async () => {
+      f.events.push('qa:delete');
+    });
+    f.qa.delete.mockRejectedValueOnce(new Error('Q&A delete unavailable'));
+    f.events.length = 0;
+    expect(await f.service.leave(host, f.transport)).toMatchObject({ error: 'server_error' });
+    expect(f.events).toEqual(['apply:leave', 'database:end', 'redis:delete', 'chat:delete']);
+    expect(f.qa.delete).toHaveBeenCalledExactlyOnceWith('sf:room:room');
+    expect(f.transport.end).not.toHaveBeenCalled();
+    expect(await f.service.authorizeQa(guest, guest.room!)).toMatchObject({ error: 'room_ended' });
+    expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+    expect(f.events.slice(-5)).toEqual([
+      'database:end',
+      'redis:delete',
+      'chat:delete',
+      'qa:delete',
+      'transport:end',
+    ]);
+    expect(f.qa.delete).toHaveBeenCalledTimes(2);
+    expect(host.room).toBeUndefined();
+    expect(guest.room).toBeUndefined();
+  } finally {
+    logger.mockRestore();
+  }
+});
 
 it.each(['host', 'waiter'])(
   'removes a scheduled %s on disconnect without scheduling grace',

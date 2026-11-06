@@ -27,6 +27,8 @@ const { LiveService } = require(`${dist}live/live.service.js`);
 const { LiveRepository } = require(`${dist}live/live.repository.js`);
 const { ChatRepository, chatKeys } = require(`${dist}chat/chat.repository.js`);
 const { ChatService } = require(`${dist}chat/chat.service.js`);
+const { QaRepository, qaKeys } = require(`${dist}qa/qa.repository.js`);
+const { QaService } = require(`${dist}qa/qa.service.js`);
 const { SerializedOperations } = require(`${dist}live/serialized-operations.js`);
 const { socketOptions } = require(`${dist}live/socket-options.js`);
 const { liveKeys, roomPrefix } = require(`${dist}live/live.keys.js`);
@@ -45,6 +47,7 @@ const roomIds = [];
 let gateway;
 let live;
 let chat;
+let qa;
 
 function once(socket, event) {
   return new Promise((resolve, reject) => {
@@ -83,6 +86,7 @@ try {
   const rooms = new Map();
   let failEnd = false;
   const chatRepository = new ChatRepository(redis);
+  const qaRepository = new QaRepository(redis);
   live = new LiveService(
     {
       getById: async (id) => rooms.get(id) ?? null,
@@ -101,9 +105,11 @@ try {
     undefined,
     undefined,
     chatRepository,
+    qaRepository,
   );
   chat = new ChatService(chatRepository, live, namespace);
-  gateway = new SignalingGateway(sessions, live, { whenLost: () => {} }, chat);
+  qa = new QaService(qaRepository, live, namespace);
+  gateway = new SignalingGateway(sessions, live, { whenLost: () => {} }, chat, qa);
   gateway.server = server;
   gateway.afterInit(server);
   server.on('connection', (socket) => {
@@ -119,6 +125,9 @@ try {
       ['chat:send', 'sendChat'],
       ['chat:history', 'chatHistory'],
       ['chat:set-paused', 'setChatPaused'],
+      ['qa:submit', 'submitQuestion'],
+      ['qa:vote', 'voteQuestion'],
+      ['qa:state', 'questionState'],
     ]) {
       socket.on(event, (payload, ack) => {
         Promise.resolve(gateway[method](socket, payload))
@@ -414,29 +423,59 @@ try {
     'chat_invalid',
   );
   assert.equal((await command(avaSocket, 'chat:set-paused', { paused: false })).ok, true);
+  const questionEvent = once(avaSocket, 'qa:state');
+  const submitted = await command(samSocket, 'qa:submit', { text: '  Can we ship?  ' });
+  assert.equal(submitted.ok, true);
+  assert.deepEqual(submitted.votedQuestionIds, []);
+  assert.equal(submitted.questions[0].text, 'Can we ship?');
+  assert.equal(submitted.questions[0].authorName, 'Sam');
+  const publicBoard = await questionEvent;
+  assert.equal('votedQuestionIds' in publicBoard, false);
+  const questionId = submitted.questions[0].id;
+  const voted = await command(avaSocket, 'qa:vote', { questionId });
+  assert.equal(voted.ok, true);
+  assert.deepEqual(voted.votedQuestionIds, [questionId]);
+  assert.equal(voted.questions[0].voteCount, 1);
+  assert.deepEqual(await command(avaSocket, 'qa:vote', { questionId }), voted);
+  assert.deepEqual((await command(samSocket, 'qa:state')).votedQuestionIds, []);
+  assert.equal(
+    (await command(samSocket, 'qa:submit', { text: 'Forged', authorName: 'Ava' })).error,
+    'invalid_payload',
+  );
   assert.equal(await redis.get(`${discussionPrefix}:rev`), stageRevision);
   const discussionEnded = once(samSocket, 'room:ended');
   assert.equal((await command(avaSocket, 'room:leave')).ok, true);
   assert.deepEqual(await discussionEnded, { roomId: discussion.id });
-  assert.equal(await redis.exists(...chatKeys(discussionPrefix), ...liveKeys(discussionPrefix)), 0);
+  assert.equal(
+    await redis.exists(
+      ...chatKeys(discussionPrefix),
+      ...qaKeys(discussionPrefix),
+      ...liveKeys(discussionPrefix),
+    ),
+    0,
+  );
   assert.equal((await command(samSocket, 'chat:history')).error, 'not_joined');
+  assert.equal((await command(samSocket, 'qa:state')).error, 'not_joined');
   console.log(
-    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, and cleanup.',
+    'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, Q&A submit/one-vote/private acknowledgements, and cleanup.',
   );
 } finally {
   gateway?.onModuleDestroy();
   live?.onModuleDestroy();
   await chat?.onModuleDestroy();
+  await qa?.onModuleDestroy();
   for (const socket of clients) socket.disconnect();
   await new Promise((resolve) => server.close(resolve));
   if (http.listening) await new Promise((resolve) => http.close(resolve));
   try {
     if (redis.status === 'ready')
-      for (const id of roomIds)
+      for (const id of roomIds) {
+        await new QaRepository(redis).delete(roomPrefix(id, namespace));
         await redis.del(
           ...liveKeys(roomPrefix(id, namespace)),
           ...chatKeys(roomPrefix(id, namespace)),
         );
+      }
   } finally {
     redis.disconnect();
   }

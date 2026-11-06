@@ -8,6 +8,89 @@ import { env } from '../config/env';
 import { isUuid } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import type { ChatService } from '../chat/chat.service';
+import type { QaService } from '../qa/qa.service';
+
+it('parses Q&A strictly, binds commands to the socket room, and delivers the public board', async () => {
+  const state = { submissionsOpen: true, featured: null, questions: [] };
+  const ack = { ok: true as const, ...state, votedQuestionIds: ['1'] };
+  const submit = vi.fn<QaService['submit']>(async (session, _request, transport) => {
+    transport.state(session.room!.roomId, state);
+    return ack;
+  });
+  const vote = vi.fn<QaService['vote']>(async (session, _id, transport) => {
+    transport.state(session.room!.roomId, state);
+    return ack;
+  });
+  const readState = vi.fn<QaService['state']>(async () => ack);
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    {} as LiveService,
+    {} as LiveConnection,
+    {} as ChatService,
+    { submit, vote, state: readState } as unknown as QaService,
+  );
+  const emit = vi.fn(),
+    to = vi.fn(() => ({ emit }));
+  gateway.server = { to } as never;
+  const client = {
+    id: 'socket',
+    connected: true,
+    data: {
+      user: { id: 'guest', displayName: 'Guest' },
+      participantId: 'member',
+      generation: 2,
+      room: { roomId: 'bound-room', hostId: 'host', mode: 'WEBINAR', status: 'LIVE' },
+    },
+  };
+  for (const field of [
+    'roomId',
+    'authorName',
+    'displayName',
+    'participantId',
+    'userId',
+    'votes',
+    'createdAt',
+  ]) {
+    expect(
+      await gateway.submitQuestion(client as never, { text: 'Hi', [field]: 'forged' }),
+    ).toMatchObject({ error: 'invalid_payload' });
+    expect(
+      await gateway.voteQuestion(client as never, { questionId: '1', [field]: 'forged' }),
+    ).toMatchObject({ error: 'invalid_payload' });
+    expect(await gateway.questionState(client as never, { [field]: 'forged' })).toMatchObject({
+      error: 'invalid_payload',
+    });
+  }
+  expect(await gateway.submitQuestion(client as never, { text: 'a\nb' })).toMatchObject({
+    error: 'qa_invalid',
+  });
+  expect(await gateway.voteQuestion(client as never, { questionId: '01' })).toMatchObject({
+    error: 'invalid_payload',
+  });
+  for (const payload of [null, [], 1, 'text', true])
+    expect(await gateway.questionState(client as never, payload)).toMatchObject({
+      error: 'invalid_payload',
+    });
+  expect(submit).not.toHaveBeenCalled();
+  expect(vote).not.toHaveBeenCalled();
+  expect(readState).not.toHaveBeenCalled();
+  expect(await gateway.submitQuestion(client as never, { text: '  Hi  ' })).toEqual(ack);
+  expect(submit.mock.calls[0]![0]).toMatchObject({
+    id: 'socket',
+    participantId: 'member',
+    generation: 2,
+    room: client.data.room,
+  });
+  expect(submit.mock.calls[0]![1]).toEqual({ text: 'Hi' });
+  expect(await gateway.voteQuestion(client as never, { questionId: '1' })).toEqual(ack);
+  expect(vote.mock.calls[0]![1]).toBe('1');
+  expect(to).toHaveBeenCalledWith('bound-room');
+  expect(emit).toHaveBeenCalledTimes(2);
+  expect(emit).toHaveBeenCalledWith('qa:state', state);
+  expect(await gateway.questionState(client as never, undefined)).toEqual(ack);
+  expect(await gateway.questionState(client as never, {})).toEqual(ack);
+  expect(emit).toHaveBeenCalledTimes(2);
+});
 
 it('issues a membership UUID and uses it for later commands instead of the socket id', async () => {
   const join = vi.fn<LiveService['join']>(async (session, _request, _transport, participantId) => {
@@ -21,6 +104,7 @@ it('issues a membership UUID and uses it for later commands instead of the socke
     { join, update } as unknown as LiveService,
     {} as LiveConnection,
     {} as ChatService,
+    {} as QaService,
   );
   const client = {
     id: 'transport-id',
@@ -74,6 +158,7 @@ it.each(['host', 'waiter'])(
       { join } as unknown as LiveService,
       {} as LiveConnection,
       {} as ChatService,
+      {} as QaService,
     );
     const client = { id: `socket-${userId}`, connected: true, data: { user: { id: userId } } };
     const ack = await gateway.join(client as never, {
@@ -100,6 +185,7 @@ it('gives synthetic joins no resume credential and rejects an expired JWT before
     { join, resume } as unknown as LiveService,
     {} as LiveConnection,
     {} as ChatService,
+    {} as QaService,
   );
   const client = {
     id: 'bot-socket',
@@ -179,6 +265,7 @@ it('drops sockets on Redis loss without trying to end catalog rooms', async () =
       { leave } as unknown as LiveService,
       connection,
       {} as ChatService,
+      {} as QaService,
     );
     const disconnectSockets = vi.fn((close?: boolean) => {
       expect(close).toBe(true);
@@ -208,6 +295,7 @@ it('bounds concurrent authentication before starting additional user lookups', a
     {} as LiveService,
     { whenLost: () => {} } as unknown as LiveConnection,
     {} as ChatService,
+    {} as QaService,
   );
   let middleware!: (socket: unknown, next: (error?: Error) => void) => void;
   gateway.afterInit({
@@ -265,6 +353,7 @@ it('strictly parses chat payloads and uses only the socket-bound membership and 
     {} as LiveService,
     {} as LiveConnection,
     { send, history: readHistory, setPaused } as unknown as ChatService,
+    {} as QaService,
   );
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
@@ -315,12 +404,13 @@ it('strictly parses chat payloads and uses only the socket-bound membership and 
   expect(emit).not.toHaveBeenCalledWith('room:state', expect.anything());
 });
 
-it('charges all chat events to the socket event budget and preserves the leave bypass', () => {
+it('charges chat and Q&A events to the socket event budget and preserves the leave bypass', () => {
   const gateway = new SignalingGateway(
     {} as SessionsService,
     {} as LiveService,
     {} as LiveConnection,
     {} as ChatService,
+    {} as QaService,
   );
   let middleware!: (packet: unknown[], next: () => void) => void;
   gateway.handleConnection({
@@ -334,7 +424,14 @@ it('charges all chat events to the socket event budget and preserves the leave b
     middleware(['chat:send', {}, vi.fn()], next);
     expect(next).toHaveBeenCalledOnce();
   }
-  for (const event of ['chat:send', 'chat:history', 'chat:set-paused']) {
+  for (const event of [
+    'chat:send',
+    'chat:history',
+    'chat:set-paused',
+    'qa:submit',
+    'qa:vote',
+    'qa:state',
+  ]) {
     const ack = vi.fn(),
       next = vi.fn();
     middleware([event, {}, ack], next);
@@ -354,6 +451,7 @@ it('routes schedule commands through the host membership and validates waiter ta
     { scheduleCommand, update } as unknown as LiveService,
     {} as LiveConnection,
     {} as ChatService,
+    {} as QaService,
   );
   const client = {
     id: 'socket',

@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 is verified; the release broadcast smoke is unverified because `ffmpeg` is absent from `PATH`. C02 through C06 remain planned.\
+**Status:** in progress. V3P5-C01 is committed and C02 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C03 through C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -51,9 +51,9 @@ Keep guest create, register, login, promotion, Google sign-in, replay visibility
 
 ## 2. V3P5-C01 — Question bounds
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `feat(shared): add question bounds`\
-**Actual commit:**
+**Actual commit:** `8a807c3`
 
 **Why:** Submit and the panel need one parser and one set of numbers before Redis accepts a question. Covers the parse half of QA3-01.
 
@@ -98,7 +98,7 @@ Then `pnpm typecheck` and `pnpm lint` if the affected-check plan selects them.
 
 ## 3. V3P5-C02 — Accept a question and one vote
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `feat(api-qa): accept a question and one vote`\
 **Actual commit:**
 
@@ -116,10 +116,17 @@ Then `pnpm typecheck` and `pnpm lint` if the affected-check plan selects them.
 - `apps/api/src/qa/scripts/vote.lua`
 - `apps/api/src/qa/scripts/state.lua`
 - `apps/api/src/qa/scripts/delete.lua`
+- `apps/api/nest-cli.json` (copy the new Lua assets)
+- `apps/api/AGENTS.md` (Q&A owner navigation)
 - `apps/api/src/live/live.module.ts`
 - `apps/api/src/live/live.service.ts`
+- `apps/api/src/live/live.service.test.ts`
+- `apps/api/src/live/live.integration.test.ts` (scope the existing Redis monitor to its owned room)
 - `apps/api/src/live/signaling.gateway.ts`
+- `apps/api/src/live/signaling.gateway.test.ts`
 - `apps/api/src/live/signaling.messages.ts`
+- `scripts/check-artifacts.mjs` (verify compiled Q&A Lua)
+- `scripts/smoke-live.mjs` (supply the new gateway dependency and exercise Q&A over sockets)
 
 **Implementation:**
 
@@ -140,6 +147,16 @@ pnpm --filter @stageflow/shared test
 Redis tests require `REDIS_URL` and an owned prefix, as `chat.repository.test.ts` does. Assert the ten `liveKeys` are not written by a question command. Then run typecheck, lint, and the affected-check selection.
 
 **Done when:** Two seeded members can submit and vote on real Redis. A forged author is ignored. Question 101, the rate caps, a waiter, and a synthetic speaker fail as specified. Chat tests pass without a behavior change. A thrown repository does not drop the stage or the broadcast. `Actual commit` is recorded after the slice commit.
+
+**Verification record (2026-11-06):**
+
+- Added the independent repository and four atomic Lua scripts, `qaKeys`, the 32-waiting service queue, `authorizeQa`, and `qa:submit`, `qa:vote`, and `qa:state` handlers. Mutations publish the public board; only the caller's ack includes `votedQuestionIds`. The eight error messages were already complete in C01. Host moderation, UI, and canvas work remain planned.
+- Real Redis tests use unique owned `sf:itest:` prefixes and delete their Q&A keys and fixture live/chat keys in `afterAll`. Twelve repository tests cover NOSCRIPT-only retry, empty state without writes, server identity, concurrent submit and repeat votes, all numeric caps, eligibility and transport bindings, rate-hash capacity/reclamation, resumed membership buckets, ordering including ids above JavaScript's safe integer range, feature projection, TTL refresh, and scoped/idempotent deletion. DUMP comparisons and participant TTL assertions show Q&A leaves all ten live keys and chat keys alone.
+- Fourteen service tests cover publication order, private vote acks, server bounds/time, all store failures, Redis readiness/throws, stale/queued bindings, pre-start hosts, waiter/demo rejection, and ended rooms. A thrown repository and a full queue leave the stage snapshot and active broadcast unchanged; guest leave completes without calling broadcast stop. Gateway tests verify strict fields, room binding, empty-state payloads and event budgets. Shutdown tests verify deletion immediately after chat and retry before transport end.
+- `pnpm --filter @stageflow/api test -- src/qa/qa.repository.test.ts src/qa/qa.service.test.ts src/chat/chat.repository.test.ts src/chat/chat.service.test.ts src/live/live.service.test.ts src/live/signaling.gateway.test.ts`, `pnpm --filter @stageflow/shared test`, `pnpm typecheck`, and `pnpm lint` passed. Additional ordering/resume coverage was then included in the full API run.
+- The affected-check plan for all changed code/config/tooling selected `check:release`. Its tooling (49), typechecks, lint, shared (454) and web (499) tests passed. Its first full API run exposed a pre-existing global Redis MONITOR assertion that included another fixture's writes. The assertion now filters to its own room prefix. After that fix, `pnpm --filter @stageflow/api test` passed all 35 files / 498 tests, including the concurrent Redis suites. Final API typecheck/lint were rerun for that test edit.
+- The remaining selected commands were run explicitly: both package builds, `pnpm format:check`, `pnpm check:artifacts`, and `pnpm smoke:live` passed. Nest copies all four Q&A Lua files and artifacts verify byte equality with source. The compiled live smoke uses real sockets and Redis to check trimmed submit, membership author, one vote, duplicate vote, caller-only votes, strict forged-author refusal, unchanged stage revision, and room-end cleanup. This is server evidence, not browser UI evidence.
+- `pnpm smoke:broadcast` failed before encoder verification with `spawn ffmpeg ENOENT`; FFmpeg is absent from `PATH`. The selected release gate is not fully passed. Vite retained its existing large-chunk warning. QA3-01 now has parser/server evidence and its browser half remains planned. QA3-04 has chat/server failure-isolation evidence; its paint half remains planned. No existing V1/V2 acceptance gaps were closed.
 
 ## 4. V3P5-C03 — Host feature and dismiss
 
