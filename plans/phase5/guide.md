@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 through C05 are committed; C06 documentation is verified and ready for commit. C05 passed the release check and observed the featured author/question in played live HLS and replay using the existing temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
+**Status:** complete. V3P5-C01 through C06 are committed and the final slice hash is recorded. C05 passed the release check and observed the featured author/question in played live HLS and replay using the existing temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -309,9 +309,9 @@ Then typecheck, lint, and the affected-check selection. Browser or FFmpeg eviden
 
 ## 7. V3P5-C06 — README
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe moderated questions`\
-**Actual commit:**
+**Actual commit:** `4b3c389`
 
 **Why:** The README has to say who can ask, that the webinar frame carries the featured question, and that a meeting does not gain a broadcast.
 

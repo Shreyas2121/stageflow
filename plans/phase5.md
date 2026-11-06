@@ -1,6 +1,6 @@
 # V3 Phase 5 — Moderated Q&A and the canvas lower-third
 
-**Status:** all six slices verified; C01 through C05 are committed and C06 documentation is ready for commit. QA3-01 through QA3-04 have their required evidence. C05 passed the release check and observed played live HLS/replay with the temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
+**Status:** complete. C01 through C06 are committed and the final slice hash is recorded. QA3-01 through QA3-04 have their required evidence. C05 passed the release check and observed played live HLS/replay with the temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.6`, Sections 4, 9, 10, and 12 (QA3-01 through QA3-04). Identity, Google, replay lifecycle, and scheduling stay as shipped in `plans/phase1.md`, `plans/phase2.md`, `plans/phase3.md`, and `plans/phase4.md`.\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns V3P5-C01 through V3P5-C06. Those ids are not the V1 commits in [V1/phase5/guide.md](V1/phase5/guide.md) or the V2 commits in [V2/phase5/guide.md](V2/phase5/guide.md).\
