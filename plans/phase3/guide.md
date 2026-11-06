@@ -197,7 +197,7 @@ Regressions live in `replay-mutations.test.ts`, `hls-path.test.ts`, `broadcasts.
 
 1. Add a visibility request and a delete request next to `listBroadcasts`. Parse the visibility response with `parseBroadcast`. A 204 delete has no catalog body.
 2. Pass `isHost` from `RoomList` into `RoomHistory`. Render phase Section 5.5. Use the existing `Button`. The first delete click only reveals **Delete this replay** and **Cancel**.
-3. After a successful hide or share, show the new label. After a successful delete, remove the row. After a failure, refetch the recordings and show the API message. Guest sessions and `STARTING`, `LIVE`, and `STOPPING` rows render no hide or delete control.
+3. After a successful hide or share, show the new label. After a successful delete, remove the row. After a failure, refetch the recordings and show the API message. V3M-C08 also refreshes owner-only unfinished deletions and supplies explicit pending-only retries; successful recovery clears the original deletion error. Guest sessions and `STARTING`, `LIVE`, and `STOPPING` rows render no hide or delete control.
 4. Keep `hls`, `LiveRoom`, and chat out of the home page and the history component. The entry-graph test still forbids `hls` on home. The replay page is unchanged apart from receiving `visibility` on the catalog object.
 5. In the browser, seed two disposable `READY` rows and playlists under a temporary data root: one `LINK` and one `HOST`. As a guest, play the link replay and confirm the hidden replay says no broadcast exists. As the registered owner, play the hidden replay, hide the link replay, share it again, and delete one finished row. Confirm the in-flight row has no delete control. Record the browser. If no browser is available, leave this half unverified and named. Do not mark an FFmpeg or physical-device observation verified.
 
@@ -266,3 +266,10 @@ Status: committed. Proposed commit: `fix(replay): preserve non-playable state af
 Actual commit: `c0ef435`.
 
 R06 supersedes the historical C03 behavior that restored finished status for every removal or row-delete failure. Restoration is now limited to failures before recursive removal starts; later failures and missing-directory retries retain DELETING. Focused failure-matrix, protected HTTP, and PostgreSQL tests passed (35); the selected API checks passed all 566 tests, typecheck/lint/build/artifacts, repository formatting, and live/broadcast smokes. Detailed scope, commands, and limitations are recorded in [phase3.md](../phase3.md). Discoverable deletion recovery remains the separate C08/R07 slice, and existing physical/VPS acceptance gaps remain open.
+
+## Maintenance: V3M-C08 — Recover interrupted deletion (2026-11-06)
+
+Status: verified; awaiting commit. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
+Actual commit:
+
+R07 is resolved with paginated owner-only unfinished-deletion inventory and explicit pending-only retries in the recordings UI. Claims stay unplayable; failures stay actionable across restart. This is the review's owner-visible recovery option, with no automatic deletion job or polling on the shared VPS. Full release checks passed (49 tooling, 456 shared, 527 web, 575 API tests and both smokes), including four interrupted compiled-service process fixtures. A final UI error-clearing follow-up passed selected web checks again and the real API/PostgreSQL browser probe, including restart, failure/retry, privacy, and 390px layout. Commands, artifacts, and observation limits are recorded in [phase3.md](../phase3.md). Existing physical/VPS acceptance gaps remain open.

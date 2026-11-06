@@ -198,6 +198,25 @@ it('filters replay visibility and delete claims in PostgreSQL before paging', as
       );
     }
   }
+  for (const limit of [1, 2]) {
+    const pending = new Set(
+      records.filter((row) => row.status === 'DELETING').map((row) => row.id),
+    );
+    await walk(
+      (cursor) =>
+        service.listReplayDeletions(
+          slug,
+          { limit: String(limit), ...(cursor ? { cursor } : {}) },
+          owner,
+        ),
+      limit,
+      order.filter((row) => pending.has(row.id)),
+    );
+  }
+  for (const user of outsiders)
+    await expect(service.listReplayDeletions(slug, {}, user)).rejects.toMatchObject({
+      response: { statusCode: user.isGuest && user.id === owner.id ? 403 : 404 },
+    });
 });
 
 afterAll(async () => {

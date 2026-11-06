@@ -52,9 +52,12 @@ async function fixture(
       response.json({ ok: true });
     },
   );
-  app.post('/api/broadcasts/:id/visibility', (_request, response) => {
-    response.status(204).end();
-  });
+  app.post(
+    ['/api/broadcasts/:id/visibility', '/api/broadcasts/:id/deletion-retry'],
+    (_request, response) => {
+      response.status(204).end();
+    },
+  );
   app.delete('/api/broadcasts/:id', (_request, response) => {
     response.status(204).end();
   });
@@ -359,7 +362,7 @@ it('charges visibility and delete only to the ordinary control budget', async ()
       for (const [method, path, status] of [
         ['POST', '/api/sessions/guest', 200],
         ['POST', '/api/sessions/guest', 429],
-        ['POST', '/api/broadcasts/abc/visibility', 204],
+        ['POST', '/api/broadcasts/abc/deletion-retry', 204],
         ['DELETE', '/api/broadcasts/abc', 204],
         ['POST', '/api/broadcasts/abc/visibility', 204],
         ['DELETE', '/api/broadcasts/abc', 429],

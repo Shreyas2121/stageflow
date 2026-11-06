@@ -5,6 +5,16 @@ export type BroadcastVisibility = 'LINK' | 'HOST';
 
 export type BroadcastStatus = 'STARTING' | 'LIVE' | 'STOPPING' | 'READY' | 'FAILED';
 
+/** Owner-only inventory of explicit deletion intent; never a playable catalog entry. */
+export type PendingReplayDeletion = { id: string; roomId: string; createdAt: string };
+export type ReplayDeletionPage = { items: PendingReplayDeletion[]; nextCursor: string | null };
+
+export function parsePendingReplayDeletion(value: unknown): PendingReplayDeletion | null {
+  if (!record(value) || !isUuid(value.id) || !isUuid(value.roomId) || !isIsoDate(value.createdAt))
+    return null;
+  return { id: value.id, roomId: value.roomId, createdAt: value.createdAt };
+}
+
 export type ChunkHistory = {
   nextExpected: number;
   acceptedHashes: ReadonlyMap<number, string>;

@@ -8,8 +8,14 @@ import {
   setBroadcastVisibility,
   listBroadcasts,
   listRooms,
+  listReplayDeletions,
+  retryReplayDeletion,
 } from './api';
-import { roomBroadcastsQueryOptions, roomsQueryOptions } from './query-options';
+import {
+  roomBroadcastsQueryOptions,
+  roomsQueryOptions,
+  replayDeletionsQueryOptions,
+} from './query-options';
 
 const userId = '550e8400-e29b-41d4-a716-446655440000';
 const otherId = '550e8400-e29b-41d4-a716-446655440099';
@@ -152,6 +158,67 @@ describe('guest catalog pages', () => {
     expect(JSON.stringify(roomsQueryOptions(session).queryKey)).not.toContain(token);
     expect(roomsQueryOptions(null).queryFn).toBe(skipToken);
     expect(roomBroadcastsQueryOptions(null, slug).queryFn).toBe(skipToken);
+    expect(replayDeletionsQueryOptions(session, slug).queryKey).toEqual([
+      'private',
+      userId,
+      'replay-deletions',
+      slug,
+    ]);
+    expect(replayDeletionsQueryOptions(null, slug).queryFn).toBe(skipToken);
+  });
+
+  it('pages deletion inventory with cancellation and validates its narrow response', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:4000/api');
+    const item = { id: broadcastId, roomId: broadcast().roomId, createdAt: broadcast().createdAt };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: cursor }))
+      .mockResolvedValueOnce(Response.json({ items: [], nextCursor: null }));
+    vi.stubGlobal('fetch', fetchMock);
+    const signal = new AbortController().signal;
+    await expect(listReplayDeletions(slug, token, null, signal)).resolves.toEqual({
+      items: [item],
+      nextCursor: cursor,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:4000/api/rooms/${slug}/broadcast-deletions`,
+      expect.objectContaining({
+        headers: { Authorization: `Bearer ${token}` },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    await listReplayDeletions(slug, token, cursor);
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get('cursor')).toBe(cursor);
+    for (const body of [
+      { items: [{ ...item, id: 'bad' }], nextCursor: null },
+      { items: [], nextCursor: 'bad' },
+      [],
+    ]) {
+      fetchMock.mockResolvedValueOnce(Response.json(body));
+      await expect(listReplayDeletions(slug, token, null)).rejects.toMatchObject({
+        code: 'invalid_response',
+      });
+    }
+  });
+
+  it('retries only persisted deletion intent and preserves retry failures', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'http://localhost:4000/api');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        Response.json({ error: 'broadcast_delete_failed', message: 'Try again.' }, { status: 500 }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(retryReplayDeletion(broadcastId, token)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:4000/api/broadcasts/${broadcastId}/deletion-retry`,
+      expect.objectContaining({ method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+    );
+    await expect(retryReplayDeletion(broadcastId, token)).rejects.toMatchObject({
+      code: 'broadcast_delete_failed',
+      message: 'Try again.',
+    });
   });
 });
 

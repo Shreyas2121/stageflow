@@ -54,12 +54,12 @@ These are the exclusions this phase is most likely to violate.
 
 ## 4. Requirement mapping
 
-| ID     | Meaning in this phase                                                                                                                                | What this phase does not claim                                                  |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| LIB-01 | A guest with the URL can play a `LINK` replay. A `HOST` replay plays for the registered owner and is not found for anyone else, on every byte        | A physical-device or FFmpeg pixel observation                                   |
-| LIB-02 | Migration and new broadcasts are `LINK`. Promotion does not change visibility. A guest owner cannot set `HOST`                                       | Hiding a replay that is still `STARTING`, `LIVE`, or `STOPPING`                 |
-| LIB-03 | The registered owner deletes a `READY` or `FAILED` attempt. The row and that broadcast directory are both gone. An escaping path is not removed      | Deleting the developer data directory or running the broadcast smoke against it |
-| LIB-04 | `STARTING`, `LIVE`, and `STOPPING` cannot be deleted. A failed directory delete restores the row, keeps it visible to the owner, and reports failure | A background job that finishes a claim after restart                            |
+| ID     | Meaning in this phase                                                                                                                           | What this phase does not claim                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| LIB-01 | A guest with the URL can play a `LINK` replay. A `HOST` replay plays for the registered owner and is not found for anyone else, on every byte   | A physical-device or FFmpeg pixel observation                                   |
+| LIB-02 | Migration and new broadcasts are `LINK`. Promotion does not change visibility. A guest owner cannot set `HOST`                                  | Hiding a replay that is still `STARTING`, `LIVE`, or `STOPPING`                 |
+| LIB-03 | The registered owner deletes a `READY` or `FAILED` attempt. The row and that broadcast directory are both gone. An escaping path is not removed | Deleting the developer data directory or running the broadcast smoke against it |
+| LIB-04 | Live/active attempts cannot be deleted. Uncertain removal retains non-playable deletion intent, discoverable by the owner with explicit retry   | An automatic age-based retention or background deletion job                     |
 
 ## 5. System contracts
 
@@ -67,7 +67,7 @@ These are the exclusions this phase is most likely to violate.
 
 Migration `AddBroadcastVisibility1794096000000` adds `visibility text NOT NULL DEFAULT 'LINK'` with a check for `LINK` and `HOST`. It also allows status `DELETING` in `broadcasts_status_check`. Existing rows stay `LINK`. The smoke list appends this name after `AddGoogleSubject1794009600000`.
 
-`DELETING` is the delete claim. It is not a catalog status, not a socket status, and not a value the client can send. `BroadcastResponse` gains `visibility`. The live room snapshot does not gain it. A snapshot projection of a `DELETING` row is null.
+`DELETING` is the delete claim. It is not a catalog status, not a socket status, and not a value the client can send. `BroadcastResponse` gains `visibility`. The live room snapshot does not gain it. A snapshot projection of a `DELETING` row is null. Owner recovery has a separate `ReplayDeletionPage` of minimal `PendingReplayDeletion` records (id, roomId, createdAt), without media URLs or catalog status.
 
 New broadcasts remain `LINK`. `failInFlight` still changes only `STARTING`, `LIVE`, and `STOPPING`.
 
@@ -113,11 +113,15 @@ For a `READY` or `FAILED` row that is not the active id:
 5. Once recursive removal begins, even a rejected removal may have deleted some media. Keep `DELETING` on partial/uncertain removal or a later row-delete failure; never restore playback. Also keep `DELETING` if the directory was already absent. Record `error_message` as `The replay could not be deleted. Try again.` with a conditional update and return `broadcast_delete_failed`. A failure before removal begins may restore the prior status. The owner can retry by id.
 6. If the row is already `DELETING` and the directory is gone, the owner's retry deletes the row and does not offer playback. There is no sweeper.
 
-A failed claim restore or error update matches only a row still `DELETING`; it never recreates a deleted row or overwrites a changed status. Overlapping owner retries may both remove the same confined directory. They must not remove any other path. Failed deletion after the irreversible boundary is omitted from normal history and cannot serve JSON, thumbnails, or HLS. Discoverable restart recovery remains the separate V3M-C08 maintenance slice.
+A failed claim restore or error update matches only a row still `DELETING`; it never recreates a deleted row or overwrites a changed status. Overlapping owner retries may both remove the same confined directory. They must not remove any other path. Failed deletion after the irreversible boundary is omitted from normal history and cannot serve JSON, thumbnails, or HLS.
+
+`GET /api/rooms/:slug/broadcast-deletions` lists only DELETING rows for the current registered room owner. A guest owner receives `replay_owner_required`; other users receive `broadcast_not_found`. Default page size is 20, maximum 50, with the existing exact-timestamp/UUID history cursor and filtering before the page limit. The endpoint returns only id, roomId, and createdAt; it never offers playback. The inventory query does not read Redis.
+
+`POST /api/broadcasts/:id/deletion-retry` returns 204 after finishing an existing DELETING claim. It uses the same ownership, active Redis id, confined-path, conditional-delete, and per-id concurrency checks as DELETE. Any non-DELETING or missing row returns `broadcast_not_found`, so a stale retry cannot start a fresh deletion. Ownership, room id, and status are rechecked after the Redis read before disk work. A Redis read failure leaves the durable claim and files untouched. Explicit retries use the ordinary HTTP control budget; there is no polling, automatic retry loop, or background retention/deletion job. Completion whose reply was lost appears as an empty inventory after refetch/reload; another retry is ordinary not-found.
 
 ### 5.5 Home
 
-The recordings list shows **Anyone with the link** or **Only you** on each broadcast. For a registered owner, a `READY` or `FAILED` row offers **Hide replay** or **Share replay**, then **Delete replay**. Delete asks for **Delete this replay** or **Cancel** before it sends the request. In-flight rows and guest sessions do not show these controls. A failed delete reports the API sentence and refetches history. A restored pre-removal failure stays on the list; a retained `DELETING` claim is omitted and currently requires a known-id owner retry. Discoverable retry/restart reconciliation remains V3M-C08. A success removes the row. The replay page keeps the existing not-found copy and does not say that a replay is private.
+The recordings list shows **Anyone with the link** or **Only you** on each broadcast. For a registered owner, a `READY` or `FAILED` row offers **Hide replay** or **Share replay**, then **Delete replay**. Delete asks for **Delete this replay** or **Cancel** before it sends the request. In-flight rows and guest sessions do not show these controls. A failed delete reports the API sentence and refetches history and deletion inventory. A restored pre-removal failure stays on the normal list; a retained DELETING claim appears under **Unfinished deletions**, labelled by creation time with **Retry deletion**. No media link, thumbnail, or visibility control is rendered there. An unsuccessful retry refreshes both lists, shows its error, and permits another explicit retry; success removes the claim. Retry buttons are disabled while a retry or inventory refresh is pending. Inventory uses the shared catalog paging/retry controls, has no automatic retries/polling, and stays private to the current session; guests do not mount it. A replaced session cannot repopulate the old cache from a late mutation result. The replay page keeps the existing not-found copy and does not say that a replay is private.
 
 These controls stay on the home library. They do not import `hls.js`, the live room, or chat.
 
@@ -161,7 +165,7 @@ The next phase may rely on these once the slices are committed:
 - Every broadcast has `visibility`, and older rows are `LINK`.
 - A `HOST` replay is readable only by the registered owner. A Google-only host qualifies because `is_guest` is false.
 - A deleted attempt is gone from the catalog. Its directory is gone. The room remains.
-- An abandoned `DELETING` row stays unplayable until the owner retries. Nothing sweeps it.
+- An abandoned `DELETING` row stays unplayable and appears in the registered owner's unfinished-deletions list after reload/restart, until an explicit retry completes it. Nothing sweeps it.
 
 V3 phase 4 is specified in [phase4.md](phase4.md). It adds scheduled rooms and waiting-room admission. That file does not authorize implementation.
 
@@ -211,3 +215,22 @@ Evidence:
 - Final changed-file formatting, local Markdown target checks, and `git diff --check` passed. The untracked review.md remains untouched and outside the commit.
 
 This closes R06's deletion-integrity defect within the tested boundaries. V3M-C08/R07 is not implemented: persisted claims still need discoverable retry/restart reconciliation, and an owner currently retries by known broadcast id. No new browser, physical-device, audible-output, native-picker, VPS capacity, or public-launch acceptance is claimed. Earlier historical evidence remains scoped to its original revision; Sections 5.4/5.5 and LIB-04 above now state the corrected failure contract.
+
+## Maintenance: V3-R07 / V3M-C08 (2026-11-06)
+
+Status: verified; awaiting commit. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
+Actual commit:
+
+Chose the review's owner-visible pending/retry option. Registered owners now discover durable DELETING claims under Your rooms > Recordings > Unfinished deletions after a failure, reload, or API restart. A separate owner-only paginated endpoint returns minimal id/roomId/createdAt records; DELETING remains excluded from playable catalogs, snapshots, thumbnails, and HLS. The pending-only POST retry finishes the original deletion, returns ordinary not-found if its row is missing or has changed status, rechecks ownership/state after Redis, and preserves C07's irreversible-removal boundary and confined paths. Redis errors refuse disk work without losing the claim. Inventory pages default to 20, cap at 50, and use exact timestamp/UUID cursors. Explicit retries use the existing ordinary control rate budget and per-id concurrency guard. No automatic retries, polling, retention sweeper, schema migration, or background filesystem work were introduced, which also preserves headroom on the shared Hostinger KVM 2 target.
+
+The web inventory uses the existing infinite-query paging, cancellation, session cache isolation, explicit Retry/Load more controls, and guest exclusion. Mutations refresh both catalogs only for the initiating session token; successful recovery clears the original deletion error without reloading. Failed retries stay actionable. The API/web guides now point to this owner and record the durable constraints.
+
+Evidence:
+
+- Focused API mutation/HTTP/PostgreSQL/admission tests passed (55 across four files). They cover minimal private inventory, guest/foreign-owner refusal, invalid paging, exact PostgreSQL pagination with filtering before limits, pending-only refusal for all other statuses, ownership/status changes during Redis reads, Redis failure/active-id refusal, and successful retries. Focused web API/catalog/entry-graph tests passed (36); focused shared broadcast/parser tests passed (11).
+- The affected planner selected the full release. `pnpm check:release` passed 49 tooling, 456 shared, 527 web, and 575 API tests; workspace typecheck/lint, both builds, formatting, artifacts, and live/broadcast smokes. Process-local FFMPEG_PATH used the existing temporary FFmpeg 6.0 executable. The maintained broadcast smoke now abruptly exits four compiled-service children against its disposable PostgreSQL/media fixture after a committed claim, partial file removal, full removal before row deletion, and a committed delete before its reply. The restarted real API lists only the three unfinished claims to their owner with page size one, excludes them from normal history, rejects other accounts, finishes each retry, and preserves the room. The already deleted row stays gone. The smoke also retains its real HLS decode, READY restart, guest-budget, missing-binary, and foreign-namespace checks and cleans up owned fixtures.
+- A final UI follow-up clears the original deletion error after successful recovery. After it, `pnpm check:affected --files apps/web/src/features/rooms/room-history.tsx apps/web/src/features/rooms/replay-deletions.tsx` passed formatting, shared preparation, web typecheck/lint, all 527 web tests, build, and web artifacts. The existing Vite large-chunk warning remains; the deferred player stays deferred.
+- Final browser probe: `pnpm --filter @stageflow/api exec dotenv -e ../../.env -- node C:/Users/rasai/AppData/Local/Temp/stageflow-c08-browser.cjs` passed in Chromium 156.0.8078.4 headless on Windows. Real API/PostgreSQL/Redis and Vite used owned ports, namespace, database, and media. A fixture-only PostgreSQL trigger injected real row-delete failures after media removal. The UI revealed the pending claim with no automatic retry, retained a failed explicit retry, completed recovery and cleared both errors without reload, discovered another persisted claim after actual API restart/reload, rejected guest/foreign inventory access, and completed its retry. Guest UI made no deletion-inventory requests. Desktop and 390px screenshots were inspected; no horizontal overflow or uncaught page errors occurred. Final result/screenshots remain in C:/Users/rasai/AppData/Local/Temp/sf-c08-browser-egVvE3/; the initial passing probe is in sf-c08-browser-5i6emM. Both probes cleaned up owned API/Vite/browser/database/Redis/media fixtures. Temporary evidence is outside Git.
+- Changed-file formatting, local Markdown targets, and `git diff --check` passed. Developer services, environment files, and the untracked review.md were preserved.
+
+This resolves R07 through discoverable explicit owner recovery, including after restart; automatic startup reconciliation is not implemented or needed by this chosen option. No VPS load/capacity, real Google-provider, physical-device, audible-output, native-picker, or public-launch acceptance is claimed. The earlier C07 record's pending-C08 note describes that earlier commit and is superseded by this record.

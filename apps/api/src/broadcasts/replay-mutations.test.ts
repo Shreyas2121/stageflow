@@ -50,6 +50,7 @@ async function fixture(status: Broadcast['status'] = 'READY') {
         ? stored.status === where.status
         : where.status.value.includes(stored.status)));
   const repository = {
+    find: vi.fn(async () => (stored ? [structuredClone(stored)] : [])),
     findOneBy: vi.fn(async ({ id }: { id: string }) =>
       stored?.id === id ? structuredClone(stored) : null,
     ),
@@ -64,7 +65,7 @@ async function fixture(status: Broadcast['status'] = 'READY') {
       return { affected: 1 };
     }),
   };
-  const rooms = { getById: vi.fn(async () => room) };
+  const rooms = { getById: vi.fn(async () => room), getBySlug: vi.fn(async () => room) };
   const active = {
     read: vi.fn<(roomId: string) => Promise<string | null>>(async () => null),
     close: vi.fn(async () => {}),
@@ -436,4 +437,75 @@ it('lets the owner retry an interrupted DELETING claim with remaining files', as
   await f.service.deleteReplay(f.row.id, f.owner);
   expect(f.stored()).toBeNull();
   await expect(readFile(join(f.directory, 'index.m3u8'))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it('lists minimal pending deletion records only for the registered current owner', async () => {
+  const f = await fixture('DELETING');
+  await expect(f.service.listReplayDeletions('fixture', {}, f.owner)).resolves.toEqual({
+    items: [{ id: f.row.id, roomId: f.room.id, createdAt: f.row.createdAt.toISOString() }],
+    nextCursor: null,
+  });
+  expect(f.repository.find).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: { roomId: f.room.id, status: 'DELETING' },
+      take: 21,
+    }),
+  );
+  f.repository.find.mockClear();
+  for (const user of [
+    { ...f.owner, id: randomUUID() },
+    { ...f.owner, isGuest: true },
+  ])
+    await expect(f.service.listReplayDeletions('fixture', {}, user)).rejects.toMatchObject({
+      response: { error: user.isGuest ? 'replay_owner_required' : 'broadcast_not_found' },
+    });
+  expect(f.repository.find).not.toHaveBeenCalled();
+  for (const query of [{ limit: '51' }, { cursor: 'invalid' }])
+    await expect(f.service.listReplayDeletions('fixture', query, f.owner)).rejects.toMatchObject({
+      response: { statusCode: 400 },
+    });
+  expect(f.repository.find).not.toHaveBeenCalled();
+});
+
+it.each(['READY', 'FAILED', 'STARTING', 'LIVE', 'STOPPING'] as const)(
+  'a pending-only retry cannot delete a row that is now %s',
+  async (status) => {
+    const f = await fixture(status);
+    await expect(f.service.deleteReplay(f.row.id, f.owner, true)).rejects.toMatchObject({
+      response: { error: 'broadcast_not_found' },
+    });
+    expect(f.active.read).not.toHaveBeenCalled();
+    expect(await readFile(join(f.directory, 'index.m3u8'), 'utf8')).toBe('#EXTM3U');
+  },
+);
+
+it.each(['owner', 'status'] as const)(
+  'rechecks changed %s after the active-id read',
+  async (change) => {
+    const f = await fixture('DELETING');
+    f.active.read.mockImplementationOnce(async () => {
+      if (change === 'owner') f.room.hostId = randomUUID();
+      else await f.repository.update({ id: f.row.id }, { status: 'LIVE' });
+      return null;
+    });
+    await expect(f.service.deleteReplay(f.row.id, f.owner, true)).rejects.toMatchObject({
+      response: { error: 'broadcast_not_found' },
+    });
+    expect(f.repository.delete).not.toHaveBeenCalled();
+    expect(await readFile(join(f.directory, 'index.m3u8'), 'utf8')).toBe('#EXTM3U');
+  },
+);
+
+it('keeps a recovered deletion discoverable when Redis is down or its id is active', async () => {
+  const f = await fixture('DELETING');
+  f.active.read.mockRejectedValueOnce(new Error('Redis down')).mockResolvedValueOnce(f.row.id);
+  for (const error of ['broadcast_delete_failed', 'broadcast_not_deletable']) {
+    await expect(f.service.deleteReplay(f.row.id, f.owner, true)).rejects.toMatchObject({
+      response: { error },
+    });
+    expect((await f.service.listReplayDeletions('fixture', {}, f.owner)).items).toHaveLength(1);
+    expect(await readFile(join(f.directory, 'index.m3u8'), 'utf8')).toBe('#EXTM3U');
+  }
+  await f.service.deleteReplay(f.row.id, f.owner, true);
+  expect(f.stored()).toBeNull();
 });

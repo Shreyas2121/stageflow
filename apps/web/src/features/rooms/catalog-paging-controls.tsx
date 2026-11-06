@@ -7,7 +7,7 @@ export function CatalogPagingControls({
   empty,
 }: {
   page: ReturnType<typeof useCatalogPages>;
-  name: 'rooms' | 'recordings';
+  name: 'rooms' | 'recordings' | 'unfinished deletions';
   empty: string;
 }) {
   return (

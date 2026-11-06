@@ -71,13 +71,14 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
       return { affected: 1 };
     }),
     findOneBy: vi.fn(async ({ id }: { id: string }) => rows.find((row) => row.id === id) ?? null),
-    find: vi.fn(async ({ where }: { where: { roomId: string; visibility: unknown } }) =>
-      rows.filter(
-        (row) =>
-          row.roomId === where.roomId &&
-          row.status !== 'DELETING' &&
-          (where.visibility !== 'LINK' || row.visibility === 'LINK'),
-      ),
+    find: vi.fn(
+      async ({ where }: { where: { roomId: string; visibility?: unknown; status: unknown } }) =>
+        rows.filter(
+          (row) =>
+            row.roomId === where.roomId &&
+            (where.status === 'DELETING' ? row.status === 'DELETING' : row.status !== 'DELETING') &&
+            (where.visibility !== 'LINK' || row.visibility === 'LINK'),
+        ),
     ),
   };
   const roomService = {
@@ -215,6 +216,23 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
     ).toMatchObject({ error: 'media_not_found' });
     expect(await (await read(`broadcasts/${randomUUID()}`, guest)).json()).toEqual(missing);
     privateRow.status = 'DELETING';
+    expect(await (await read(`rooms/${rooms[0]!.slug}/broadcast-deletions`, owner)).json()).toEqual(
+      {
+        items: [
+          {
+            id: privateRow.id,
+            roomId: privateRow.roomId,
+            createdAt: privateRow.createdAt.toISOString(),
+          },
+        ],
+        nextCursor: null,
+      },
+    );
+    for (const user of [guest, otherHost]) {
+      const response = await read(`rooms/${rooms[0]!.slug}/broadcast-deletions`, user);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual(missing);
+    }
     for (const user of [owner, guest]) {
       for (const suffix of ['', '/thumbnail.jpg', '/hls/index.m3u8', '/hls/segment000001.ts'])
         expect(await (await read(`broadcasts/${privateRow.id}${suffix}`, user)).json()).toEqual(
@@ -277,6 +295,9 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
           .status,
       ).toBe(409);
       replay.status = 'READY';
+      const staleRetry = await read(`broadcasts/${replay.id}/deletion-retry`, user, 'POST');
+      expect(staleRetry.status).toBe(404);
+      expect(await staleRetry.json()).toEqual(missing);
       // A failed catalog delete after media removal must not publish the old READY projection.
       expect(await service.snapshot(replay.roomId, replay.id)).toMatchObject({ status: 'READY' });
       repository.delete.mockRejectedValueOnce(new Error('database unavailable after removal'));
@@ -314,7 +335,14 @@ it('enforces replay privacy on authenticated JSON, history, thumbnail, playlist,
       });
       expect(visibilityRetry.status).toBe(404);
       expect(await visibilityRetry.json()).toEqual(missing);
-      const deleted = await read(`broadcasts/${replay.id}`, user, 'DELETE');
+      const deletionPage = await read(
+        `rooms/${rooms.find((room) => room.id === replay.roomId)!.slug}/broadcast-deletions`,
+        user,
+      );
+      expect(await deletionPage.json()).toMatchObject({
+        items: [expect.objectContaining({ id: replay.id })],
+      });
+      const deleted = await read(`broadcasts/${replay.id}/deletion-retry`, user, 'POST');
       expect(deleted.status).toBe(204);
       expect(await deleted.text()).toBe('');
       expect(await (await read(`broadcasts/${replay.id}`, user)).json()).toEqual(missing);

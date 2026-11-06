@@ -5,6 +5,8 @@ import {
   parseHistoryCursor,
   parseRoomTitle,
   parseDisplayName,
+  parsePendingReplayDeletion,
+  type ReplayDeletionPage,
   type BroadcastResponse,
   type BroadcastVisibility,
   type CreateRoomRequest,
@@ -119,6 +121,44 @@ function parseBroadcastPage(body: unknown): BroadcastPage {
     items: body.items.map((item) => parseBroadcast(item)),
     nextCursor: parseNextCursor(body.nextCursor, 'Invalid broadcast page'),
   };
+}
+
+function parseReplayDeletionPage(body: unknown): ReplayDeletionPage {
+  if (!record(body) || !Array.isArray(body.items) || !('nextCursor' in body))
+    throw new Error('Invalid deletion page');
+  return {
+    items: body.items.map((item) => {
+      const parsed = parsePendingReplayDeletion(item);
+      if (!parsed) throw new Error('Invalid deletion page');
+      return parsed;
+    }),
+    nextCursor: parseNextCursor(body.nextCursor, 'Invalid deletion page'),
+  };
+}
+
+export function listReplayDeletions(
+  slug: string,
+  token: string,
+  cursor: string | null,
+  signal?: AbortSignal,
+): Promise<ReplayDeletionPage> {
+  return authenticatedRequest(
+    catalogPath(`/rooms/${encodeURIComponent(slug)}/broadcast-deletions`, cursor),
+    token,
+    parseReplayDeletionPage,
+    { signal },
+  );
+}
+
+export function retryReplayDeletion(id: string, token: string): Promise<void> {
+  return authenticatedRequest(
+    `/broadcasts/${encodeURIComponent(id)}/deletion-retry`,
+    token,
+    (body) => {
+      if (body !== undefined) throw new Error('Expected an empty retry response');
+    },
+    { method: 'POST' },
+  );
 }
 
 function catalogPath(path: string, cursor: string | null): string {

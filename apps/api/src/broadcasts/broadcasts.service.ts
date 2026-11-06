@@ -13,6 +13,7 @@ import {
   type BroadcastResponse,
   type CommandAck,
   type RoomSnapshot,
+  type ReplayDeletionPage,
 } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
@@ -768,21 +769,70 @@ export class BroadcastsService {
     return this.getById(id, user);
   }
 
-  async deleteReplay(id: string, user: User): Promise<void> {
+  async listReplayDeletions(
+    slug: string,
+    query: Record<string, unknown>,
+    user: User,
+  ): Promise<ReplayDeletionPage> {
+    const catalogRoom = await this.rooms.getBySlug(slug);
+    const room = await this.rooms.getById(catalogRoom.id);
+    if (!room || room.hostId !== user.id) throw this.broadcastNotFound();
+    if (user.isGuest !== false)
+      throw new ApiException(
+        403,
+        'replay_owner_required',
+        'Create a host account before changing this replay.',
+      );
+    const limit = parseCatalogLimit(query.limit);
+    if (!limit.ok) throw new ApiException(400, limit.error, limit.message);
+    const cursor = parseHistoryCursor(query.cursor);
+    if (!cursor.ok) throw new ApiException(400, cursor.error, cursor.message);
+    const rows = await this.broadcasts.find({
+      where: {
+        roomId: room.id,
+        status: 'DELETING',
+        ...(cursor.value
+          ? { id: beforeHistoryCursor(cursor.value.createdAt, cursor.value.id) }
+          : {}),
+      },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: limit.value + 1,
+    });
+    const items = rows.slice(0, limit.value).map((row) => ({
+      id: row.id,
+      roomId: row.roomId,
+      createdAt: row.createdAt.toISOString(),
+    }));
+    if (rows.length <= limit.value) return { items, nextCursor: null };
+    const last = items.at(-1)!;
+    const ordering = await readOrderingInstant(
+      (sql, parameters) => this.broadcasts.query(sql, parameters),
+      'broadcasts',
+      last.id,
+    );
+    const nextCursor = ordering ? encodeHistoryCursor(ordering, last.id) : null;
+    if (!nextCursor)
+      throw new ApiException(500, 'server_busy', 'The deletion page could not be read.');
+    return { items, nextCursor };
+  }
+
+  async deleteReplay(id: string, user: User, pendingOnly = false): Promise<void> {
     const row = await this.ownedReplay(id, user);
+    if (pendingOnly && row.status !== 'DELETING') throw this.broadcastNotFound();
     if (this.deleting.has(id)) throw this.broadcastNotFound();
     this.deleting.add(id);
     try {
-      await this.removeReplay(row);
+      await this.removeReplay(row, user);
     } finally {
       this.deleting.delete(id);
     }
   }
 
-  private async removeReplay(row: Broadcast): Promise<void> {
+  private async removeReplay(row: Broadcast, user: User): Promise<void> {
     const id = row.id;
     if (!['READY', 'FAILED', 'DELETING'].includes(row.status))
       throw new ApiException(409, 'broadcast_not_deletable', 'A live broadcast cannot be deleted.');
+    const previousStatus = row.status;
     let activeId: string | null;
     try {
       activeId = await this.activeBroadcast.read(row.roomId);
@@ -791,7 +841,10 @@ export class BroadcastsService {
     }
     if (activeId === id)
       throw new ApiException(409, 'broadcast_not_deletable', 'A live broadcast cannot be deleted.');
-    const previousStatus = row.status;
+    // Redis can take time to answer. Recheck ownership/state before touching disk.
+    const current = await this.ownedReplay(id, user);
+    if (current.roomId !== row.roomId || current.status !== previousStatus)
+      throw this.broadcastNotFound();
     if (previousStatus !== 'DELETING') {
       const claim = await this.broadcasts.update(
         { id, status: previousStatus },

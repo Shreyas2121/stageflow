@@ -6,6 +6,7 @@ import {
   buildHlsArgs,
   parseBroadcast,
   parseBroadcastVisibility,
+  parsePendingReplayDeletion,
   resolveBroadcastMediaUrl,
   type BroadcastResponse,
   type ChunkHistory,
@@ -14,6 +15,26 @@ import {
 
 const emptyHistory = (): ChunkHistory => ({ nextExpected: 0, acceptedHashes: new Map() });
 const first: ChunkMetadata = { sequence: 0, sha256: 'a'.repeat(64), byteLength: 1024 };
+
+it('parses owner-only deletion inventory without exposing catalog/media fields', () => {
+  const item = {
+    id: '11111111-1111-4111-8111-111111111111',
+    roomId: '22222222-2222-4222-8222-222222222222',
+    createdAt: '2026-11-06T00:00:00.000Z',
+  };
+  expect(
+    parsePendingReplayDeletion({ ...item, playlistUrl: '/private', status: 'DELETING' }),
+  ).toEqual(item);
+  for (const value of [
+    null,
+    [],
+    {},
+    { ...item, id: '..' },
+    { ...item, roomId: 'bad' },
+    { ...item, createdAt: '2026-02-31T00:00:00.000Z' },
+  ])
+    expect(parsePendingReplayDeletion(value)).toBeNull();
+});
 
 describe('acceptChunk', () => {
   it('decides without mutating or iterating the supplied ledger', () => {

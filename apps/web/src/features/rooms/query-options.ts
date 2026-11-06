@@ -1,6 +1,6 @@
 import { queryOptions, skipToken, type QueryClient } from '@tanstack/react-query';
 import type { GuestSessionResponse } from '@stageflow/shared';
-import { getRoom, listBroadcasts, listRooms } from './api';
+import { getRoom, listBroadcasts, listRooms, listReplayDeletions } from './api';
 import { useSessionStore } from '../session/session-store';
 import { catalogQueryOptions } from './catalog-paging';
 
@@ -32,4 +32,13 @@ export function bindSessionCache(client: QueryClient): () => void {
     void client.cancelQueries({ queryKey: ['private'] });
     client.removeQueries({ queryKey: ['private'] });
   });
+}
+
+export function replayDeletionsQueryOptions(session: GuestSessionResponse | null, slug: string) {
+  return catalogQueryOptions(
+    ['private', session?.userId ?? null, 'replay-deletions', slug],
+    session
+      ? (cursor, signal) => listReplayDeletions(slug, session.token, cursor, signal)
+      : skipToken,
+  );
 }

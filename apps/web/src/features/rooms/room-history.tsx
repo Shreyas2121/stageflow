@@ -8,8 +8,9 @@ import { Button } from '../../components/ui/button';
 import { replayHref, updateBroadcastPages } from './history';
 import { deleteBroadcast, setBroadcastVisibility, type BroadcastPage } from './api';
 import { useSessionStore } from '../session/session-store';
-import { roomBroadcastsQueryOptions } from './query-options';
+import { roomBroadcastsQueryOptions, replayDeletionsQueryOptions } from './query-options';
 import { Thumbnail } from './thumbnail';
+import { ReplayDeletions } from './replay-deletions';
 
 function trimmed(message: string | null): string {
   return message?.trim() ?? '';
@@ -55,6 +56,17 @@ export function RoomHistory({
       if (useSessionStore.getState().session?.token === session.token)
         await client.invalidateQueries({ queryKey: options.queryKey, exact: true });
     },
+    onSettled: async (_result, _error, action) => {
+      if (
+        action.kind === 'delete' &&
+        isHost &&
+        useSessionStore.getState().session?.token === session.token
+      )
+        await client.invalidateQueries({
+          queryKey: replayDeletionsQueryOptions(session, slug).queryKey,
+          exact: true,
+        });
+    },
   });
 
   return (
@@ -81,8 +93,17 @@ export function RoomHistory({
       <CatalogPagingControls
         page={page}
         name="recordings"
-        empty="This room has no broadcast attempts."
+        empty="No recordings are available in this list."
       />
+      {isHost && (
+        <ReplayDeletions
+          session={session}
+          slug={slug}
+          onDeleted={(id) => {
+            if (mutation.variables?.broadcast.id === id) mutation.reset();
+          }}
+        />
+      )}
     </div>
   );
 }

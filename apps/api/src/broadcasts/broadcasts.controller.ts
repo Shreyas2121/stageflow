@@ -12,7 +12,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { BroadcastResponse } from '@stageflow/shared';
+import type { BroadcastResponse, ReplayDeletionPage } from '@stageflow/shared';
 import type { NextFunction, Response } from 'express';
 import { JwtAuthGuard } from '../sessions/jwt-auth.guard';
 import { CurrentUser } from '../sessions/current-user.decorator';
@@ -38,6 +38,21 @@ export class BroadcastsController {
   @Get('broadcasts/:id')
   get(@Param('id') id: string, @CurrentUser() user: User): Promise<BroadcastResponse> {
     return this.broadcasts.getById(id, user);
+  }
+
+  @Get('rooms/:slug/broadcast-deletions')
+  deletions(
+    @Param('slug') slug: string,
+    @CurrentUser() user: User,
+    @Query() query: Record<string, unknown>,
+  ): Promise<ReplayDeletionPage> {
+    return this.broadcasts.listReplayDeletions(slug, query, user);
+  }
+
+  @Post('broadcasts/:id/deletion-retry')
+  @HttpCode(204)
+  retryDeletion(@Param('id') id: string, @CurrentUser() user: User): Promise<void> {
+    return this.broadcasts.deleteReplay(id, user, true);
   }
 
   @Post('broadcasts/:id/visibility')

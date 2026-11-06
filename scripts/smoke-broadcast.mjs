@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -75,9 +75,10 @@ async function killTree(child) {
   }
 }
 
-async function command(binary, args, timeout = 30_000) {
+async function command(binary, args, timeout = 30_000, childEnv) {
   interrupted.signal.throwIfAborted();
   const child = spawn(binary, args, {
+    env: childEnv,
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -264,6 +265,138 @@ async function hostRoom(token) {
     true,
   );
   return { room, socket };
+}
+
+async function verifyDeletionRecovery(guestToken) {
+  const owner = await json('/sessions/register', undefined, {
+    displayName: 'Deletion owner',
+    email: `delete-${id}@example.test`,
+    password: 'fixture-password-123',
+  });
+  const other = await json('/sessions/register', undefined, {
+    displayName: 'Other owner',
+    email: `other-${id}@example.test`,
+    password: 'fixture-password-123',
+  });
+  const room = await json('/rooms', owner.token, {
+    title: 'Interrupted deletion',
+    mode: 'WEBINAR',
+  });
+  await stopApi();
+  assert.equal(await redis.get(`${namespace}:owner`), null);
+  const paths = require(join(dist, 'broadcasts/hls-path.js'));
+  const attempts = [];
+  // Exit a real compiled service child after a committed claim, partial removal, full removal,
+  // and a committed row delete whose response never reaches its caller. Only owned data is used.
+  const childSource = String.raw`
+    const { createRequire } = require('node:module');
+    const { join } = require('node:path');
+    const fs = require('node:fs/promises');
+    const dist = process.env.REPLAY_TEST_DIST;
+    const req = createRequire(join(dist, '../package.json'));
+    req('reflect-metadata');
+    const source = req(join(dist, 'database/data-source.js')).default;
+    const { Broadcast } = req(join(dist, 'broadcasts/broadcast.entity.js'));
+    const { Room } = req(join(dist, 'rooms/room.entity.js'));
+    const { User } = req(join(dist, 'users/user.entity.js'));
+    const { RoomsService } = req(join(dist, 'rooms/rooms.service.js'));
+    const { BroadcastsService } = req(join(dist, 'broadcasts/broadcasts.service.js'));
+    const paths = req(join(dist, 'broadcasts/hls-path.js'));
+    const phase = process.env.REPLAY_TEST_PHASE;
+    const id = process.env.REPLAY_TEST_ID;
+    const end = () => { process.stdout.write('interrupted:' + phase); process.exit(0); };
+    (async () => {
+      await source.initialize();
+      const repository = source.getRepository(Broadcast);
+      const user = await source.getRepository(User).findOneByOrFail({ id: process.env.REPLAY_TEST_OWNER });
+      const update = repository.update.bind(repository);
+      const remove = repository.delete.bind(repository);
+      repository.update = async (...args) => {
+        const result = await update(...args);
+        if (phase === 'claim' && result.affected) end();
+        return result;
+      };
+      if (phase === 'partial') paths.removeBroadcastDirectory = async (root, id, onStart) => {
+        const segment = await paths.checkedHlsPath(root, id, 'segment000001.ts');
+        onStart?.();
+        await fs.rm(segment);
+        end();
+      };
+      repository.delete = async (...args) => {
+        if (phase === 'removed') end();
+        const result = await remove(...args);
+        if (phase === 'deleted') end();
+        return result;
+      };
+      const service = new BroadcastsService(repository, new RoomsService(source.getRepository(Room)),
+        undefined, process.env.DATA_ROOT, undefined, { read: async () => null, close: async () => {} });
+      await service.deleteReplay(id, user);
+      throw new Error('Expected a deletion interruption.');
+    })().catch(error => { console.error(error.message); process.exit(1); });
+  `;
+  for (const phase of ['claim', 'partial', 'removed', 'deleted']) {
+    const castId = randomUUID();
+    const directory = await paths.prepareBroadcastDirectory(root, castId);
+    await writeFile(join(directory, 'index.m3u8'), '#EXTM3U');
+    await writeFile(join(directory, 'segment000001.ts'), 'owned-segment');
+    await dataSource.query(
+      "INSERT INTO broadcasts (id, room_id, status, visibility) VALUES ($1, $2, 'READY', 'HOST')",
+      [castId, room.id],
+    );
+    const output = await command(process.execPath, ['-e', childSource], 30_000, {
+      ...env,
+      REPLAY_TEST_DIST: dist,
+      REPLAY_TEST_PHASE: phase,
+      REPLAY_TEST_ID: castId,
+      REPLAY_TEST_OWNER: owner.userId,
+    });
+    assert.match(output, new RegExp(`interrupted:${phase}`));
+    const stored = await dataSource.query('SELECT status FROM broadcasts WHERE id = $1', [castId]);
+    assert.deepEqual(stored, phase === 'deleted' ? [] : [{ status: 'DELETING' }]);
+    if (phase === 'partial') {
+      assert.equal(await readFile(join(directory, 'index.m3u8'), 'utf8'), '#EXTM3U');
+      await assert.rejects(stat(join(directory, 'segment000001.ts')), { code: 'ENOENT' });
+    }
+    if (phase === 'removed' || phase === 'deleted')
+      await assert.rejects(stat(directory), { code: 'ENOENT' });
+    attempts.push({ phase, id: castId, directory });
+  }
+  await startApi();
+  const inventory = `/rooms/${room.slug}/broadcast-deletions`;
+  const visible = [];
+  let cursor = null;
+  do {
+    const page = await json(
+      `${inventory}?limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      owner.token,
+    );
+    assert.equal(page.items.length, 1);
+    visible.push(...page.items.map((item) => item.id));
+    cursor = page.nextCursor;
+  } while (cursor);
+  assert.deepEqual(
+    new Set(visible),
+    new Set(attempts.filter((item) => item.phase !== 'deleted').map((item) => item.id)),
+  );
+  assert.deepEqual((await json(`/rooms/${room.slug}/broadcasts`, owner.token)).items, []);
+  for (const token of [other.token, guestToken]) await request(inventory, token, {}, 404);
+  for (const item of attempts) {
+    await request(`/broadcasts/${item.id}`, owner.token, {}, 404);
+    for (const token of [other.token, guestToken])
+      await request(`/broadcasts/${item.id}/deletion-retry`, token, { method: 'POST' }, 404);
+    await request(
+      `/broadcasts/${item.id}/deletion-retry`,
+      owner.token,
+      { method: 'POST' },
+      item.phase === 'deleted' ? 404 : 204,
+    );
+    await assert.rejects(stat(item.directory), { code: 'ENOENT' });
+  }
+  assert.deepEqual((await json(inventory, owner.token)).items, []);
+  assert.equal((await dataSource.query('SELECT id FROM rooms WHERE id = $1', [room.id])).length, 1);
+  console.log(
+    'Deletion recovery passed: interrupted compiled service children at claim/partial removal/full removal/lost row-delete reply; restarted API inventory is owner-only and retries complete safely.',
+  );
 }
 
 try {
@@ -483,6 +616,7 @@ try {
     (await json(`/broadcasts/${failed.id}`, guest.token)).errorMessage,
     /missing-ffmpeg/,
   );
+  await verifyDeletionRecovery(guest.token);
   await stopApi();
   console.log(
     'Restart fails only in-flight rows, preserves READY/media and foreign namespace; missing binary fails the attempt while stage commands remain usable; a guest past the recording allowance is refused before a row is stored.',
