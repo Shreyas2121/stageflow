@@ -181,6 +181,48 @@ it('inserts STARTING and reserves before spawn, then marks LIVE and publishes', 
   expect(f.spawn).toHaveBeenCalledOnce();
 });
 
+it('does not overwrite a new live projection with an earlier missing-room read', async () => {
+  const f = await fixture();
+  let resolve!: (row: Broadcast | null) => void;
+  const oldRead = new Promise<Broadcast | null>((done) => {
+    resolve = done;
+  });
+  f.repository.findOne.mockImplementationOnce(() => oldRead);
+  const pending = f.service.snapshot('room-with-pending-read', null);
+  expect(await f.service.start('room-with-pending-read', 'host', f.hooks)).toEqual({ ok: true });
+  resolve(null);
+  expect(await pending).toMatchObject({ status: 'LIVE' });
+  expect(await f.service.snapshot('room-with-pending-read', null)).toMatchObject({
+    status: 'LIVE',
+  });
+});
+
+it('keeps failed-attempt cleanup and its encoder slot when the projection is evicted', async () => {
+  const logger = silenceErrors();
+  try {
+    const encoders = new EncoderBudget(1, 1);
+    const f = await fixture(undefined, undefined, encoders);
+    await f.start();
+    const row = f.rows[0]!;
+    vi.mocked(f.hooks.clear).mockRejectedValue(new Error('Redis unavailable'));
+    f.child.emit('close', 1);
+    await vi.waitFor(() => expect(f.tasks).toHaveLength(1));
+    await Promise.all(f.tasks);
+    for (let i = 0; i < 1_000; i++) await f.service.snapshot(`historical-failed-room-${i}`, null);
+    expect(await f.service.snapshot(row.roomId, row.id)).toMatchObject({ status: 'FAILED' });
+    expect(encoders.active).toBe(1);
+    expect(await f.service.start('different-room', 'different-host', f.hooks)).toMatchObject({
+      error: 'encoder_capacity',
+    });
+    vi.mocked(f.hooks.clear).mockResolvedValue(undefined);
+    await f.service.stopRoom(row.roomId);
+    expect(f.hooks.clear).toHaveBeenLastCalledWith(row.id);
+    expect(encoders.active).toBe(0);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
 it('finalizes producer loss once, clears its reservation, and publishes FAILED', async () => {
   const f = await fixture();
   expect(await f.start()).toEqual({ ok: true });
@@ -651,6 +693,8 @@ it('keeps an ambiguous reservation until clear succeeds, and stop retries withou
     expect(claims.has(id)).toBe(true);
     expect(f.spawn).not.toHaveBeenCalled();
 
+    for (let index = 0; index < 1_000; index++)
+      await f.service.snapshot(`historical-reservation-room-${index}`, null);
     expect(await f.service.start(roomId, 'host', f.hooks)).toMatchObject({ error: 'server_error' });
     expect(f.rows).toHaveLength(1);
     expect(f.repository.save).toHaveBeenCalledTimes(1);

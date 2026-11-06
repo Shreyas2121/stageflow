@@ -60,6 +60,8 @@ export type BroadcastHooks = {
 const DELETE_FAILED = 'The replay could not be deleted. Try again.';
 const CLEANUP_ATTEMPTS = 3;
 const RESERVATION_CLEANUP_FAILED = 'Broadcast reservation cleanup failed.';
+const PROJECTION_CACHE_LIMIT = 256;
+type ProjectionEntry = { value: RoomSnapshot['broadcast'] | undefined };
 type AttemptCleanup = { saved: boolean; cleared: boolean; published: boolean };
 type AbandonedReservation = {
   row: Broadcast;
@@ -115,8 +117,9 @@ export class BroadcastsService {
   // A rejected reserve can still have committed its claim. The attempt stays until that id is
   // conditionally cleared and its row delete resolves. Cleanup never targets a different id.
   private readonly abandoned = new Map<string, AbandonedReservation>();
-  // Last projection for a room. A missing key is not loaded; null means no attempt was found.
-  private readonly views = new Map<string, RoomSnapshot['broadcast']>();
+  // Reloadable LRU only. Entry identity prevents an old read from undoing a write/invalidation.
+  // Undefined is an unfinished load; null is a cached missing broadcast. Both count toward the cap.
+  private readonly views = new Map<string, ProjectionEntry>();
   private closing = false;
   private readonly deleting = new Set<string>();
   /** Guest starts run one at a time so the allowance sees the previous row. */
@@ -150,20 +153,43 @@ export class BroadcastsService {
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
-    if (this.views.has(roomId)) return this.views.get(roomId) ?? null;
-    const row = activeId
-      ? await this.broadcasts.findOneBy({ id: activeId, roomId })
-      : await this.broadcasts.findOne({
-          where: { roomId },
-          order: { createdAt: 'DESC', id: 'DESC' },
-        });
-    const view = this.projection(row);
-    this.views.set(roomId, view);
-    return view;
+    const cached = this.views.get(roomId);
+    if (cached?.value !== undefined) {
+      this.cacheProjection(roomId, cached);
+      return cached.value;
+    }
+    const entry: ProjectionEntry = { value: undefined };
+    this.cacheProjection(roomId, entry);
+    try {
+      const row = activeId
+        ? await this.broadcasts.findOneBy({ id: activeId, roomId })
+        : await this.broadcasts.findOne({
+            where: { roomId },
+            order: { createdAt: 'DESC', id: 'DESC' },
+          });
+      const view = this.projection(row);
+      const current = this.views.get(roomId);
+      if (current === entry) entry.value = view;
+      else if (current?.value !== undefined) return current.value;
+      // Evicted or invalidated loads may finish, but cannot recreate their old cache entry.
+      return view;
+    } catch (error) {
+      if (this.views.get(roomId) === entry) this.views.delete(roomId);
+      throw error;
+    }
   }
 
   private remember(row: Broadcast): void {
-    this.views.set(row.roomId, this.projection(row));
+    this.cacheProjection(row.roomId, { value: this.projection(row) });
+  }
+
+  private cacheProjection(roomId: string, entry: ProjectionEntry): void {
+    this.views.delete(roomId);
+    this.views.set(roomId, entry);
+    if (this.views.size > PROJECTION_CACHE_LIMIT) {
+      const oldest = this.views.keys().next().value;
+      if (oldest !== undefined) this.views.delete(oldest);
+    }
   }
 
   private projection(row: Broadcast | null): RoomSnapshot['broadcast'] {

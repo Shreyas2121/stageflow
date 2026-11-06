@@ -439,6 +439,20 @@ it('lets the owner retry an interrupted DELETING claim with remaining files', as
   await expect(readFile(join(f.directory, 'index.m3u8'))).rejects.toMatchObject({ code: 'ENOENT' });
 });
 
+it('does not repopulate a deleted projection from an earlier pending read', async () => {
+  const f = await fixture();
+  let resolve!: (row: Broadcast) => void;
+  const oldRead = new Promise<Broadcast>((done) => {
+    resolve = done;
+  });
+  f.repository.findOneBy.mockImplementationOnce(() => oldRead);
+  const pending = f.service.snapshot(f.room.id, f.row.id);
+  await f.service.deleteReplay(f.row.id, f.owner);
+  resolve(structuredClone(f.row));
+  await pending;
+  expect(await f.service.snapshot(f.room.id, f.row.id)).toBeNull();
+});
+
 it('lists minimal pending deletion records only for the registered current owner', async () => {
   const f = await fixture('DELETING');
   await expect(f.service.listReplayDeletions('fixture', {}, f.owner)).resolves.toEqual({
