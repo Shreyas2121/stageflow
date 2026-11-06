@@ -226,6 +226,7 @@ it('stores the acknowledged participant id independently of the signaling socket
 });
 function callbacks() {
   return {
+    onQaState: vi.fn(),
     onChatMessage: vi.fn(),
     onChatPaused: vi.fn(),
     onEnded: vi.fn(),
@@ -253,6 +254,43 @@ afterEach(() => {
 });
 
 describe('signaling connection ownership', () => {
+  it('gates Q&A on membership, uses eight-second acks, and drops early/obsolete board events', async () => {
+    const own = callbacks();
+    const peer = openIndependentSignaling('token', 'room', own);
+    connections.push(peer);
+    const board = { submissionsOpen: true, featured: null, questions: [] };
+    expect(await peer.qaState()).toMatchObject({ error: 'not_joined' });
+    expect(await peer.qaSubmit({ text: 'Hello' })).toMatchObject({ error: 'not_joined' });
+    sockets[0]!.beforeAck = () => {
+      for (let i = 0; i < 100; i++) sockets[0]!.emit('qa:state', board);
+    };
+    await peer.join(joinRequest);
+    expect(own.onQaState).not.toHaveBeenCalled();
+    sockets[0]!.emit('qa:state', board);
+    expect(own.onQaState).toHaveBeenCalledExactlyOnceWith(board);
+    sockets[0]!.timeout.mockClear();
+    await peer.qaState();
+    await peer.qaSubmit({ text: 'Hello' });
+    await peer.qaVote({ questionId: '1' });
+    await peer.qaDismiss({ questionId: '1' });
+    await peer.qaFeature({ questionId: '1' });
+    await peer.qaClearFeature();
+    await peer.qaSetSubmissions({ open: false });
+    expect(sockets[0]!.emitWithAck.mock.calls.slice(1)).toEqual([
+      ['qa:state'],
+      ['qa:submit', { text: 'Hello' }],
+      ['qa:vote', { questionId: '1' }],
+      ['qa:dismiss', { questionId: '1' }],
+      ['qa:feature', { questionId: '1' }],
+      ['qa:clear-feature'],
+      ['qa:set-submissions', { open: false }],
+    ]);
+    expect(sockets[0]!.timeout.mock.calls).toEqual(Array.from({ length: 7 }, () => [8000]));
+    sockets[0]!.emit('disconnect');
+    sockets[0]!.emit('qa:state', board);
+    expect(own.onQaState).toHaveBeenCalledOnce();
+    expect(await peer.qaVote({ questionId: '1' })).toMatchObject({ error: 'not_joined' });
+  });
   it('gates chat commands on membership and isolates early chat from stage signaling', async () => {
     const own = callbacks();
     const peer = openIndependentSignaling('token', 'room', own);

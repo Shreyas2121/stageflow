@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 and C02 are committed; C03 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C04 through C06 remain planned.\
+**Status:** in progress. V3P5-C01 through C03 are committed; C04 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C05 and C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -160,9 +160,9 @@ Redis tests require `REDIS_URL` and an owned prefix, as `chat.repository.test.ts
 
 ## 4. V3P5-C03 — Host feature and dismiss
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `feat(api-qa): let the host feature or dismiss a question`\
-**Actual commit:**
+**Actual commit:** `64b8a85`
 
 **Why:** The host has to be able to close the board and choose the one question the canvas will later paint. Covers QA3-02 and the server half of the meeting-broadcast rule.
 
@@ -213,7 +213,7 @@ Then typecheck, lint, and the affected-check selection. Include a concurrent dou
 
 ## 5. V3P5-C04 — Question list and host banner
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `feat(web-room): show the question list and host banner`\
 **Actual commit:**
 
@@ -249,6 +249,15 @@ pnpm --filter @stageflow/web test -- src/features/qa src/app/entry-graph.test.ts
 Then typecheck, lint, and the affected-check selection. Browser verification clicks the controls. A screenshot of the panel is not the result.
 
 **Done when:** The list, the banner, and the waiting omission match Section 5.5. Home still excludes live, chat, playback, and Q&A. QA3-03 remains planned. `Actual commit` is recorded after the slice commit.
+
+**Verification record (2026-11-06):**
+
+- Added the independent Q&A session, question panel, and host banner. All seven socket helpers use eight-second acknowledgements and membership gating. Join, admission, and resume read the caller's board; public events preserve private votes. Eligible memberships activate the panel, including the pre-start host. Waiters and pre-join views omit it. Host controls and the banner use the membership role. The banner is mounted above the mesh; no recorder or broadcast code changed.
+- The session keeps drafts after rejected/uncertain submits, blocks concurrent asks, validates with the shared parser, ignores obsolete replies/callbacks, and does not replay uncertain mutations on resume. A newer public board survives an older acknowledgement while private votes are applied. End retains the displayed list and disables actions. React text nodes render the exact webinar/meeting/end sentences. Chat's delay sentence is unchanged.
+- The focused Q&A/chat/entry command passed (5 files / 56 tests). Focused Q&A, signaling, and room-session tests also passed (4 files / 133 tests). Coverage includes pending/closed asks, literal angle brackets, vote preservation, stale replies, initial-state retry, moderation, waiting omission and admission, pre-start host access, recovery refresh without replay, ended retention, and Q&A failure isolation from an active recorder/stage. Home, account, Google return, catalog entries, and Q&A/media boundaries are guarded.
+- Workspace `pnpm typecheck` and `pnpm lint` passed. The affected-check plan selected formatting, shared preparation, web typecheck/lint/tests/build, and web artifacts. `pnpm check:affected --files <all changed paths>` passed all selected checks on the final tree, including 36 web files / 513 tests, production build, and deferred-entry artifacts. All 70 local Markdown links in the changed guides/records resolve; `git diff --check` passed. Vite retained its existing large-chunk warning. No encoder smoke was selected or rerun; earlier missing-FFmpeg release evidence remains unchanged.
+- Controlled Chrome `156.0.8078.80` headless on Windows, viewport `1280 by 800`, locale `en-GB`, time zone `UTC`, used the real compiled API and ephemeral Vite server with an owned disposable PostgreSQL database and Redis namespace. The command was `node --env-file=.env "$env:TEMP/sf-v3p5-c04-20261106/probe.cjs"`; fixture URLs used IPv4 loopback. It clicked Ask, Upvote, Close/Open questions, Feature, Clear feature, and Dismiss in separate host/attendee windows. A waiting guest had no panel; the pre-start host could submit/dismiss. Literal `<b>the question</b>` stayed text. The first upvote showed one in both windows and disabled the voter's button; replaying that same socket command kept one. Closing disabled Ask while feature/clear/dismiss remained usable. The featured marker and local author/question banner appeared; clear removed them, and dismissing a featured question removed the row and banner. Non-host moderation controls were absent. End retained the attendee's question and exact closed-room sentence with no Ask control. A pre-start meeting could ask/feature and show its local banner without capture or a broadcast row. The `390 by 844` attendee view had no horizontal overflow; no page errors occurred.
+- Temporary local browser evidence is `sf-v3p5-c04-20261106` (`probe.cjs`, `result.json`, `host-feature.png`, `attendee-mobile.png`). Owned browser/process/database/Redis fixtures were cleaned up. Media inputs and permission UI were synthetic; this pass did not start a broadcast or play HLS. QA3-01 and QA3-02 now have browser control evidence. QA3-03 canvas/played-HLS work and QA3-04 paint isolation remain planned for C05. No open V1/V2 physical observation was closed. C05 and C06 remain planned.
 
 ## 6. V3P5-C05 — Canvas lower-third
 

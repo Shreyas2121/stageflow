@@ -12,6 +12,7 @@ import type {
 } from '@stageflow/shared';
 import { BroadcastSession, recordingFinishError } from '../../broadcast/services/broadcast-session';
 import { ChatSession } from '../../chat/chat-session';
+import { QaSession } from '../../qa/qa-session';
 import {
   StageRecorder,
   type BroadcastRecorder,
@@ -101,6 +102,7 @@ export class RoomSession {
   readonly share: ScreenShareController;
   readonly demos: DemoRegistry;
   readonly chat = new ChatSession();
+  readonly qa = new QaSession();
 
   private readonly room: RoomResponse;
   private status: RoomResponse['status'];
@@ -582,6 +584,7 @@ export class RoomSession {
         this.state.error = result.message;
         if (result.error === 'room_ended') {
           this.chat.end();
+          this.qa.end();
           this.teardownLocal();
           this.notifyEnded();
         }
@@ -611,8 +614,13 @@ export class RoomSession {
     this.recovery.cancel();
     this.state.startUnconfirmed = false;
     this.state.phase = 'leaving';
-    if (this.room.hostId === this.userId) this.chat.end();
-    else this.chat.suspend(false);
+    if (this.room.hostId === this.userId) {
+      this.chat.end();
+      this.qa.end();
+    } else {
+      this.chat.suspend(false);
+      this.qa.suspend(false);
+    }
     this.state.error = '';
     this.teardownLocal();
     const generation = this.generation;
@@ -813,6 +821,7 @@ export class RoomSession {
     if (this.connection !== active) return;
     this.connection = null;
     this.chat.end();
+    this.qa.end();
     this.state.startUnconfirmed = false;
     this.recovery.cancel();
     this.teardownLocal();
@@ -836,6 +845,7 @@ export class RoomSession {
       this.recovery.hasCredential;
     const role = this.state.role;
     this.chat.suspend(canResume);
+    this.qa.suspend(canResume);
     this.teardownLocal();
     if (canResume) {
       this.state.phase = 'recovering';
@@ -866,6 +876,9 @@ export class RoomSession {
     return {
       onResumeCredential: (payload) => {
         if (current()) this.rememberResumeCredential(payload);
+      },
+      onQaState: (state) => {
+        if (current()) this.qa.receive(state);
       },
       onChatMessage: (message) => {
         if (current()) this.chat.receive(message);
@@ -907,8 +920,13 @@ export class RoomSession {
   }
 
   private finishRecoveryFailure(message: string): void {
-    if (message === 'This room has ended.') this.chat.end();
-    else this.chat.suspend(false);
+    if (message === 'This room has ended.') {
+      this.chat.end();
+      this.qa.end();
+    } else {
+      this.chat.suspend(false);
+      this.qa.suspend(false);
+    }
     this.teardownLocal();
     this.state.phase = 'lobby';
     this.state.error = message;
@@ -1018,6 +1036,10 @@ export class RoomSession {
       return;
     }
     if (self && selfParticipantId && snapshot) {
+      if (this.state.phase === 'joined' && self.role !== 'WAITING' && !self.isSyntheticBot) {
+        this.qa.connect(this.connection, selfParticipantId);
+      } else if (this.qa.visible && this.qa.getSnapshot().phase !== 'closed')
+        this.qa.suspend(false);
       this.observeRole(self.role, snapshot.stageParticipantIds.includes(selfParticipantId));
     }
     const onStage = Boolean(
@@ -1285,6 +1307,7 @@ export class RoomSession {
     const active = this.connection;
     this.connection = null;
     this.chat.suspend(false);
+    this.qa.suspend(false);
     this.recovery.cancel();
     this.teardownLocal();
     active?.close();

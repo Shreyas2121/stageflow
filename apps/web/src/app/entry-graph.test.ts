@@ -10,6 +10,16 @@ function source(path: string): string {
 }
 
 describe('home entry', () => {
+  it('keeps the question panel and session independent of media owners', () => {
+    for (const file of ['features/qa/qa-panel.tsx', 'features/qa/qa-session.ts']) {
+      expect(source(file)).not.toMatch(
+        /hls\.js|features\/live|peer-manager|stage-recorder|broadcast-session|RTCPeerConnection/,
+      );
+    }
+    const room = source('features/live/components/live-room.tsx');
+    expect(room).toContain("host={self?.role === 'HOST'}");
+    expect(room.indexOf('<QaBanner')).toBeLessThan(room.indexOf('<StageGrid'));
+  });
   it('keeps the waiting panel free of capture and peer creation', () => {
     const panel = source('features/live/components/waiting-room.tsx');
     expect(panel).not.toMatch(/getUserMedia|RTCPeerConnection|LocalMedia|PeerManager|GreenRoom/);
@@ -23,25 +33,25 @@ describe('home entry', () => {
     expect(home).not.toContain('broadcast-player-gate');
     expect(home).not.toContain('hls.js');
     expect(home).not.toContain('LiveRoom');
-    expect(home).not.toMatch(/chat-panel|ChatPanel|features\/chat/);
+    expect(home).not.toMatch(/chat-panel|ChatPanel|features\/chat|qa-panel|QaPanel|features\/qa/);
     expect(home).toContain('Rooms from this guest session');
     expect(home).toContain('Your rooms');
     const account = source('features/session/account-panel.tsx');
     const google = source('pages/GoogleReturnPage.tsx');
     expect(google.toLowerCase()).not.toContain('hls');
     expect(google).not.toMatch(
-      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|features\/qa|qa-panel|QaPanel|broadcast-player/,
     );
     expect(source('App.tsx')).toContain('path="/auth/google"');
     expect(account.toLowerCase()).not.toContain('hls');
     expect(account).not.toMatch(
-      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+      /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|features\/qa|qa-panel|QaPanel|broadcast-player/,
     );
     expect(source('main.tsx').toLowerCase()).not.toContain('hls');
     for (const file of ['features/rooms/room-history.tsx', 'features/rooms/room-list.tsx']) {
       expect(source(file).toLowerCase()).not.toContain('hls');
       expect(source(file)).not.toMatch(
-        /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|broadcast-player/,
+        /LiveRoom|features\/live|features\/chat|chat-panel|ChatPanel|features\/qa|qa-panel|QaPanel|broadcast-player/,
       );
     }
   });

@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
 import { AttendeeBroadcast } from '../../broadcast/components/attendee-broadcast';
 import { ChatPanel } from '../../chat/chat-panel';
+import { QaBanner, QaPanel } from '../../qa/qa-panel';
 import { useRoomStore } from '../stores/room-store';
 import { deviceSelects } from '../services/device-controls';
 import { useDemoPeers } from '../hooks/use-demo-peers';
@@ -82,6 +83,7 @@ export function LiveRoom({
             {live.audience === 'attendee' ? 'Joining as an attendee' : 'Up to 4 people on stage'}
           </span>
         </div>
+        {inRoom && self?.role === 'HOST' && <QaBanner session={live.qa} />}
         {inRoom && onStage && snapshot && selfParticipantId && live.peerManager && (
           <StageGrid
             snapshot={snapshot}
@@ -261,6 +263,7 @@ export function LiveRoom({
       {(inRoom || ended) && (
         <div className="mt-8 min-w-0">
           <ChatPanel session={live.chat} host={room.hostId === session.userId} />
+          <QaPanel session={live.qa} host={self?.role === 'HOST'} mode={room.mode} />
         </div>
       )}
     </div>

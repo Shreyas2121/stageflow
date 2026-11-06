@@ -72,6 +72,19 @@ beforeEach(() => {
     displayName: 'Demo Peer 1',
   });
   connection = {
+    qaState: vi.fn<RoomConnection['qaState']>(async () => ({
+      ok: true,
+      submissionsOpen: true,
+      featured: null,
+      questions: [],
+      votedQuestionIds: [],
+    })),
+    qaSubmit: vi.fn<RoomConnection['qaSubmit']>(),
+    qaVote: vi.fn<RoomConnection['qaVote']>(),
+    qaDismiss: vi.fn<RoomConnection['qaDismiss']>(),
+    qaFeature: vi.fn<RoomConnection['qaFeature']>(),
+    qaClearFeature: vi.fn<RoomConnection['qaClearFeature']>(),
+    qaSetSubmissions: vi.fn<RoomConnection['qaSetSubmissions']>(),
     chatHistory: vi.fn(),
     chatSend: vi.fn(),
     chatSetPaused: vi.fn(),

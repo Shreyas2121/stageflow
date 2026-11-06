@@ -181,6 +181,19 @@ function fakePeers() {
 
 function fakeConnection() {
   return {
+    qaState: vi.fn<RoomConnection['qaState']>(async () => ({
+      ok: true,
+      submissionsOpen: true,
+      featured: null,
+      questions: [],
+      votedQuestionIds: [],
+    })),
+    qaSubmit: vi.fn<RoomConnection['qaSubmit']>(),
+    qaVote: vi.fn<RoomConnection['qaVote']>(),
+    qaDismiss: vi.fn<RoomConnection['qaDismiss']>(),
+    qaFeature: vi.fn<RoomConnection['qaFeature']>(),
+    qaClearFeature: vi.fn<RoomConnection['qaClearFeature']>(),
+    qaSetSubmissions: vi.fn<RoomConnection['qaSetSubmissions']>(),
     chatHistory: vi.fn<RoomConnection['chatHistory']>(async () => ({
       ok: true,
       paused: false,
@@ -1815,6 +1828,62 @@ describe('RoomSession', () => {
     expect(session.phase).toBe('lobby');
   });
 
+  it('keeps Q&A errors independent of the active broadcast, retains the board after end, and ignores old callbacks', async () => {
+    const recorder = recorderFake();
+    const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
+    expect(h.session.qa.visible).toBe(false);
+    await startLiveBroadcast(h);
+    await Promise.resolve();
+    expect(h.connection.qaState).toHaveBeenCalledOnce();
+    const board = {
+      submissionsOpen: true,
+      featured: null,
+      questions: [
+        {
+          id: '1',
+          text: 'Question',
+          authorName: 'Sam',
+          authorParticipantId: 'sam',
+          createdAt: 1,
+          voteCount: 0,
+        },
+      ],
+    };
+    h.callbacks()!.onQaState?.(board);
+    h.connection.qaSubmit.mockRejectedValueOnce(new Error('offline'));
+    h.session.qa.setDraft('Hello');
+    await h.session.qa.ask();
+    expect(h.session.error).toBe('');
+    expect(h.session.phase).toBe('joined');
+    expect(h.session.broadcastActive).toBe(true);
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+    expect(h.peers.close).not.toHaveBeenCalled();
+    h.callbacks()!.onEnded();
+    h.callbacks()!.onQaState?.({ ...board, questions: [] });
+    expect(h.session.qa.getSnapshot()).toMatchObject({
+      phase: 'closed',
+      questions: board.questions,
+    });
+    expect(h.session.qa.canAct).toBe(false);
+  });
+
+  it('refreshes Q&A after resume and ignores the old connection without replaying asks', async () => {
+    vi.useFakeTimers();
+    const h = open({ freshConnections: true });
+    await joinRecoverable(h);
+    h.connection.qaSubmit.mockImplementationOnce(() => new Promise(() => undefined));
+    h.session.qa.setDraft('Uncertain');
+    void h.session.qa.ask();
+    h.callbacks()!.onDisconnect();
+    expect(h.session.qa.getSnapshot().phase).toBe('recovering');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.opened[1]!.connection.qaState).toHaveBeenCalledOnce();
+    expect(h.opened[1]!.connection.qaSubmit).not.toHaveBeenCalled();
+    h.opened[0]!.callbacks.onQaState?.({ submissionsOpen: false, featured: null, questions: [] });
+    expect(h.session.qa.getSnapshot().submissionsOpen).toBe(true);
+  });
+
   it('keeps chat busy failures away from the active stage and broadcast and retains text on room end', async () => {
     const recorder = recorderFake();
     const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
@@ -2585,6 +2654,8 @@ describe('scheduled and admission membership', () => {
         await h.session.prepare({} as HTMLVideoElement);
         expect(h.media.prepareCalls).toBe(0);
         await h.session.join();
+        expect(h.session.qa.visible).toBe(role === 'HOST');
+        expect(h.connection.qaState).toHaveBeenCalledTimes(role === 'HOST' ? 1 : 0);
         expect(h.connection.join).toHaveBeenCalledWith({
           roomId: room.id,
           isAudioMuted: true,
@@ -2598,6 +2669,8 @@ describe('scheduled and admission membership', () => {
           .getState()
           .receive(snapshot('self', role === 'HOST' ? 'HOST' : 'SPEAKER', true, 2));
         expect(h.session.waiting).toBe(false);
+        expect(h.session.qa.visible).toBe(true);
+        expect(h.connection.qaState).toHaveBeenCalledOnce();
         expect(h.session.needsCaptureConsent).toBe(true);
         expect(h.session.peerManager).toBeNull();
         await h.session.prepare({} as HTMLVideoElement);

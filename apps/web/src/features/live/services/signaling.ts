@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents,
   ChatMessage,
+  QaState,
   CommandAck,
   JoinAck,
   JoinRoomRequest,
@@ -17,6 +18,7 @@ import type {
 } from '@stageflow/shared';
 import { useRoomStore } from '../stores/room-store';
 import type { ChatTransport } from '../../chat/chat-session';
+import type { QaTransport } from '../../qa/qa-session';
 import type {
   DescriptionRequest,
   IceCandidateRequest,
@@ -30,25 +32,26 @@ const PENDING_TIMEOUT_MS = 8_000;
 /** Server stop allows 10 seconds for FFmpeg, plus persistence/publication time. */
 export const BROADCAST_STOP_MS = 15_000;
 
-export type RoomConnection = ChatTransport & {
-  description: (payload: DescriptionRequest) => Promise<CommandAck>;
-  candidate: (payload: IceCandidateRequest) => Promise<CommandAck>;
-  join: (payload: JoinRoomRequest) => Promise<JoinAck>;
-  resume: (payload: ResumeRoomRequest) => Promise<ResumeAck>;
-  media: (patch: MediaPatch) => Promise<CommandAck>;
-  hand: (raised: boolean) => Promise<CommandAck>;
-  promote: (targetParticipantId: string) => Promise<CommandAck>;
-  demote: (targetParticipantId: string) => Promise<CommandAck>;
-  setLock: (request: StageLockRequest) => Promise<CommandAck>;
-  startRoom: () => Promise<CommandAck>;
-  cancelRoom: () => Promise<CommandAck>;
-  admit: (targetParticipantId: string) => Promise<CommandAck>;
-  removeWaiter: (targetParticipantId: string) => Promise<CommandAck>;
-  startBroadcast: () => Promise<CommandAck>;
-  stopBroadcast: () => Promise<CommandAck>;
-  leave: () => Promise<CommandAck>;
-  close: () => void;
-};
+export type RoomConnection = ChatTransport &
+  QaTransport & {
+    description: (payload: DescriptionRequest) => Promise<CommandAck>;
+    candidate: (payload: IceCandidateRequest) => Promise<CommandAck>;
+    join: (payload: JoinRoomRequest) => Promise<JoinAck>;
+    resume: (payload: ResumeRoomRequest) => Promise<ResumeAck>;
+    media: (patch: MediaPatch) => Promise<CommandAck>;
+    hand: (raised: boolean) => Promise<CommandAck>;
+    promote: (targetParticipantId: string) => Promise<CommandAck>;
+    demote: (targetParticipantId: string) => Promise<CommandAck>;
+    setLock: (request: StageLockRequest) => Promise<CommandAck>;
+    startRoom: () => Promise<CommandAck>;
+    cancelRoom: () => Promise<CommandAck>;
+    admit: (targetParticipantId: string) => Promise<CommandAck>;
+    removeWaiter: (targetParticipantId: string) => Promise<CommandAck>;
+    startBroadcast: () => Promise<CommandAck>;
+    stopBroadcast: () => Promise<CommandAck>;
+    leave: () => Promise<CommandAck>;
+    close: () => void;
+  };
 let current: RoomConnection | null = null;
 
 type SignalingCallbacks = {
@@ -57,6 +60,7 @@ type SignalingCallbacks = {
     participantId: string;
     resumeCredential: string;
   }) => void;
+  onQaState?: (state: QaState) => void;
   onChatMessage?: (message: ChatMessage) => void;
   onChatPaused?: (paused: boolean) => void;
   onResumed?: (result: Extract<ResumeAck, { ok: true }>) => void;
@@ -163,6 +167,14 @@ export function openIndependentSignaling(
   ): Promise<T | Extract<CommandAck, { ok: false }>> =>
     !closed && joined && transportConnected ? action() : Promise.resolve(unavailable());
   const connection: RoomConnection = {
+    qaState: () => command(() => socket.timeout(8000).emitWithAck('qa:state')),
+    qaSubmit: (request) => command(() => socket.timeout(8000).emitWithAck('qa:submit', request)),
+    qaVote: (request) => command(() => socket.timeout(8000).emitWithAck('qa:vote', request)),
+    qaDismiss: (request) => command(() => socket.timeout(8000).emitWithAck('qa:dismiss', request)),
+    qaFeature: (request) => command(() => socket.timeout(8000).emitWithAck('qa:feature', request)),
+    qaClearFeature: () => command(() => socket.timeout(8000).emitWithAck('qa:clear-feature')),
+    qaSetSubmissions: (request) =>
+      command(() => socket.timeout(8000).emitWithAck('qa:set-submissions', request)),
     chatSend: (request) => command(() => socket.timeout(8000).emitWithAck('chat:send', request)),
     chatHistory: (request) =>
       command(() => socket.timeout(8000).emitWithAck('chat:history', request)),
@@ -399,6 +411,9 @@ export function openIndependentSignaling(
     if (closed || payload.roomId !== roomId) return;
     if (joined) callbacks.onResumeCredential?.(payload);
     else queuePending(payload, () => callbacks.onResumeCredential?.(payload));
+  });
+  socket.on('qa:state', (state) => {
+    if (!closed && joined) callbacks.onQaState?.(state);
   });
   socket.on('chat:message', (message) => {
     // The history read after membership covers early chat. Chat never fills the stage queue.
