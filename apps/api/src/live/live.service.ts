@@ -28,7 +28,7 @@ export type BroadcastControl = {
 };
 export interface LiveSession {
   id: string;
-  user: { id: string; displayName: string };
+  user: { id: string; displayName: string; isGuest?: boolean };
   readonly connected: boolean;
   room: LiveRoom | undefined;
   participantId?: string;
@@ -957,20 +957,25 @@ export class LiveService {
           return { ok: true };
         }
         if (await broadcasts.repository.readBroadcast(prefix)) return failure('broadcast_active');
-        return broadcasts.service.start(room.roomId, client.user.id, {
-          reserve: (id) => broadcasts.repository.tryBeginBroadcast(prefix, id),
-          clear: (id) => broadcasts.repository.clearBroadcast(prefix, id),
-          publish: () => this.publishBroadcast(room, transport),
-          onExit: (action) => {
-            void this.operations
-              .run(`room:${room.roomId}`, action, true)
-              .catch((error: unknown) =>
-                this.logger.error(
-                  error instanceof Error ? error.message : 'Broadcast exit cleanup failed.',
-                ),
-              );
+        return broadcasts.service.start(
+          room.roomId,
+          client.user.id,
+          {
+            reserve: (id) => broadcasts.repository.tryBeginBroadcast(prefix, id),
+            clear: (id) => broadcasts.repository.clearBroadcast(prefix, id),
+            publish: () => this.publishBroadcast(room, transport),
+            onExit: (action) => {
+              void this.operations
+                .run(`room:${room.roomId}`, action, true)
+                .catch((error: unknown) =>
+                  this.logger.error(
+                    error instanceof Error ? error.message : 'Broadcast exit cleanup failed.',
+                  ),
+                );
+            },
           },
-        });
+          client.user.isGuest === true,
+        );
       });
     });
   }

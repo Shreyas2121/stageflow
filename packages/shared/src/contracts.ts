@@ -74,6 +74,8 @@ export type ApiErrorBody = {
     | 'broadcast_delete_failed'
     | 'broadcast_not_found'
     | 'broadcast_not_active'
+    | 'storage_full'
+    | 'recording_limit'
     | 'invalid_chunk'
     | 'chunk_conflict'
     | 'media_not_found'

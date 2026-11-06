@@ -670,6 +670,16 @@ it('authorizes webinar broadcast commands from the stored socket role and reject
     error: 'broadcast_active',
   });
   expect(f.control.service.start).toHaveBeenCalledOnce();
+  expect(f.control.service.start).toHaveBeenCalledWith('room', 'host', expect.any(Object), false);
+});
+
+it('passes a guest host into the recording allowance', async () => {
+  const f = broadcastFixture();
+  const host = f.client('host');
+  host.user.isGuest = true;
+  await f.join(host);
+  expect(await f.service.startBroadcast(host, f.transport)).toEqual({ ok: true });
+  expect(f.control.service.start).toHaveBeenCalledWith('room', 'host', expect.any(Object), true);
 });
 
 it('does not touch the broadcast catalog or stage when a meeting start is rejected', async () => {

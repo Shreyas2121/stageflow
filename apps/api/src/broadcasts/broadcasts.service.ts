@@ -15,11 +15,22 @@ import {
   type RoomSnapshot,
 } from '@stageflow/shared';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { In, Not, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
 import { EncoderBudget } from './encoder-budget';
+import {
+  diskStorageProbe,
+  measureStoredBytes,
+  recordingBudgetFromEnv,
+  RECORDING_SIZE_MESSAGE,
+  RECORDING_TIME_MESSAGE,
+  StorageScanError,
+  type GuestUsage,
+  type RecordingBudget,
+  type StorageProbe,
+} from './storage-budget';
 import { readOrderingInstant } from '../database/ordering-instant';
 import { ApiException } from '../http/api.exception';
 import { failure } from '../live/signaling.messages';
@@ -66,6 +77,9 @@ type RunningBroadcast = {
   cleanup?: AttemptCleanup;
   finishing?: Promise<void>;
   releaseEncoder?: () => void;
+  acceptedBytes: number;
+  /** Retained guest bytes measured before this recording. Absent for a registered host. */
+  guestBaseline?: number;
 };
 
 export type BroadcastPage = {
@@ -104,6 +118,8 @@ export class BroadcastsService {
   private readonly views = new Map<string, RoomSnapshot['broadcast']>();
   private closing = false;
   private readonly deleting = new Set<string>();
+  /** Guest starts run one at a time so the allowance sees the previous row. */
+  private guestQueue: Promise<void> = Promise.resolve();
   constructor(
     @InjectRepository(Broadcast) private readonly broadcasts: Repository<Broadcast>,
     private readonly rooms: RoomsService,
@@ -128,6 +144,8 @@ export class BroadcastsService {
       env.ENCODER_GLOBAL_LIMIT,
       env.ENCODER_PRINCIPAL_LIMIT,
     ),
+    private readonly recording: RecordingBudget = recordingBudgetFromEnv(env),
+    private readonly storage: StorageProbe = diskStorageProbe(dataRoot),
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
@@ -158,15 +176,60 @@ export class BroadcastsService {
       : null;
   }
 
-  async start(roomId: string, hostId: string, hooks: BroadcastHooks): Promise<CommandAck> {
+  async start(
+    roomId: string,
+    hostId: string,
+    hooks: BroadcastHooks,
+    guest = false,
+  ): Promise<CommandAck> {
+    // A guest waits for the previous guest start so the count includes that row.
+    const attempt = () => this.startBudgeted(roomId, hostId, hooks, guest);
+    return guest ? this.enqueueGuest(attempt) : attempt();
+  }
+
+  private enqueueGuest<T>(action: () => Promise<T>): Promise<T> {
+    const run = this.guestQueue.then(action, action);
+    this.guestQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async startBudgeted(
+    roomId: string,
+    hostId: string,
+    hooks: BroadcastHooks,
+    guest: boolean,
+  ): Promise<CommandAck> {
     if (this.closing) return failure('server_error');
+    // Measure disk and the guest allowance before taking a slot.
+    const admission = await this.admitStorage(hostId, guest);
+    if (admission.decision !== 'ok') {
+      return failure(admission.decision === 'full' ? 'storage_full' : 'server_error');
+    }
     const releaseEncoder = this.encoders.tryAcquire(hostId);
     if (!releaseEncoder) return failure('encoder_capacity');
     let ownedByEntry = false;
     try {
-      return await this.startReserved(roomId, hostId, hooks, releaseEncoder, () => {
-        ownedByEntry = true;
-      });
+      let guestBaseline = admission.guestBaseline;
+      if (guest) {
+        const again = await this.admitStorage(hostId, true, true);
+        if (again.decision !== 'ok') {
+          return failure(again.decision === 'full' ? 'storage_full' : 'server_error');
+        }
+        guestBaseline = again.guestBaseline;
+      }
+      return await this.startReserved(
+        roomId,
+        hostId,
+        hooks,
+        releaseEncoder,
+        () => {
+          ownedByEntry = true;
+        },
+        guestBaseline,
+      );
     } finally {
       if (!ownedByEntry) releaseEncoder();
     }
@@ -178,6 +241,7 @@ export class BroadcastsService {
     hooks: BroadcastHooks,
     releaseEncoder: () => void,
     own: () => void,
+    guestBaseline: number | undefined,
   ): Promise<CommandAck> {
     if (!(await this.reconcileAbandoned(roomId))) return failure('server_error');
     let row: Broadcast;
@@ -218,6 +282,8 @@ export class BroadcastsService {
       starting: true,
       stopping: false,
       releaseEncoder,
+      acceptedBytes: 0,
+      guestBaseline,
     };
     this.running.set(row.id, entry);
     own();
@@ -266,6 +332,126 @@ export class BroadcastsService {
   private releaseEncoder(entry: RunningBroadcast): void {
     entry.releaseEncoder?.();
     entry.releaseEncoder = undefined;
+  }
+
+  private async admitStorage(
+    hostId: string,
+    guest: boolean,
+    guestOnly = false,
+  ): Promise<{ decision: 'ok'; guestBaseline?: number } | { decision: 'full' | 'error' }> {
+    try {
+      if (!guestOnly) {
+        const free = await this.storage.freeBytes();
+        const stored = await this.storage.storedBytes();
+        const projected = stored + this.recording.maxRecordingBytes;
+        if (
+          !Number.isFinite(free) ||
+          free < this.recording.minFreeBytes ||
+          !Number.isFinite(stored) ||
+          stored < 0 ||
+          !Number.isSafeInteger(projected) ||
+          projected > this.recording.maxStorageBytes
+        ) {
+          return { decision: 'full' };
+        }
+      }
+      if (!guest) return { decision: 'ok' };
+      const usage = await this.guestUsage(hostId);
+      if (
+        !Number.isFinite(usage.recordings) ||
+        !Number.isFinite(usage.bytes) ||
+        usage.recordings < 0 ||
+        usage.bytes < 0 ||
+        usage.recordings >= this.recording.guestRecordingLimit ||
+        usage.bytes >= this.recording.guestStorageBytes
+      ) {
+        return { decision: 'full' };
+      }
+      return { decision: 'ok', guestBaseline: usage.bytes };
+    } catch (error) {
+      this.logger.error(
+        error instanceof Error ? error.message : 'Recording storage could not be measured.',
+      );
+      return { decision: error instanceof StorageScanError ? 'full' : 'error' };
+    }
+  }
+
+  private async guestUsage(hostId: string): Promise<GuestUsage> {
+    if (this.storage.guestUsage) return this.storage.guestUsage(hostId);
+    return this.queryGuestUsage(hostId);
+  }
+
+  /** Bounded read of one guest's recordings. Deleted rows are not an allowance. */
+  private async queryGuestUsage(hostId: string): Promise<GuestUsage> {
+    const limit = this.recording.guestRecordingLimit;
+    const rows = await this.broadcasts
+      .createQueryBuilder('broadcast')
+      .innerJoin('broadcast.room', 'room')
+      .where('room.hostId = :hostId', { hostId })
+      .andWhere('broadcast.status != :deleting', { deleting: 'DELETING' })
+      .orderBy('broadcast.createdAt', 'DESC')
+      .addOrderBy('broadcast.id', 'DESC')
+      .limit(limit)
+      .getMany();
+    if (rows.length >= limit) return { recordings: rows.length, bytes: 0 };
+    let bytes = 0;
+    for (const row of rows) {
+      if (!isUuid(row.id)) throw new StorageScanError();
+      const size = await measureStoredBytes(join(this.dataRoot, 'broadcasts', row.id));
+      const next = bytes + size;
+      bytes = Number.isSafeInteger(next) ? next : Number.MAX_SAFE_INTEGER;
+      if (bytes >= this.recording.guestStorageBytes) break;
+    }
+    return { recordings: rows.length, bytes };
+  }
+
+  private async enforceRecordingBudget(entry: RunningBroadcast, nextBytes: number): Promise<void> {
+    const elapsed = Date.now() - entry.row.startedAt.getTime();
+    if (Number.isFinite(elapsed) && elapsed >= this.recording.maxDurationMs) {
+      await this.finalizeForBudget(entry);
+      throw new ApiException(409, 'recording_limit', RECORDING_TIME_MESSAGE);
+    }
+    const nextTotal = entry.acceptedBytes + nextBytes;
+    if (!Number.isSafeInteger(nextTotal) || nextTotal > this.recording.maxRecordingBytes) {
+      await this.finalizeForBudget(entry);
+      throw new ApiException(409, 'recording_limit', RECORDING_SIZE_MESSAGE);
+    }
+    if (entry.guestBaseline !== undefined) {
+      const guestTotal = entry.guestBaseline + nextTotal;
+      if (!Number.isSafeInteger(guestTotal) || guestTotal > this.recording.guestStorageBytes) {
+        await this.finalizeForBudget(entry);
+        throw new ApiException(507, 'storage_full', failure('storage_full').message);
+      }
+    }
+    let free: number;
+    try {
+      free = await this.storage.freeBytes();
+    } catch (error) {
+      this.logger.error(
+        error instanceof Error ? error.message : 'Recording storage could not be measured.',
+      );
+      await this.finalizeForBudget(entry);
+      throw new ApiException(507, 'storage_full', failure('storage_full').message);
+    }
+    if (!Number.isFinite(free) || free < this.recording.minFreeBytes) {
+      await this.finalizeForBudget(entry);
+      throw new ApiException(507, 'storage_full', failure('storage_full').message);
+    }
+  }
+
+  /** Stop this attempt so a playlist can finish. Other recordings stay on disk. */
+  private async finalizeForBudget(entry: RunningBroadcast): Promise<void> {
+    if (entry.cleanup?.published || entry.row.status === 'READY' || entry.row.status === 'FAILED') {
+      return;
+    }
+    entry.stopping = true;
+    try {
+      await this.stopRoom(entry.row.roomId);
+    } catch (error) {
+      this.logger.error(
+        error instanceof Error ? error.message : 'Recording budget finalization failed.',
+      );
+    }
   }
 
   private async deleteRow(id: string): Promise<void> {
@@ -426,7 +612,7 @@ export class BroadcastsService {
 
   async upload(id: string, userId: string, sequence: number, bytes: Buffer): Promise<void> {
     const entry = this.running.get(id);
-    if (!entry || entry.row.status !== 'LIVE' || entry.supervisor.outcome)
+    if (!entry || entry.row.status !== 'LIVE' || entry.stopping || entry.supervisor.outcome)
       throw new ApiException(409, 'broadcast_not_active', 'The broadcast is not accepting chunks.');
     if (userId !== entry.hostId)
       throw new ApiException(403, 'not_host', 'Only the host can upload chunks.');
@@ -458,9 +644,12 @@ export class BroadcastsService {
       throw new ApiException(413, 'invalid_chunk', 'Chunk exceeds 2,000,000 bytes.');
     if (decision.kind !== 'accept')
       throw new ApiException(409, 'chunk_conflict', `Chunk is ${decision.kind}.`);
+    // Hold the in-flight flag across the disk check so a second chunk cannot pass it.
     entry.supervisor.writing = true;
     try {
+      await this.enforceRecordingBudget(entry, bytes.length);
       await entry.supervisor.write(bytes);
+      entry.acceptedBytes += bytes.length;
       entry.supervisor.history.acceptedHashes.set(sequence, sha256);
       entry.supervisor.history.nextExpected = sequence + 1;
     } finally {

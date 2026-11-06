@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -11,19 +11,49 @@ import type { Repository } from 'typeorm';
 import type { RoomsService } from '../rooms/rooms.service';
 import type { Broadcast } from './broadcast.entity';
 import { UploadAllowance } from '../admission/upload-allowance';
+import { failure } from '../live/signaling.messages';
 import { BroadcastsService, type BroadcastHooks } from './broadcasts.service';
 import { EncoderBudget } from './encoder-budget';
 import { FfmpegSupervisor, PRODUCER_IDLE_MS } from './ffmpeg-supervisor';
+import {
+  RECORDING_SIZE_MESSAGE,
+  RECORDING_TIME_MESSAGE,
+  StorageScanError,
+  type RecordingBudget,
+  type StorageProbe,
+} from './storage-budget';
 
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
+function budget(overrides: Partial<RecordingBudget> = {}): RecordingBudget {
+  return {
+    maxDurationMs: 900_000,
+    maxRecordingBytes: 268_435_456,
+    maxStorageBytes: 1_073_741_824,
+    minFreeBytes: 536_870_912,
+    guestRecordingLimit: 3,
+    guestStorageBytes: 268_435_456,
+    ...overrides,
+  };
+}
+
+function openStorage(guestUsage?: StorageProbe['guestUsage']): StorageProbe {
+  return {
+    freeBytes: async () => 1_000_000_000_000,
+    storedBytes: async () => 0,
+    ...(guestUsage ? { guestUsage } : {}),
+  };
+}
+
 async function fixture(
   stdin = new PassThrough(),
   uploads?: UploadAllowance,
   encoders?: EncoderBudget,
+  recording?: RecordingBudget,
+  storage?: StorageProbe,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'sf-cast-'));
   roots.push(root);
@@ -44,6 +74,9 @@ async function fixture(
     delete: vi.fn(),
     findOneBy: vi.fn(async () => rows[0] ?? null),
     findOne: vi.fn(async () => rows[0] ?? null),
+    createQueryBuilder: vi.fn((): unknown => {
+      throw new Error('unexpected guest recording query');
+    }),
   };
   const child = Object.assign(new EventEmitter(), {
     stdin,
@@ -65,6 +98,8 @@ async function fixture(
     uploads,
     undefined,
     encoders,
+    recording,
+    storage,
   );
   const tasks: Promise<unknown>[] = [];
   const hooks: BroadcastHooks = {
@@ -256,6 +291,7 @@ it('serializes admission while a write is pending and rejects late chunks after 
   const id = f.rows[0]!.id;
   const pending = f.service.upload(id, 'host', 0, Buffer.from('first'));
   const ledger = f.supervisor.history.acceptedHashes;
+  await vi.waitFor(() => expect(typeof release).toBe('function'));
   expect(ledger.size).toBe(0);
   expect(f.supervisor.history.nextExpected).toBe(0);
   await expect(f.service.upload(id, 'host', 1, Buffer.from('second'))).rejects.toMatchObject({
@@ -729,6 +765,335 @@ it('keeps the attempt when the row delete reply is lost and does not reserve aga
     expect(f.hooks.reserve).toHaveBeenCalledTimes(2);
     expect(f.spawn).toHaveBeenCalledOnce();
     expect(claims.size).toBe(0);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('refuses a start that would exhaust disk or the guest allowance and does not take a slot', async () => {
+  const logger = silenceErrors();
+  try {
+    const fullMessage = failure('storage_full').message;
+    const guestUsage = vi.fn(async () => ({ recordings: 0, bytes: 0 }));
+    const encoders = new EncoderBudget(1, 1);
+    const empty = await fixture(undefined, undefined, encoders, undefined, {
+      freeBytes: async () => 0,
+      storedBytes: async () => 0,
+      guestUsage,
+    });
+    expect(await empty.service.start(randomUUID(), 'guest-host', empty.hooks, true)).toEqual({
+      ok: false,
+      error: 'storage_full',
+      message: fullMessage,
+    });
+    expect(empty.spawn).not.toHaveBeenCalled();
+    expect(empty.rows).toHaveLength(0);
+    expect(encoders.active).toBe(0);
+    expect(guestUsage).not.toHaveBeenCalled();
+    expect(JSON.stringify(fullMessage)).not.toContain(empty.root);
+
+    const stored = await fixture(undefined, undefined, new EncoderBudget(1, 1), undefined, {
+      freeBytes: async () => 1_000_000_000_000,
+      storedBytes: async () => 1_073_741_824 - 268_435_456 + 1,
+    });
+    expect(await stored.start()).toMatchObject({ error: 'storage_full', message: fullMessage });
+    expect(stored.spawn).not.toHaveBeenCalled();
+    expect(stored.rows).toHaveLength(0);
+
+    const fitting = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      budget({ maxStorageBytes: 100, maxRecordingBytes: 40, minFreeBytes: 0 }),
+      { freeBytes: async () => 1_000_000_000_000, storedBytes: async () => 60 },
+    );
+    expect(await fitting.start()).toEqual({ ok: true });
+    expect(fitting.spawn).toHaveBeenCalledOnce();
+
+    const guests = vi.fn(async () => ({ recordings: 3, bytes: 0 }));
+    const limited = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      undefined,
+      openStorage(guests),
+    );
+    expect(await limited.service.start(randomUUID(), 'guest-host', limited.hooks, true)).toEqual({
+      ok: false,
+      error: 'storage_full',
+      message: fullMessage,
+    });
+    expect(limited.spawn).not.toHaveBeenCalled();
+    expect(guests).toHaveBeenCalledOnce();
+    expect(limited.rows).toHaveLength(0);
+
+    const registered = vi.fn(async () => ({ recordings: 99, bytes: 99 }));
+    const host = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      undefined,
+      openStorage(registered),
+    );
+    expect(await host.start()).toEqual({ ok: true });
+    expect(registered).not.toHaveBeenCalled();
+    expect(host.repository.createQueryBuilder).not.toHaveBeenCalled();
+
+    const scanned = await fixture(undefined, undefined, new EncoderBudget(1, 1), undefined, {
+      freeBytes: async () => {
+        throw new StorageScanError();
+      },
+      storedBytes: async () => 0,
+    });
+    expect(await scanned.start()).toEqual({
+      ok: false,
+      error: 'storage_full',
+      message: fullMessage,
+    });
+    expect(scanned.spawn).not.toHaveBeenCalled();
+    expect(JSON.stringify(failure('storage_full'))).not.toContain(scanned.root);
+
+    let probePath = '';
+    const broken = await fixture(undefined, undefined, new EncoderBudget(1, 1), undefined, {
+      freeBytes: async () => {
+        throw new Error(`missing ${probePath}`);
+      },
+      storedBytes: async () => 0,
+    });
+    probePath = broken.root;
+    const brokenResult = await broken.start();
+    expect(brokenResult).toEqual({
+      ok: false,
+      error: 'server_error',
+      message: failure('server_error').message,
+    });
+    expect(JSON.stringify(brokenResult)).not.toContain(broken.root);
+    expect(broken.spawn).not.toHaveBeenCalled();
+    expect(broken.rows).toHaveLength(0);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+it('rechecks the guest allowance after the slot is reserved and releases that slot', async () => {
+  let calls = 0;
+  const encoders = new EncoderBudget(1, 1);
+  const f = await fixture(undefined, undefined, encoders, undefined, {
+    freeBytes: async () => 1_000_000_000_000,
+    storedBytes: async () => 0,
+    guestUsage: async () => {
+      calls += 1;
+      return { recordings: calls === 1 ? 0 : 3, bytes: 0 };
+    },
+  });
+  expect(await f.service.start(randomUUID(), 'guest-host', f.hooks, true)).toEqual({
+    ok: false,
+    error: 'storage_full',
+    message: failure('storage_full').message,
+  });
+  expect(calls).toBe(2);
+  expect(f.spawn).not.toHaveBeenCalled();
+  expect(f.rows).toHaveLength(0);
+  expect(encoders.active).toBe(0);
+  expect(encoders.principals).toBe(0);
+});
+
+it('counts a guest host from the catalog and retained files, and serializes the next guest start', async () => {
+  const logger = silenceErrors();
+  try {
+    const encoders = new EncoderBudget(2, 2);
+    const recording = budget({ guestRecordingLimit: 3, guestStorageBytes: 10, minFreeBytes: 0 });
+    const kept = randomUUID();
+    const f = await fixture(undefined, undefined, encoders, recording, openStorage());
+    await mkdir(join(f.root, 'broadcasts', kept), { recursive: true });
+    await writeFile(join(f.root, 'broadcasts', kept, 'segment.ts'), 'x'.repeat(11));
+    const chain = {
+      innerJoin: vi.fn(),
+      where: vi.fn(),
+      andWhere: vi.fn(),
+      orderBy: vi.fn(),
+      addOrderBy: vi.fn(),
+      limit: vi.fn(),
+      getMany: vi.fn(async () => [{ id: kept }]),
+    };
+    for (const method of [
+      chain.innerJoin,
+      chain.where,
+      chain.andWhere,
+      chain.orderBy,
+      chain.addOrderBy,
+      chain.limit,
+    ]) {
+      method.mockReturnValue(chain);
+    }
+    f.repository.createQueryBuilder.mockReturnValue(chain);
+    expect(await f.service.start(randomUUID(), 'guest-host', f.hooks, true)).toEqual({
+      ok: false,
+      error: 'storage_full',
+      message: failure('storage_full').message,
+    });
+    expect(f.repository.createQueryBuilder).toHaveBeenCalledWith('broadcast');
+    expect(chain.innerJoin).toHaveBeenCalledWith('broadcast.room', 'room');
+    expect(chain.where).toHaveBeenCalledWith('room.hostId = :hostId', { hostId: 'guest-host' });
+    expect(chain.andWhere).toHaveBeenCalledWith('broadcast.status != :deleting', {
+      deleting: 'DELETING',
+    });
+    expect(chain.limit).toHaveBeenCalledWith(3);
+    expect(f.spawn).not.toHaveBeenCalled();
+    expect(await readFile(join(f.root, 'broadcasts', kept, 'segment.ts'), 'utf8')).toHaveLength(11);
+    expect(encoders.active).toBe(0);
+
+    let calls = 0;
+    let releaseReserve!: () => void;
+    const reserveGate = new Promise<void>((resolve) => {
+      releaseReserve = resolve;
+    });
+    const queued = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(2, 2),
+      budget({ guestRecordingLimit: 1, minFreeBytes: 0 }),
+      openStorage(async () => {
+        calls += 1;
+        return { recordings: calls > 2 ? 1 : 0, bytes: 0 };
+      }),
+    );
+    vi.mocked(queued.hooks.reserve).mockImplementation(async () => {
+      queued.events.push('reserve');
+      await reserveGate;
+      return true;
+    });
+    const first = queued.service.start(randomUUID(), 'guest-host', queued.hooks, true);
+    await vi.waitFor(() => expect(queued.events).toContain('reserve'));
+    expect(calls).toBe(2);
+    const second = queued.service.start(randomUUID(), 'guest-host', queued.hooks, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(calls).toBe(2);
+    releaseReserve();
+    expect(await first).toEqual({ ok: true });
+    expect(await second).toEqual({
+      ok: false,
+      error: 'storage_full',
+      message: failure('storage_full').message,
+    });
+    expect(queued.spawn).toHaveBeenCalledOnce();
+    queued.child.emit('close', 1);
+    await vi.waitFor(() => expect(queued.tasks).toHaveLength(1));
+    await Promise.all(queued.tasks);
+  } finally {
+    logger.mockRestore();
+  }
+});
+
+async function readyPlaylist(root: string, id: string): Promise<void> {
+  await writeFile(join(root, 'broadcasts', id, 'index.m3u8'), '#EXTM3U\n#EXT-X-ENDLIST\n');
+}
+
+it('finalizes a recording that would pass its size, duration, guest, or free-space budget', async () => {
+  const logger = silenceErrors();
+  try {
+    const sized = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      budget({ maxRecordingBytes: 4, minFreeBytes: 0 }),
+      openStorage(),
+    );
+    expect(await sized.start()).toEqual({ ok: true });
+    const sizedRow = sized.rows[0]!;
+    await sized.service.upload(sizedRow.id, 'host', 0, Buffer.from('abcd'));
+    await readyPlaylist(sized.root, sizedRow.id);
+    sized.child.stdin.once('finish', () => sized.child.emit('close', 0));
+    await expect(
+      sized.service.upload(sizedRow.id, 'host', 1, Buffer.from('e')),
+    ).rejects.toMatchObject({
+      response: { statusCode: 409, error: 'recording_limit', message: RECORDING_SIZE_MESSAGE },
+    });
+    expect(sized.child.stdin.read()).toEqual(Buffer.from('abcd'));
+    expect(sizedRow).toMatchObject({ status: 'READY', errorMessage: null });
+    expect(sized.supervisor.history.nextExpected).toBe(1);
+
+    const timed = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      budget({ maxDurationMs: 1000, minFreeBytes: 0 }),
+      openStorage(),
+    );
+    expect(await timed.start()).toEqual({ ok: true });
+    const timedRow = timed.rows[0]!;
+    timedRow.startedAt = new Date(Date.now() - 60_000);
+    await mkdir(join(timed.root, 'broadcasts', 'other-recording'), { recursive: true });
+    await writeFile(join(timed.root, 'broadcasts', 'other-recording', 'keep.txt'), 'keep');
+    await readyPlaylist(timed.root, timedRow.id);
+    timed.child.stdin.once('finish', () => timed.child.emit('close', 0));
+    await expect(
+      timed.service.upload(timedRow.id, 'host', 0, Buffer.from('late')),
+    ).rejects.toMatchObject({
+      response: { statusCode: 409, error: 'recording_limit', message: RECORDING_TIME_MESSAGE },
+    });
+    expect(timed.child.stdin.read()).toBeNull();
+    expect(timedRow.status).toBe('READY');
+    expect(
+      await readFile(join(timed.root, 'broadcasts', 'other-recording', 'keep.txt'), 'utf8'),
+    ).toBe('keep');
+
+    const guest = await fixture(
+      undefined,
+      undefined,
+      new EncoderBudget(1, 1),
+      budget({ guestStorageBytes: 10, maxRecordingBytes: 100, minFreeBytes: 0 }),
+      openStorage(async () => ({ recordings: 0, bytes: 8 })),
+    );
+    expect(await guest.service.start(randomUUID(), 'guest-host', guest.hooks, true)).toEqual({
+      ok: true,
+    });
+    const guestRow = guest.rows[0]!;
+    await guest.service.upload(guestRow.id, 'guest-host', 0, Buffer.from('ok'));
+    await readyPlaylist(guest.root, guestRow.id);
+    guest.child.stdin.once('finish', () => guest.child.emit('close', 0));
+    await expect(
+      guest.service.upload(guestRow.id, 'guest-host', 1, Buffer.from('x')),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 507,
+        error: 'storage_full',
+        message: failure('storage_full').message,
+      },
+    });
+    expect(guest.child.stdin.read()).toEqual(Buffer.from('ok'));
+    expect(guestRow.status).toBe('READY');
+
+    let probes = 0;
+    const pressured = await fixture(undefined, undefined, new EncoderBudget(1, 1), undefined, {
+      freeBytes: async () => {
+        probes += 1;
+        return probes >= 3 ? 0 : 1_000_000_000_000;
+      },
+      storedBytes: async () => 0,
+    });
+    expect(await pressured.start()).toEqual({ ok: true });
+    const pressuredRow = pressured.rows[0]!;
+    await pressured.service.upload(pressuredRow.id, 'host', 0, Buffer.from('webm'));
+    await mkdir(join(pressured.root, 'broadcasts', 'other-recording'), { recursive: true });
+    await writeFile(join(pressured.root, 'broadcasts', 'other-recording', 'keep.txt'), 'keep');
+    await readyPlaylist(pressured.root, pressuredRow.id);
+    pressured.child.stdin.once('finish', () => pressured.child.emit('close', 0));
+    await expect(
+      pressured.service.upload(pressuredRow.id, 'host', 1, Buffer.from('nope')),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 507,
+        error: 'storage_full',
+        message: failure('storage_full').message,
+      },
+    });
+    expect(pressured.child.stdin.read()).toEqual(Buffer.from('webm'));
+    expect(pressuredRow.status).toBe('READY');
+    expect(
+      await readFile(join(pressured.root, 'broadcasts', 'other-recording', 'keep.txt'), 'utf8'),
+    ).toBe('keep');
+    expect(JSON.stringify(failure('storage_full'))).not.toContain(pressured.root);
   } finally {
     logger.mockRestore();
   }

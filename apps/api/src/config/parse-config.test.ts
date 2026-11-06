@@ -28,6 +28,12 @@ it('validates through one Zod schema and infers parsed defaults', () => {
   expect(parsed.ENCODER_GLOBAL_LIMIT).toBe(1);
   expect(parsed.ENCODER_PRINCIPAL_LIMIT).toBe(1);
   expect(parsed.FFMPEG_THREADS).toBe(1);
+  expect(parsed.RECORDING_MAX_MS).toBe(900000);
+  expect(parsed.RECORDING_MAX_BYTES).toBe(268435456);
+  expect(parsed.STORAGE_MAX_BYTES).toBe(1073741824);
+  expect(parsed.MIN_FREE_BYTES).toBe(536870912);
+  expect(parsed.GUEST_RECORDING_LIMIT).toBe(3);
+  expect(parsed.GUEST_STORAGE_BYTES).toBe(268435456);
   expect(parsed.LIVE_NAMESPACE).toBe('sf_development');
   expect(parseConfig({ ...valid, NODE_ENV: 'test' }).LIVE_NAMESPACE).toBe('sf_test');
 });
@@ -48,6 +54,23 @@ it('rejects encoder budgets outside their supported range', () => {
     expect(() => parseConfig({ ...valid, [key]: '0' })).toThrow(new RegExp(key));
     expect(() => parseConfig({ ...valid, [key]: '9' })).toThrow(new RegExp(key));
   }
+});
+it('rejects recording budgets outside their supported range', () => {
+  for (const [key, value] of [
+    ['RECORDING_MAX_MS', '999'],
+    ['RECORDING_MAX_MS', '14400001'],
+    ['RECORDING_MAX_BYTES', '999999'],
+    ['RECORDING_MAX_BYTES', '8000000001'],
+    ['STORAGE_MAX_BYTES', '999999'],
+    ['MIN_FREE_BYTES', '8000000001'],
+    ['GUEST_RECORDING_LIMIT', '0'],
+    ['GUEST_RECORDING_LIMIT', '101'],
+    ['GUEST_STORAGE_BYTES', '999999'],
+  ] as const) {
+    expect(() => parseConfig({ ...valid, [key]: value })).toThrow(new RegExp(key));
+  }
+  expect(parseConfig({ ...valid, MIN_FREE_BYTES: '0' }).MIN_FREE_BYTES).toBe(0);
+  expect(parseConfig({ ...valid, RECORDING_MAX_MS: '1000' }).RECORDING_MAX_MS).toBe(1000);
 });
 
 describe('optional Google configuration', () => {

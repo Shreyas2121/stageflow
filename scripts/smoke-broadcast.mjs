@@ -409,6 +409,24 @@ try {
   await stopApi();
   assert.equal(await redis.get(`${namespace}:owner`), null);
 
+  // One READY recording is inside the guest allowance, so a missing binary still creates a row.
+  await startApi(join(root, 'missing-ffmpeg'));
+  const missing = await hostRoom(guest.token);
+  const unavailable = await ack(missing.socket, 'broadcast:start');
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.error, 'ffmpeg_unavailable');
+  assert.equal(unavailable.message, 'FFmpeg is not available. The stage is still up.');
+  const failedPage = await json(`/rooms/${missing.room.slug}/broadcasts`, guest.token);
+  const failed = failedPage.items[0];
+  assert.equal(failed.status, 'FAILED');
+  assert.equal(failed.thumbnailUrl, null);
+  assert.match(failed.errorMessage, /missing-ffmpeg/);
+  assert.equal((await ack(missing.socket, 'media:state', { isAudioMuted: true })).ok, true);
+  assert.equal(await redis.get(`${namespace}:room:${missing.room.id}:broadcast`), null);
+  assert.equal((await json(`/broadcasts/${ready.id}`, guest.token)).status, 'READY');
+  await stopApi();
+  assert.equal(await redis.get(`${namespace}:owner`), null);
+
   // Simulate persisted attempts left by a previous process, without killing an encoder.
   const pendingIds = [];
   for (const status of ['STARTING', 'LIVE', 'STOPPING']) {
@@ -437,21 +455,37 @@ try {
   assert.equal(await redis.get(`${namespace}:room:${room.id}:broadcast`), null);
   assert.equal(await redis.get(foreignKey), id);
   assert.equal((await stat(join(root, 'broadcasts', ready.id, 'index.m3u8'))).isFile(), true);
-  await stopApi();
+  assert.match(
+    (await json(`/broadcasts/${failed.id}`, guest.token)).errorMessage,
+    /missing-ffmpeg/,
+  );
 
-  await startApi(join(root, 'missing-ffmpeg'));
-  const missing = await hostRoom(guest.token);
-  assert.equal((await ack(missing.socket, 'broadcast:start')).ok, false);
-  const failedPage = await json(`/rooms/${missing.room.slug}/broadcasts`, guest.token);
-  const failed = failedPage.items[0];
-  assert.equal(failed.status, 'FAILED');
-  assert.equal(failed.thumbnailUrl, null);
-  assert.match(failed.errorMessage, /missing-ffmpeg/);
-  assert.equal((await ack(missing.socket, 'media:state', { isAudioMuted: true })).ok, true);
-  assert.equal(await redis.get(`${namespace}:room:${missing.room.id}:broadcast`), null);
+  // READY, the missing-binary row, and the three restarted rows are past the guest allowance of 3.
+  const blocked = await hostRoom(guest.token);
+  const full = await ack(blocked.socket, 'broadcast:start');
+  assert.equal(full.ok, false);
+  assert.equal(full.error, 'storage_full');
+  assert.equal(full.message, 'Recording storage is full. Try again shortly.');
+  assert.deepEqual((await json(`/rooms/${blocked.room.slug}/broadcasts`, guest.token)).items, []);
+  assert.equal(
+    (await dataSource.query('SELECT id FROM broadcasts WHERE room_id = $1', [blocked.room.id]))
+      .length,
+    0,
+  );
+  assert.equal((await ack(blocked.socket, 'media:state', { isAudioMuted: true })).ok, true);
+  assert.equal(await redis.get(`${namespace}:room:${blocked.room.id}:broadcast`), null);
   assert.equal((await json(`/broadcasts/${ready.id}`, guest.token)).status, 'READY');
+  assert.equal(
+    await (await request(`/broadcasts/${ready.id}/hls/index.m3u8`, guest.token)).text(),
+    playlist,
+  );
+  assert.match(
+    (await json(`/broadcasts/${failed.id}`, guest.token)).errorMessage,
+    /missing-ffmpeg/,
+  );
+  await stopApi();
   console.log(
-    'Restart fails only in-flight rows, preserves READY/media and foreign namespace; missing binary fails the attempt while stage commands remain usable.',
+    'Restart fails only in-flight rows, preserves READY/media and foreign namespace; missing binary fails the attempt while stage commands remain usable; a guest past the recording allowance is refused before a row is stored.',
   );
 } finally {
   try {

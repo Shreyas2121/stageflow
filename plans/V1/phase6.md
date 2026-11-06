@@ -265,8 +265,8 @@ RC18 current evidence (2026-11-03): P6-A05/A06/A08 were exercised through native
 
 ## Maintenance: V3-R04 / V3M-C05 (2026-11-06)
 
-Status: verified. Proposed commit: `fix(broadcast): reserve global encoder capacity`.
-Actual commit:
+Status: committed. Proposed commit: `fix(broadcast): reserve global encoder capacity`.
+Actual commit: `c51762a`.
 
 A broadcast start takes one process-wide encoder slot and one slot for that host before the row insert, room claim, directory, or FFmpeg spawn. The same host cannot hold a second slot even when the process budget has room. A full budget returns `encoder_capacity` with `Recording capacity is full. Try again shortly.` and does not retain a row or spawn. The slot is released when the attempt leaves the running set, when setup fails before that, and when the API shuts the child down. A repeated release does not free a second slot. WebM decode and libx264 each receive `FFMPEG_THREADS`, default 1, and a count outside 1..8 is rejected. Defaults are one global recording, one recording per host, and one thread. Guest hosts use that same per-host slot in this slice.
 
@@ -276,3 +276,20 @@ Evidence:
 - `pnpm check:release` passed with process-local `FFMPEG_PATH` pointing at the existing temporary FFmpeg 6.0 binary: 49 tooling, 455 shared, 525 web, and 545 API tests; workspace typecheck/lint; both builds; formatting; artifacts; and live and broadcast smokes. The broadcast smoke decoded video and audio, reached READY with ENDLIST, and passed restart and missing-binary checks. No environment file changed. The Vite large-chunk warning remains.
 
 Abort signals the child and settles the attempt without waiting for the process to disappear, so a replacement can overlap a dying FFmpeg for a moment. Recording duration, retained bytes, free-disk refusal, and a guest-specific allowance are not part of this slice. The target VPS mixed workload was not measured. These defaults are not a capacity promise. No physical-device acceptance or production launch approval is claimed. The untracked review report remains outside the commit.
+
+## Maintenance: V3-R04 / V3M-C06 (2026-11-06)
+
+Status: verified. Proposed commit: `feat(ops): enforce recording and storage budgets`.
+Actual commit:
+
+A start is refused with `storage_full` (`Recording storage is full. Try again shortly.`) before an encoder slot is taken when free space is below `MIN_FREE_BYTES`, when retained broadcast bytes plus `RECORDING_MAX_BYTES` would pass `STORAGE_MAX_BYTES`, or when a guest host already has `GUEST_RECORDING_LIMIT` non-deleting recordings or `GUEST_STORAGE_BYTES` retained. Guest starts in one process run one at a time, and the allowance is checked again after the slot is taken and before the row insert. The chunk that would pass `RECORDING_MAX_MS`, the recording's accepted bytes, that guest byte allowance, or the free-space minimum is not written. That attempt is finalized through the normal stop path. Other recordings stay on disk. Duration and size return HTTP 409 `recording_limit` (`This recording reached its time limit.` or `This recording reached its size limit.`). Guest-byte and free-disk pressure on a chunk return HTTP 507 `storage_full`. An unmeasurable directory refuses the start, or finalizes the attempt when the failure happens on a chunk. The walker does not follow links, does not leave the broadcast root, and does not delete files. There is no recursive cleanup job.
+
+Defaults are 900000 ms, 268435456 accepted bytes, 1073741824 retained bytes, 536870912 free bytes, 3 guest recordings, and 268435456 guest bytes. They are a pre-measurement ceiling, not a capacity promise. With the default encoder limit of 1, a second recording cannot start until the first leaves the running set. Unflushed accepted bytes of a still-running guest recording are not added again on top of the file walk. Concurrent recordings above that default were not given an extra in-flight byte reservation and were not load-tested.
+
+V3M-C12 was not done. No named VPS, systemd unit, nginx profile, or mixed-load p95 was measured. Abort still signals the child and settles without waiting for the process to disappear, so a replacement can overlap a dying FFmpeg for a moment. No physical-device acceptance or production launch approval is claimed. The untracked review report remains outside the commit.
+
+Evidence:
+
+- Storage measurement, broadcast runtime, broadcast service, config, and live-service tests are included in the API suite below. They cover a full disk and a full aggregate before spawn, a guest count at the limit, a non-guest that does not query guest rows, a measurement error versus an unexpected error, a second guest check after the slot is taken, catalog bytes for one guest, serialized guest starts, and finalizing one attempt for size, duration, guest bytes, or low free space without deleting a sibling file.
+- `pnpm check:release` passed with process-local `FFMPEG_PATH` pointing at the existing temporary FFmpeg 6.0 binary: 49 tooling, 455 shared, 525 web, and 557 API tests; workspace typecheck/lint; both builds; formatting; artifacts; and live and broadcast smokes. An earlier release run failed the existing password latency assertion under suite load (`budgetDelayMs` 113 against a ceiling near 104). That bound was not changed. A later run passed the password assertion, and the broadcast smoke then looked up a missing-binary `FAILED` row after this guest already held the READY recording and three restarted rows. The smoke now performs the missing-binary attempt while the guest is inside the allowance of 3, then expects `storage_full` and no new row once those recordings exist. This passing run includes that smoke. Password sample on this run: idle 25.8 ms, loaded 24.8 ms, budget 34.6 ms, slowest parallel hash 1629 ms, readiness max 120.7 ms, socket max 32.3 ms. No environment file changed. The Vite large-chunk warning remains. Web bundle totals are unchanged: home 590984 raw / 177893 gzip-estimate, room including entry 788938 / 231806, replay 610449 / 183940, deferred player 580513 / 179114.
+- After that run, the README smoke sentence was updated to name the missing-binary order and the allowance refusal. `pnpm exec prettier --check README.md plans/V1/phase6.md` passed.

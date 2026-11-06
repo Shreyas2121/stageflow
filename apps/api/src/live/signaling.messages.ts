@@ -15,6 +15,7 @@ const messages: Record<SignalingError, string> = {
   broadcast_not_available: 'Broadcast is not available yet.',
   broadcast_active: 'A broadcast is already active.',
   encoder_capacity: 'Recording capacity is full. Try again shortly.',
+  storage_full: 'Recording storage is full. Try again shortly.',
   ffmpeg_unavailable: 'FFmpeg is not available. The stage is still up.',
   room_ended: 'This room has ended.',
   already_joined: 'This guest is already in the room.',

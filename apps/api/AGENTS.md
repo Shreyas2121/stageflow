@@ -15,6 +15,7 @@ Paths below are relative to `apps/api`. This is a Nest/CommonJS application with
 | Shared catalog ordering/cursors                           | [database/catalog-cursor.ts](src/database/catalog-cursor.ts), [database/ordering-instant.ts](src/database/ordering-instant.ts)                                                             |
 | Broadcast reservation, cleanup, upload lifecycle, catalog | [broadcasts/broadcasts.service.ts](src/broadcasts/broadcasts.service.ts), `broadcasts.service.test.ts`, `broadcasts.runtime.test.ts`                                                       |
 | Encoder process and media-path confinement                | [broadcasts/ffmpeg-supervisor.ts](src/broadcasts/ffmpeg-supervisor.ts), [broadcasts/hls-path.ts](src/broadcasts/hls-path.ts), [broadcasts/chunk-parser.ts](src/broadcasts/chunk-parser.ts) |
+| Recording duration, retained bytes, free disk, guests     | [broadcasts/storage-budget.ts](src/broadcasts/storage-budget.ts), [broadcasts/broadcasts.service.ts](src/broadcasts/broadcasts.service.ts)                                                 |
 | Independent chat history, deduplication, pause/rates      | [chat/chat.service.ts](src/chat/chat.service.ts), [chat/chat.repository.ts](src/chat/chat.repository.ts), [chat/scripts/](src/chat/scripts/)                                               |
 | Independent question board, submit/vote rates and state   | [qa/qa.service.ts](src/qa/qa.service.ts), [qa/qa.repository.ts](src/qa/qa.repository.ts), [qa/scripts/](src/qa/scripts/)                                                                   |
 | Admission, network identity, upload budgets               | [admission/](src/admission/)                                                                                                                                                               |
@@ -32,6 +33,7 @@ Tests are adjacent to these modules. The broadcast test names above are in `src/
 - Preserve admission/media budgets and media-path confinement. Missing FFmpeg must not prevent ordinary API/stage use. Keep chat work independent from the stage operation queue.
 - Password hashes stay at bcrypt cost 12 on the bounded worker pool. Do not hash on the API thread, lower the cost to hide latency, or share that budget with guest creation or Google exchange. Idle workers are unreferenced so a one-shot script can exit; Nest shutdown still closes the pool.
 - Reserve an encoder slot before FFmpeg setup and release it when the attempt leaves the running set or the process shuts down. Do not start libx264 without the configured thread cap. A full budget is `encoder_capacity`.
+- Refuse a recording before taking an encoder slot when free disk, retained broadcast bytes, or a guest host's allowance is exhausted (`storage_full`). Finalize the recording that reaches its duration, accepted-byte, guest-byte, or free-disk budget without deleting unrelated files. Do not add a recursive media cleanup job. A directory that cannot be measured refuses the recording.
 
 ## Checks and prerequisites
 
