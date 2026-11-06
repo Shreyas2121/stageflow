@@ -66,7 +66,7 @@ These are the exclusions this phase is most likely to violate.
 
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` are empty together or set together. A partial set fails startup, in the same way an incomplete TURN trio does.
 
-The redirect value is one exact `http` or `https` URL, with no userinfo, query, or hash, and with the path `/api/sessions/google/callback`. The client secret is read only by the API. No response, redirect, or web environment variable carries it.
+The redirect value is one exact HTTPS URL (HTTP only on loopback for development), with no userinfo, query, or hash, and with the path `/api/sessions/google/callback`. The client secret is read only by the API. No response, redirect, or web environment variable carries it.
 
 Empty settings are the acceptance default. ID-05 runs in that default.
 
@@ -84,19 +84,19 @@ A new Google host has `is_guest = false`, `email = null`, `password_hash = null`
 | ----------------------------------- | ---------------------------- | ----------------------------------------------------------- |
 | `GET /api/sessions/google`          | `200` `{ "enabled": false }` | `200` `{ "enabled": true }`                                 |
 | `GET /api/sessions/google/start`    | `404` `google_unavailable`   | Redirect to Google's authorization URL                      |
-| `GET /api/sessions/google/callback` | `404` `google_unavailable`   | Exchange the code, then redirect to the web app             |
+| `GET /api/sessions/google/callback` | `404` `google_unavailable`   | Check browser/state and redirect with a bound ticket        |
 | `POST /api/sessions/google/ticket`  | `404` `google_unavailable`   | Redeem one ticket for `{ token, userId, displayName }`      |
 | `POST /api/sessions/google/link`    | `404` `google_unavailable`   | Current host receives `{ "url" }` for the authorization URL |
 
 `google_unavailable` uses `Google sign-in is not configured.` The probe is the only Google route that succeeds while unset. It never calls Google and does not return the client id or the secret.
 
-Start and link build the authorization URL on the API. The state and the PKCE verifier stay in Redis for 5 minutes under `<LIVE_NAMESPACE>:google:state:{state}` and are deleted on first use. The callback sends the code, the verifier, the client id, the secret, and the configured redirect to Google's token endpoint. The id token is verified for this client id. A bad state, a reused state, a bad token, or a missing subject is `google_rejected` with `Google did not confirm this sign-in.` and writes nothing.
+Start and link build the authorization URL on the API. State, the PKCE verifier, and a hash of an unguessable browser proof stay in Redis for 5 minutes under `<LIVE_NAMESPACE>:google:state:{state}` and are deleted on first callback use. A host-only HttpOnly SameSite=Lax cookie carries the proof; HTTPS also requires Secure and the `__Host-` prefix. Link state stores the initiating user id and bearer hash. One browser has one active proof; a newer attempt invalidates an older one. Frontend and API must be same-site with the same scheme; cross-site API fetches are unsupported and fail closed. Loopback hosts must match even when ports differ.
 
-A successful sign-in stores the host session under `<LIVE_NAMESPACE>:google:ticket:{ticket}` for 60 seconds and redirects to `{CORS_ORIGIN}/auth/google?ticket={ticket}`. The ticket is single-use. The failure redirect is `{CORS_ORIGIN}/auth/google?error=google_rejected`. The query never carries a token, a code, or the secret. The redirect target is not taken from the request.
+A successful callback requires the matching browser proof and stores the code and transaction under `<LIVE_NAMESPACE>:google:ticket:{ticket}` for 60 seconds, then redirects to `{CORS_ORIGIN}/auth/google#ticket={ticket}`. It renews the proof cookie for those 60 seconds. The ticket is single-use and requires the same proof at redemption. Callback failure or ticket redemption clears the proof cookie; a mismatched request also consumes the one-time state or ticket. The failure redirect is `{CORS_ORIGIN}/auth/google?error=google_rejected`. Tickets stay out of HTTP URL logs and referrers through the fragment, no-referrer policy, immediate return-location cleanup, and no-store responses. Codes and ticket bodies must also be redacted by ingress logging. The redirect target is not taken from the request.
 
-Ticket redemption returns the same session shape as login and signs a 7-day host token with the row's current `session_version`. A second redeem fails with `google_rejected`.
+Ticket redemption sends the code, verifier, client id, secret, and configured redirect to Google's token endpoint. The id token is verified for this client id. A bad state, reused ticket, bad token, or missing subject is `google_rejected` with `Google did not confirm this sign-in.` and writes nothing. A successful redemption returns the same session shape as login and signs a 7-day host token with the row's current `session_version`. A second redeem fails with `google_rejected`.
 
-Link requires a host bearer. A guest receives HTTP 403 `google_host_required` with `Create a host account before linking Google.` The callback for a link state writes the subject onto that host id only. A subject already stored on another row returns HTTP 409 `google_linked` with `That Google account is already linked to another user.` and leaves both rows unchanged. Linking the subject's current owner again is a success and does not change the version. A successful new link does not change email, password hash, or `session_version`.
+Link requires a host bearer. A guest receives HTTP 403 `google_host_required` with `Create a host account before linking Google.` Link ticket redemption requires that exact initiating bearer, including its current session version and deadline, before and after provider exchange. The account mutation also locks and checks the version against concurrent password changes. Logout, account switch, token expiry, and password changes prevent completion. Redemption writes the subject onto that host id only. A subject already stored on another row returns HTTP 409 `google_linked` with `That Google account is already linked to another user.` and leaves both rows unchanged. Linking the subject's current owner again is a success and does not change the version. A successful new link does not change email, password hash, or `session_version`.
 
 Sign-in and link spend the account rate budget and the password in-flight cap. The probe spends only the ordinary control budget. Over the in-flight cap returns `server_busy` and does not call Google.
 
@@ -120,7 +120,7 @@ On a guest session, that link is sign-in, not promotion. The panel says `Google 
 
 On a host session, **Link Google** posts to the link route with the bearer token and then navigates to the returned URL.
 
-`/auth/google` reads `ticket` or `error`, redeems a ticket through the API, stores the session, and navigates to `/`. It does not import `hls.js`, the live room, or chat. Home still must not import them either.
+`/auth/google` reads the ticket fragment or error query, removes it immediately, and redeems through the API with credentials and the current bearer if present. It stores the returned session only if the local session has not changed during redemption, then navigates to `/`. StrictMode shares one redemption request. It does not import `hls.js`, the live room, or chat. Home still must not import them either.
 
 A real Google browser round-trip is recorded only when the three settings and a Google account are available. ID-05 does not need them. ID-06's service cases do not need them.
 
@@ -163,6 +163,23 @@ The next phase may rely on these once the slices are committed:
 V3 phase 3 is specified in [phase3.md](phase3.md). It adds replay visibility and deletion for registered owners. A Google-only host is a registered owner. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
+
+## Maintenance: V3-R02 / V3M-C03 (2026-11-06)
+
+Status: verified. Proposed commit: `fix(auth): bind Google flows to their initiating browser`.
+Actual commit:
+
+State/PKCE and the redemption ticket now require the same random browser proof. Only its hash is stored in Redis. HTTPS uses a Secure HttpOnly host-only `__Host-` cookie with SameSite=Lax; HTTP callbacks are restricted to loopback development. The API allows credentials for its configured frontend origin and the Google web requests include credentials. Frontend and API must be same-site with the same scheme. Each browser has one active proof, so older concurrent attempts fail closed. Callback/state and ticket consumption remain atomic and single-use, with five-minute state and one-minute ticket TTLs. Proof cookies clear on callback failure or redemption, including rejection; abandoned cookies expire.
+
+The callback defers exchange and mutation until redemption. A link ticket also requires the exact initiating bearer hash. SessionsService checks that token's version, guest flag, and expiry both before and after provider exchange, and the existing account lock catches a concurrent committed password change before linking. Switching accounts or logging out leaves the browser unable to redeem that link. Tickets return in a fragment, the return page immediately removes it, and no-store/no-referrer policies protect the transaction. The page shares redemption under StrictMode and installs a response only while the current local session still matches. A pre-maintenance ticket shape is rejected without a server error. Existing no-email-merge and subject-uniqueness rules remain enforced.
+
+Evidence:
+
+- Focused API session/controller/Redis tests: 94 passed across three files; browser-cookie/config tests: 48 passed across two files. Focused web API/return-parser tests: 37 passed. The final controller regression run passed all 12 cases, including pre-maintenance ticket rejection; API typecheck and lint passed again afterward.
+- The affected-check plan selected API and web gates, including both smokes. The full `pnpm check:release` ran with the existing temporary FFmpeg 6.0 binary through process-local `FFMPEG_PATH`: 49 tooling, 454 shared, 525 web, and 531 API tests; workspace typecheck/lint; both builds; formatting; artifacts; and live/broadcast smokes passed. The existing Vite large-chunk warning remains. No dependency, migration, environment file, or developer service configuration changed.
+- `node "$env:TEMP/stageflow-r02-browser.cjs"` passed using Chrome `156.0.8078.80` headless, four isolated contexts, the real compiled GoogleController/SessionsService, a controlled user repository/provider exchange, and an owned real Redis namespace. Frontend and API used separate HTTP loopback ports. Cross-context callbacks, tickets, and linking failed before exchange. Same-browser sign-in and linking, credentialed CORS, HttpOnly proof isolation, single-use cleanup, expired Redis state/tickets, provider denial, and older concurrent-attempt rejection passed. Calling the real password-change service invalidated a pending link through the HTTP redemption endpoint. The built React return page installed a same-browser sign-in, stripped the fragment, and rejected a switched-account link while preserving that account's current session. The probe rewrote the built frontend's API fetch URL to the owned fixture; it did not contact the developer API. Initial probe attempts exposed fixture cleanup and redirect-interception issues; the corrected probe and its owned cleanup passed. Temporary script/result artifacts remain outside Git.
+
+Restriction: keep Google unconfigured/disabled for public use until a real provider round trip is recorded. Provider exchange was controlled, and Secure HTTPS cookie attributes have unit coverage rather than a deployed TLS browser observation. This maintenance does not approve a public launch or close physical-device acceptance. The original untracked `review.md` remains untouched.
 
 ## 10. Implementation record
 

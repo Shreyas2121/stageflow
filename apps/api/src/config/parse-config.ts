@@ -32,6 +32,8 @@ const googleRedirectUri = z
       const parsed = new URL(value);
       return (
         /^https?:$/.test(parsed.protocol) &&
+        (parsed.protocol === 'https:' ||
+          ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) &&
         Boolean(parsed.hostname) &&
         !/[?#@]/.test(value) &&
         parsed.pathname === '/api/sessions/google/callback'
@@ -39,7 +41,7 @@ const googleRedirectUri = z
     } catch {
       return false;
     }
-  }, 'Must be an HTTP(S) URL with no userinfo, query, or fragment and path /api/sessions/google/callback.');
+  }, 'Must be an HTTPS URL (HTTP only on loopback) with no userinfo, query, or fragment and path /api/sessions/google/callback.');
 const iceUrl = (protocol: RegExp) =>
   z
     .string()

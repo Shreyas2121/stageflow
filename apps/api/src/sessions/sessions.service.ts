@@ -9,7 +9,7 @@ import { ApiException } from '../http/api.exception';
 import { env } from '../config/env';
 import { hashPassword, verifyPassword } from './password';
 import type { GoogleProfile, GoogleCodeExchange } from './google-identity';
-import { googleRejected, googleUnavailable } from './google-exchange';
+import { googleUnavailable } from './google-exchange';
 import { EventEmitter } from 'node:events';
 
 @Injectable()
@@ -301,14 +301,14 @@ export class SessionsService {
     code: string,
     verifier: string,
     exchange: GoogleCodeExchange,
-    linkUserId?: string,
+    linkToken?: string,
   ): Promise<GuestSessionResponse> {
     if (!env.GOOGLE_ENABLED) throw googleUnavailable();
     return this.withPasswordWork(async () => {
+      if (linkToken !== undefined) await this.verifyToken(linkToken);
       const profile = await exchange(code, verifier);
-      if (linkUserId !== undefined) {
-        const user = await this.users.findOneBy({ id: linkUserId });
-        if (!user) throw googleRejected();
+      if (linkToken !== undefined) {
+        const user = await this.verifyToken(linkToken);
         return this.linkGoogle(user, profile);
       }
       return this.signInWithGoogle(profile);

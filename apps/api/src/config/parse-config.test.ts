@@ -74,6 +74,7 @@ describe('optional Google configuration', () => {
   it.each([
     'not-a-url',
     'ftp://stageflow.example/api/sessions/google/callback',
+    'http://stageflow.example/api/sessions/google/callback',
     'https://user:password@stageflow.example/api/sessions/google/callback',
     'https://user@stageflow.example/api/sessions/google/callback',
     'https://@stageflow.example/api/sessions/google/callback',

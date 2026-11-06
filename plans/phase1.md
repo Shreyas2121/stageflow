@@ -206,8 +206,8 @@ This phase does not make V2 acceptance complete. Leave the open ids open.
 
 ## Maintenance: V3-R01 / V3M-C02 (2026-11-06)
 
-Status: verified. Proposed commit: `fix(auth): revoke established socket sessions`.
-Actual commit:
+Status: committed. Proposed commit: `fix(auth): revoke established socket sessions`.
+Actual commit: `5235ee6`.
 
 Established sockets now enforce the verified JWT deadline, including idle connections. Every protected packet passes the same authorization lease; explicit leave retains its bypass. Password changes and guest promotion invalidate this process's sockets immediately after transaction commit. The namespace has one API writer under LiveConnection's existing owner guard. External account changes have a five-second freshness bound during activity, with one coalesced lookup per socket per interval rather than a lookup per ICE candidate. Failed revalidation disconnects through the existing suspension, resume-generation, and bounded host-expiry lifecycle. Timers and the session-change subscription are disposed on disconnect/shutdown.
 

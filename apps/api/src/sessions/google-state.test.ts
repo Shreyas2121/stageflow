@@ -8,20 +8,27 @@ it('uses isolated short-lived Google keys and atomic single-use reads, then quit
   const store = new RedisGoogleState(redis, namespace);
   const stateKey = namespace + ':google:state:state';
   const ticketKey = namespace + ':google:ticket:ticket';
+  const state = {
+    kind: 'sign-in' as const,
+    verifier: 'private-verifier',
+    browserHash: 'browser-hash',
+  };
   try {
-    await store.putState('state', { kind: 'sign-in', verifier: 'private-verifier' });
+    await store.putState('state', state);
     expect(await redis.ttl(stateKey)).toBeGreaterThan(295);
     expect(await redis.ttl(stateKey)).toBeLessThanOrEqual(300);
     const states = await Promise.all([store.takeState('state'), store.takeState('state')]);
-    expect(states.filter(Boolean)).toEqual([{ kind: 'sign-in', verifier: 'private-verifier' }]);
+    expect(states.filter(Boolean)).toEqual([state]);
     await store.putState('state', {
       kind: 'link',
       userId: randomUUID(),
       verifier: 'private-verifier',
+      browserHash: 'browser-hash',
+      tokenHash: 'token-hash',
     });
     await redis.expire(stateKey, 0);
     expect(await store.takeState('state')).toBeNull();
-    const session = { token: 'private-session', userId: randomUUID(), displayName: 'Host' };
+    const session = { code: 'provider-code', state };
     await store.putTicket('ticket', session);
     expect(await redis.ttl(ticketKey)).toBeGreaterThan(55);
     expect(await redis.ttl(ticketKey)).toBeLessThanOrEqual(60);

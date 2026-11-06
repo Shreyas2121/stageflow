@@ -153,7 +153,20 @@ it('redeems a Google ticket without a bearer and validates the session', async (
     expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ ticket: 'one-time' }),
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+  fetch.mockResolvedValue(Response.json(session));
+  await redeemGoogleTicket('link-ticket', 'initiating-token');
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:4000/api/sessions/google/ticket',
+    expect.objectContaining({
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer initiating-token',
+      },
     }),
   );
 });

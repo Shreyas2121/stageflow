@@ -4,13 +4,14 @@ import type { GuestSessionResponse } from '@stageflow/shared';
 import { PageState } from '../components/ui/page-state';
 import { redeemGoogleTicket } from '../features/session/api';
 import { useSessionStore } from '../features/session/session-store';
+import { ApiError } from '../lib/http/api-error';
 
 const rejected = 'Google did not confirm this sign-in.';
 const linked = 'That Google account is already linked to another user.';
 export function parseGoogleReturn(
   search: string,
 ): { kind: 'ticket'; ticket: string } | { kind: 'linked' } | { kind: 'error'; message: string } {
-  const params = new URLSearchParams(search);
+  const params = new URLSearchParams(search.replace(/^[?#]/, ''));
   if ([...params].length === 1) {
     const ticket = params.get('ticket');
     if (ticket) return { kind: 'ticket', ticket };
@@ -21,26 +22,39 @@ export function parseGoogleReturn(
 }
 
 export function GoogleReturnPage() {
-  const [result] = useState(() => parseGoogleReturn(window.location.search));
+  const [result] = useState(() =>
+    parseGoogleReturn(window.location.hash || window.location.search),
+  );
   const [error, setError] = useState(result.kind === 'error' ? result.message : '');
   const redemption = useRef<Promise<GuestSessionResponse> | null>(null);
+  const initiatingToken = useRef(useSessionStore.getState().session?.token ?? null);
   const navigate = useNavigate();
   useEffect(() => {
-    // Preserve the router's history state while removing the one-time query immediately.
+    // Preserve router history state while removing the one-time return location.
     window.history.replaceState(window.history.state, '', '/auth/google');
     let active = true;
     if (result.kind === 'linked') void navigate('/', { replace: true });
     if (result.kind === 'ticket') {
       // StrictMode repeats effects; both subscriptions share one redemption request.
-      redemption.current ??= redeemGoogleTicket(result.ticket);
+      redemption.current ??= redeemGoogleTicket(
+        result.ticket,
+        initiatingToken.current ?? undefined,
+      );
       void redemption.current.then(
         (session) => {
           if (!active) return;
+          if ((useSessionStore.getState().session?.token ?? null) !== initiatingToken.current) {
+            setError('Your session changed. Please try again.');
+            return;
+          }
           useSessionStore.getState().setSession(session);
           void navigate('/', { replace: true });
         },
-        () => {
-          if (active) setError(rejected);
+        (error: unknown) => {
+          if (active)
+            setError(
+              error instanceof ApiError && error.code === 'google_linked' ? linked : rejected,
+            );
         },
       );
     }

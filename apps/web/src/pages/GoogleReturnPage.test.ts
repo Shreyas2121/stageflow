@@ -2,6 +2,7 @@
 import { parseGoogleReturn } from './GoogleReturnPage';
 it('accepts one ticket or the link success marker', () => {
   expect(parseGoogleReturn('?ticket=one-time')).toEqual({ kind: 'ticket', ticket: 'one-time' });
+  expect(parseGoogleReturn('#ticket=one-time')).toEqual({ kind: 'ticket', ticket: 'one-time' });
   expect(parseGoogleReturn('?linked=1')).toEqual({ kind: 'linked' });
 });
 it.each([

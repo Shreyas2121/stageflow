@@ -18,6 +18,7 @@ async function bootstrap(): Promise<void> {
   );
   app.getHttpAdapter().enableCors({
     origin: env.CORS_ORIGIN,
+    credentials: true,
     preflightContinue: true,
     methods: ['GET', 'POST', 'DELETE'],
     allowedHeaders: ['Authorization', 'Content-Type', 'x-chunk-sequence'],

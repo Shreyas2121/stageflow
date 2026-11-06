@@ -37,6 +37,7 @@ function accountRequest(
 ): Promise<GuestSessionResponse> {
   return request(`/sessions/${route}`, parseGuest, {
     method: 'POST',
+    ...(route.startsWith('google/') ? { credentials: 'include' as const } : {}),
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -104,8 +105,8 @@ export async function googleEnabled(signal?: AbortSignal): Promise<boolean> {
   }
 }
 
-export function redeemGoogleTicket(ticket: string): Promise<GuestSessionResponse> {
-  return accountRequest('google/ticket', { ticket });
+export function redeemGoogleTicket(ticket: string, token?: string): Promise<GuestSessionResponse> {
+  return accountRequest('google/ticket', { ticket }, undefined, token);
 }
 
 export function linkGoogle(token: string, signal?: AbortSignal): Promise<string> {
@@ -125,6 +126,11 @@ export function linkGoogle(token: string, signal?: AbortSignal): Promise<string>
         throw new Error('Invalid Google link');
       return url.href;
     },
-    { method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal },
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    },
   );
 }

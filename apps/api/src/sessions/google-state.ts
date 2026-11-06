@@ -1,15 +1,16 @@
 import { Redis } from 'ioredis';
 import type { OnModuleDestroy } from '@nestjs/common';
-import type { GuestSessionResponse } from '@stageflow/shared';
 import { env } from '../config/env';
 
-export type GoogleState =
-  { kind: 'sign-in'; verifier: string } | { kind: 'link'; userId: string; verifier: string };
+export type GoogleState = { verifier: string; browserHash: string } & (
+  { kind: 'sign-in' } | { kind: 'link'; userId: string; tokenHash: string }
+);
+export type GoogleTicket = { code: string; state: GoogleState };
 export interface GoogleStateStore {
   putState(key: string, value: GoogleState): Promise<void>;
   takeState(key: string): Promise<GoogleState | null>;
-  putTicket(key: string, value: GuestSessionResponse): Promise<void>;
-  takeTicket(key: string): Promise<GuestSessionResponse | null>;
+  putTicket(key: string, value: GoogleTicket): Promise<void>;
+  takeTicket(key: string): Promise<GoogleTicket | null>;
 }
 export const GOOGLE_STATE = Symbol('GOOGLE_STATE');
 export const GOOGLE_EXCHANGE = Symbol('GOOGLE_EXCHANGE');
@@ -36,12 +37,12 @@ export class RedisGoogleState implements GoogleStateStore, OnModuleDestroy {
     const value = await this.redis.getdel(`${this.namespace}:google:state:${key}`);
     return value ? (JSON.parse(value) as GoogleState) : null;
   }
-  async putTicket(key: string, value: GuestSessionResponse): Promise<void> {
+  async putTicket(key: string, value: GoogleTicket): Promise<void> {
     await this.redis.set(`${this.namespace}:google:ticket:${key}`, JSON.stringify(value), 'EX', 60);
   }
-  async takeTicket(key: string): Promise<GuestSessionResponse | null> {
+  async takeTicket(key: string): Promise<GoogleTicket | null> {
     const value = await this.redis.getdel(`${this.namespace}:google:ticket:${key}`);
-    return value ? (JSON.parse(value) as GuestSessionResponse) : null;
+    return value ? (JSON.parse(value) as GoogleTicket) : null;
   }
   async onModuleDestroy(): Promise<void> {
     if (this.redis.status === 'wait' || this.redis.status === 'end') this.redis.disconnect();
