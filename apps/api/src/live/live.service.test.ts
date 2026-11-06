@@ -21,12 +21,14 @@ function fixture(
   broadcasts?: BroadcastControl,
   clock?: LiveClock,
   status: LiveState['status'] = 'LIVE',
+  requireAdmission?: boolean,
 ) {
   let state: LiveState = {
     roomId: 'room',
     hostId: 'host',
     mode,
     status,
+    ...(requireAdmission !== undefined ? { requireAdmission } : {}),
     participants: [],
     stageParticipantIds: [],
     waitingParticipantIds: [],
@@ -44,13 +46,25 @@ function fixture(
     sessions.set(id, session);
     return session;
   };
-  const rooms: Pick<RoomsService, 'getById' | 'end'> = {
+  const rooms: Pick<RoomsService, 'getById' | 'end' | 'startScheduled' | 'cancelScheduled'> = {
     getById: vi.fn(
       async () =>
-        ({ id: 'room', hostId: 'host', mode, status: catalogStatus }) as Awaited<
+        ({ id: 'room', hostId: 'host', mode, status: catalogStatus, requireAdmission }) as Awaited<
           ReturnType<RoomsService['getById']>
         >,
     ),
+    startScheduled: vi.fn(async () => {
+      events.push('database:start');
+      if (catalogStatus !== 'SCHEDULED') return false;
+      catalogStatus = 'LIVE';
+      return true;
+    }),
+    cancelScheduled: vi.fn(async () => {
+      events.push('database:cancel');
+      if (catalogStatus !== 'SCHEDULED') return false;
+      catalogStatus = 'ENDED';
+      return true;
+    }),
     end: vi.fn(async () => {
       events.push('database:end');
       catalogStatus = 'ENDED';
@@ -1819,4 +1833,100 @@ it('does not let a stale resume cleanup evict a newer generation', async () => {
     connectionGeneration: 3,
   });
   f.service.onModuleDestroy();
+});
+
+it('opens the shared room view before publishing LIVE and persists after publication', async () => {
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, undefined, 'SCHEDULED');
+  const host = f.client('host'),
+    waiter = f.client('waiter');
+  await f.join(waiter);
+  await f.join(host);
+  expect(await f.service.scheduleCommand(waiter, 'start', f.transport)).toMatchObject({
+    error: 'not_host',
+  });
+  expect(await f.service.scheduleCommand(host, 'start', f.transport)).toEqual({ ok: true });
+  expect(waiter.room?.status).toBe('LIVE');
+  expect(f.events.indexOf('database:start')).toBeGreaterThan(f.events.lastIndexOf('publish'));
+  expect(f.readState().stageParticipantIds).toEqual(['host', 'waiter']);
+  expect(await f.service.scheduleCommand(host, 'cancel', f.transport)).toMatchObject({
+    error: 'not_scheduled',
+  });
+  expect(await f.service.leave(host, f.transport)).toEqual({ ok: true });
+  expect(f.rooms.end).toHaveBeenCalled();
+});
+
+it('leaves scheduled memberships intact when catalog cancel fails and retries cleanup after a lost reply', async () => {
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, undefined, 'SCHEDULED');
+  const host = f.client('host'),
+    waiter = f.client('waiter');
+  await f.join(host);
+  await f.join(waiter);
+  const errors = silenceErrors();
+  try {
+    vi.mocked(f.rooms.cancelScheduled).mockRejectedValueOnce(new Error('catalog unavailable'));
+    expect(await f.service.scheduleCommand(host, 'cancel', f.transport)).toMatchObject({
+      error: 'server_error',
+    });
+    expect(f.readState().participants).toHaveLength(2);
+    expect(f.live.deleteRoom).not.toHaveBeenCalled();
+    vi.mocked(f.live.deleteRoom).mockRejectedValueOnce(new Error('cleanup unavailable'));
+    expect(await f.service.scheduleCommand(host, 'cancel', f.transport)).toMatchObject({
+      error: 'server_error',
+    });
+    expect(f.events.indexOf('database:cancel')).toBeLessThan(f.events.indexOf('apply:cancel'));
+    expect(await f.service.scheduleCommand(host, 'cancel', f.transport)).toEqual({ ok: true });
+    expect(f.live.deleteRoom).toHaveBeenCalledTimes(2);
+    expect(f.transport.end).toHaveBeenCalledOnce();
+  } finally {
+    errors.mockRestore();
+  }
+});
+
+it('drops a live admission waiter without a resume digest, deadline, or grace timer', async () => {
+  const time = controlledClock();
+  const f = fixture(
+    'MEETING',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    time.clock,
+    'LIVE',
+    true,
+  );
+  const host = f.client('host'),
+    waiter = f.client('waiter');
+  try {
+    await f.join(host);
+    await f.join(waiter);
+    expect(f.readState().participants.find((p) => p.participantId === 'waiter')?.role).toBe(
+      'WAITING',
+    );
+    expect(f.readState().resumeDigests.waiter).toBeUndefined();
+    expect(await f.service.disconnect(waiter, f.transport)).toEqual({ ok: true });
+    expect(f.readState().participants).toHaveLength(1);
+    expect(f.readState().deadlines.waiter).toBeUndefined();
+    expect(time.clock.schedule).not.toHaveBeenCalled();
+  } finally {
+    f.service.onModuleDestroy();
+  }
+});
+
+it('publishes waiter removal and detaches its transport without filling a seat', async () => {
+  const f = fixture('MEETING', undefined, undefined, undefined, undefined, undefined, 'SCHEDULED');
+  const host = f.client('host'),
+    waiter = f.client('waiter');
+  await f.join(host);
+  await f.join(waiter);
+  expect(
+    await f.service.update(
+      host,
+      { type: 'removeWaiter', actorParticipantId: 'host', targetParticipantId: 'waiter' },
+      f.transport,
+    ),
+  ).toEqual({ ok: true });
+  expect(f.readState().stageParticipantIds).toEqual([]);
+  expect(f.snapshots.at(-1)?.waitingParticipantIds).toEqual([]);
+  expect(f.transport.leave).toHaveBeenCalledWith('waiter', 'room');
+  expect(f.events.at(-1)).toBe('leave:waiter');
 });

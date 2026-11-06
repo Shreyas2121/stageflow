@@ -1,6 +1,6 @@
 # V3 Phase 4 — Scheduled rooms and waiting admission
 
-**Status:** in progress. C01 through C03 are implemented and verified; C04 through C06 remain planned.\
+**Status:** in progress. C01 through C04 are implemented and verified; C05 and C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.5`, Sections 4, 7, and 12 (SCH-01 through SCH-05). Identity and replay lifecycle stay as shipped in `plans/phase1.md`, `plans/phase2.md`, and `plans/phase3.md`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns V3P4-C01 through V3P4-C06. Those ids are not the V1 commits in [V1/phase4/guide.md](V1/phase4/guide.md) or the V2 commits in [V2/phase4/guide.md](V2/phase4/guide.md).\
@@ -103,7 +103,7 @@ Cancel of a `LIVE` or `ENDED` room is `not_scheduled` with `Only a scheduled roo
 
 A synthetic join is `demo_not_ready` with `Start the room before adding a demo peer.` unless the room is `LIVE` and the host is on stage. A demo peer is never a waiter.
 
-If the process stops after the start script and before the Postgres update, a repeated Start seats nobody a second time and commits `LIVE`. There is no sweeper and no automatic start.
+If the process stops after the start script and before the Postgres update, a repeated Start seats nobody a second time and commits `LIVE`. There is no sweeper and no automatic start. Once Lua releases a pre-start member or admits a waiter, the server sends a targeted `room:resume-credential` for that membership. A waiter and a pre-start host still have no resume digest or credential. Credentials never appear in room snapshots.
 
 ### 5.4 Home and room
 
@@ -113,13 +113,13 @@ Inside a scheduled room, or while this participant is `WAITING`, the page shows 
 
 ## 6. Acceptance matrix
 
-| ID     | Observable result                                                                                                                                             | Method                                                                     | Status  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------- |
-| SCH-01 | Host creates `SCHEDULED`, another session opens the slug, and the host sees that waiter. Guest create is `LIVE`. A past time does not start it                | API regressions and a two-window browser flow                              | planned |
-| SCH-02 | The waiter is absent from the stage, the page does not capture, and there is no peer connection. Joiner 101 is rejected. A dropped waiter rejoins at the back | Reducer and real Redis tests, plus the browser waiting panel               | planned |
-| SCH-03 | Start seats the host first. Admission off fills in order and never makes five seats, counting a suspension. Admission on waits for Admit                      | Concurrent Redis tests                                                     | planned |
-| SCH-04 | Scheduled webinar Start makes pre-start waiters attendees. They have no stage seat and no peer connection. Promote still stops at four                        | Webinar join and promote regression, plus the attendee path in the browser | planned |
-| SCH-05 | Cancel ends the scheduled room, leaves no broadcast row, and clears the waiting key. A demo join before Start is refused                                      | Service test and the browser cancel control                                | planned |
+| ID     | Observable result                                                                                                                                             | Method                                                                     | Status   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------- |
+| SCH-01 | Host creates `SCHEDULED`, another session opens the slug, and the host sees that waiter. Guest create is `LIVE`. A past time does not start it                | API regressions and a two-window browser flow                              | planned  |
+| SCH-02 | The waiter is absent from the stage, the page does not capture, and there is no peer connection. Joiner 101 is rejected. A dropped waiter rejoins at the back | Reducer and real Redis tests, plus the browser waiting panel               | planned  |
+| SCH-03 | Start seats the host first. Admission off fills in order and never makes five seats, counting a suspension. Admission on waits for Admit                      | Concurrent Redis tests                                                     | verified |
+| SCH-04 | Scheduled webinar Start makes pre-start waiters attendees. They have no stage seat and no peer connection. Promote still stops at four                        | Webinar join and promote regression, plus the attendee path in the browser | planned  |
+| SCH-05 | Cancel ends the scheduled room, leaves no broadcast row, and clears the waiting key. A demo join before Start is refused                                      | Service test and the browser cancel control                                | planned  |
 
 A browser waiting panel does not close a physical-device, audible-output, or native-picker observation.
 
@@ -169,3 +169,11 @@ C02 adds create-body parsing and the three schedule/admission errors. A verified
 ## 12. C03 waiting membership evidence (2026-11-06)
 
 C03 adds `WAITING`, ordered `waitingParticipantIds`, `waiting_full`, and the tenth live key. Before start, joiners wait without a stage seat and the host is in neither set. Both are muted/video-off and have no resume digest or credential. Scheduled leave/drop removes membership immediately and keeps the room scheduled; bounded cleanup retries preserve this rule after lost Redis replies. Real Redis and reducer tests cover order, overflow without writes, drop/rejoin, TTL/cleanup, and unchanged broadcast key indexing. Connected waiters retain chat authorization until they leave. Shared/API tests, typecheck, and lint pass; the guide records the broader affected checks. SCH-02's server behavior is covered, while its browser no-capture/no-peer-connection observations remain unverified until C05. Start/admission/cancel and later browser work are not implemented here. Existing physical observation gaps remain open.
+
+## 13. C04 start, admission, and cancellation evidence (2026-11-06)
+
+C04 adds host socket commands `room:start`, `stage:admit`, `stage:remove-waiter`, and `room:cancel`. The shared reducer and atomic Redis scripts seat the host before filling a meeting, keep admission-on joiners waiting, release webinar waiters as attendees, and count suspended stage reservations. A concurrent Admit race cannot create a fifth seat. Automatic filling stays inside the script that frees a seat, or join before a newcomer takes a seat. Removal drops the waiter and its transport without filling. Synthetic joins require a live host stage seat.
+
+Start publishes the Redis `LIVE` transition before conditionally updating a still-scheduled catalog row. The existing lifecycle key makes a lost Start reply or catalog failure retry safe. Regressions retain bounded host recovery and finish shutdown even when the catalog still says scheduled. Cancel commits `ENDED`/`ended_at` before clearing live memberships and the waiting key; an owned disposable-Postgres/Redis test verifies no broadcast row exists. Released members receive resume credentials through a targeted event, with guarded metadata kept on the server; waiters and pre-start hosts receive none. C05 must consume that event in its room hook.
+
+Shared/API tests, workspace typecheck/lint, and the complete affected release gate pass. The guide records counts, compiled artifacts, and both smokes. SCH-03 is verified at the reducer/real-Redis boundary. SCH-01, SCH-02, SCH-04, and SCH-05 still need their C05 browser observations. No browser or physical-device observation is closed by this server slice; C05 and C06 remain planned.

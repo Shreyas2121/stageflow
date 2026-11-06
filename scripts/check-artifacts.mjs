@@ -37,7 +37,7 @@ if (!args.length || args.includes('--api')) {
   }
   const source = join(root, 'apps/api/src/live/scripts');
   const lua = (await readdir(source)).filter((name) => name.endsWith('.lua')).sort();
-  assert.equal(lua.length, 14);
+  assert.equal(lua.length, 19);
   assert.deepEqual(
     (await readdir(join(dist, 'live/scripts'))).filter((name) => name.endsWith('.lua')).sort(),
     lua,
@@ -72,7 +72,7 @@ if (!args.length || args.includes('--api')) {
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, fourteen live and three chat Lua files match source, no emitted tests.',
+    'API artifacts: production modules load, nineteen live and three chat Lua files match source, no emitted tests.',
   );
 }
 

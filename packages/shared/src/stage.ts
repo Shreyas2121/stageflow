@@ -26,6 +26,7 @@ export type LiveState = {
   hostId: string;
   mode: RoomMode;
   status: RoomStatus;
+  requireAdmission?: boolean;
   participants: ParticipantState[];
   stageParticipantIds: string[];
   waitingParticipantIds: string[];
@@ -62,6 +63,10 @@ type StageOperation =
       now?: number;
       resumeDigest?: string;
     }
+  | { type: 'start'; actorParticipantId: string }
+  | { type: 'cancel'; actorParticipantId: string }
+  | { type: 'admit'; actorParticipantId: string; targetParticipantId: string }
+  | { type: 'removeWaiter'; actorParticipantId: string; targetParticipantId: string }
   | { type: 'leave'; participantId: string }
   | { type: 'suspend'; participantId: string; now?: number }
   | { type: 'expire'; now: number }
@@ -95,6 +100,11 @@ export type StageError =
   | 'host_not_present'
   | 'stage_full'
   | 'waiting_full'
+  | 'already_started'
+  | 'not_scheduled'
+  | 'not_waiting'
+  | 'admission_off'
+  | 'demo_not_ready'
   | 'participant_not_found'
   | 'audio_locked'
   | 'video_locked'
@@ -158,8 +168,13 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     resumeDigests: { ...state.resumeDigests },
     deadlines: { ...state.deadlines },
   };
-  const fail = (error: StageError): StageResult => ({ ok: false, error });
-  const success = (changed: boolean, roomEnded = false): StageResult => {
+  let filledWaiting = false;
+  const fail = (error: StageError): StageResult => ({
+    ok: false,
+    error,
+    ...(filledWaiting ? { expiry: success(true) } : {}),
+  });
+  const success = (changed: boolean, roomEnded = false): StageSuccess => {
     next.participants.sort((a, b) => compareIds(a.participantId, b.participantId));
     next.stageParticipantIds.sort(compareIds);
     const arrivals = new Map(next.participants.map((p) => [p.participantId, p.joinedAt]));
@@ -182,6 +197,18 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     delete next.resumeDigests[id];
     delete next.deadlines[id];
   };
+  const fillWaiting = () => {
+    if (next.status !== 'LIVE' || next.mode !== 'MEETING' || next.requireAdmission) return;
+    const arrivals = new Map(next.participants.map((p) => [p.participantId, p.joinedAt]));
+    next.waitingParticipantIds.sort(
+      (a, b) => arrivals.get(a)! - arrivals.get(b)! || compareIds(a, b),
+    );
+    while (next.stageParticipantIds.length < STAGE_CAPACITY && next.waitingParticipantIds.length) {
+      const id = next.waitingParticipantIds.shift()!;
+      next.participants.find((p) => p.participantId === id)!.role = 'SPEAKER';
+      next.stageParticipantIds.push(id);
+    }
+  };
   const endRoom = () => {
     next.status = 'ENDED';
     next.participants = [];
@@ -199,7 +226,9 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
         p.presence === 'suspended' && (next.deadlines[p.participantId] ?? Infinity) <= command.now,
     );
     if (overdue.some((p) => p.role === 'HOST')) return endRoom();
+    const freed = overdue.some((p) => next.stageParticipantIds.includes(p.participantId));
     for (const participant of overdue) removeMember(participant.participantId);
+    if (freed) fillWaiting();
     return success(overdue.length > 0);
   }
   if (command.type === 'resume') {
@@ -241,6 +270,14 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     const isHost = command.userId === state.hostId;
     const scheduled = state.status === 'SCHEDULED';
     if (
+      command.isSyntheticBot &&
+      (scheduled ||
+        !state.participants.some(
+          (p) => p.role === 'HOST' && state.stageParticipantIds.includes(p.participantId),
+        ))
+    )
+      return fail('demo_not_ready');
+    if (
       !scheduled &&
       state.mode === 'MEETING' &&
       !isHost &&
@@ -248,10 +285,16 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     ) {
       return fail('host_not_present');
     }
-    const waiting = scheduled && !isHost;
+    const waitingBeforeFill = next.waitingParticipantIds.length;
+    fillWaiting();
+    filledWaiting = next.waitingParticipantIds.length !== waitingBeforeFill;
+    const waiting =
+      !isHost &&
+      (scheduled ||
+        (state.mode === 'MEETING' && !!state.requireAdmission && !command.isSyntheticBot));
     if (waiting && state.waitingParticipantIds.length >= 100) return fail('waiting_full');
-    const onStage = !scheduled && (isHost || state.mode === 'MEETING');
-    if (onStage && state.stageParticipantIds.length >= STAGE_CAPACITY) return fail('stage_full');
+    const onStage = !scheduled && !waiting && (isHost || state.mode === 'MEETING');
+    if (onStage && next.stageParticipantIds.length >= STAGE_CAPACITY) return fail('stage_full');
     next.participants.push({
       participantId: command.participantId,
       socketId: command.socketId,
@@ -271,7 +314,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     });
     if (onStage) next.stageParticipantIds.push(command.participantId);
     if (waiting) next.waitingParticipantIds.push(command.participantId);
-    if (!scheduled && !command.isSyntheticBot && command.resumeDigest)
+    if (!scheduled && !waiting && !command.isSyntheticBot && command.resumeDigest)
       next.resumeDigests[command.participantId] = command.resumeDigest;
     return success(true);
   }
@@ -285,7 +328,9 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       if (participant.role === 'HOST' && state.status !== 'SCHEDULED') {
         return endRoom();
       }
+      const freed = next.stageParticipantIds.includes(command.participantId);
       removeMember(command.participantId);
+      if (freed) fillWaiting();
       return success(true);
     }
     if (!participant) return fail('participant_not_found');
@@ -295,7 +340,9 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
         state.status === 'SCHEDULED' ||
         participant.role === 'WAITING'
       ) {
+        const freed = next.stageParticipantIds.includes(participant.participantId);
         removeMember(participant.participantId);
+        if (freed) fillWaiting();
         return success(true);
       }
       if (participant.presence === 'suspended') return success(false);
@@ -354,10 +401,46 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
 
   if (
     !next.participants.some(
-      (p) => p.participantId === command.actorParticipantId && p.role === 'HOST',
+      (p) =>
+        p.participantId === command.actorParticipantId &&
+        p.role === 'HOST' &&
+        p.presence === 'connected',
     )
   ) {
     return fail('not_host');
+  }
+  if (command.type === 'start') {
+    if (next.status !== 'SCHEDULED') return fail('already_started');
+    next.status = 'LIVE';
+    next.stageParticipantIds.push(command.actorParticipantId);
+    if (next.mode === 'WEBINAR') {
+      for (const p of next.participants) if (p.role === 'WAITING') p.role = 'ATTENDEE';
+      next.waitingParticipantIds = [];
+    } else fillWaiting();
+    return success(true);
+  }
+  if (command.type === 'cancel') {
+    if (next.status !== 'SCHEDULED') return fail('not_scheduled');
+    return endRoom();
+  }
+  if (command.type === 'admit' || command.type === 'removeWaiter') {
+    if (
+      command.type === 'admit' &&
+      (next.status !== 'LIVE' || next.mode !== 'MEETING' || !next.requireAdmission)
+    )
+      return fail('admission_off');
+    const target = next.participants.find((p) => p.participantId === command.targetParticipantId);
+    if (!target || target.role !== 'WAITING') return fail('not_waiting');
+    if (command.type === 'removeWaiter') removeMember(target.participantId);
+    else {
+      if (next.stageParticipantIds.length >= STAGE_CAPACITY) return fail('stage_full');
+      target.role = 'SPEAKER';
+      next.waitingParticipantIds = next.waitingParticipantIds.filter(
+        (id) => id !== target.participantId,
+      );
+      next.stageParticipantIds.push(target.participantId);
+    }
+    return success(true);
   }
   const target = next.participants.find((p) => p.participantId === command.targetParticipantId);
   if (!target) return fail('participant_not_found');
@@ -379,6 +462,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     target.isHandRaised = false;
     removeHand(target.participantId);
     next.stageParticipantIds = next.stageParticipantIds.filter((id) => id !== target.participantId);
+    fillWaiting();
   } else {
     const lock = command.kind === 'audio' ? 'hostAudioLocked' : 'hostVideoLocked';
     const flag = command.kind === 'audio' ? 'isAudioMuted' : 'isVideoOff';

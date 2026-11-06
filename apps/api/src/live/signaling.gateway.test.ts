@@ -345,3 +345,37 @@ it('charges all chat events to the socket event budget and preserves the leave b
   middleware(['room:leave', vi.fn()], leave);
   expect(leave).toHaveBeenCalledOnce();
 });
+
+it('routes schedule commands through the host membership and validates waiter targets', async () => {
+  const scheduleCommand = vi.fn<LiveService['scheduleCommand']>(async () => ({ ok: true }));
+  const update = vi.fn<LiveService['update']>(async () => ({ ok: true }));
+  const gateway = new SignalingGateway(
+    {} as SessionsService,
+    { scheduleCommand, update } as unknown as LiveService,
+    {} as LiveConnection,
+    {} as ChatService,
+  );
+  const client = {
+    id: 'socket',
+    connected: true,
+    data: { user: { id: 'host' }, participantId: 'membership' },
+  };
+  await gateway.startRoom(client as never);
+  await gateway.cancelRoom(client as never);
+  expect(scheduleCommand.mock.calls.map((call) => call[1])).toEqual(['start', 'cancel']);
+  const targetParticipantId = '11111111-1111-4111-8111-111111111111';
+  expect(
+    gateway.admit(client as never, { targetParticipantId, actorParticipantId: 'forged' }),
+  ).toMatchObject({ error: 'invalid_payload' });
+  await gateway.admit(client as never, { targetParticipantId });
+  await gateway.removeWaiter(client as never, { targetParticipantId });
+  expect(update.mock.calls.map((call) => call[1])).toEqual([
+    { type: 'admit', actorParticipantId: 'membership', targetParticipantId },
+    { type: 'removeWaiter', actorParticipantId: 'membership', targetParticipantId },
+  ]);
+  expect(gateway.admit(client as never, { targetParticipantId: '' })).toMatchObject({
+    error: 'invalid_payload',
+  });
+  expect(gateway.removeWaiter(client as never, null)).toMatchObject({ error: 'invalid_payload' });
+  expect(update).toHaveBeenCalledTimes(2);
+});

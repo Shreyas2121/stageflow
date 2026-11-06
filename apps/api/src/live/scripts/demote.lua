@@ -10,4 +10,5 @@ target.isHandRaised = false
 saveParticipant(target.participantId)
 setHand(target.participantId, nil)
 setStage(target.participantId, false)
+fillWaiting()
 return finish(true)

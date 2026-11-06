@@ -323,7 +323,12 @@ describe('applyStageCommand', () => {
   });
 
   it('admits webinar attendees before and after the host, without granting stage access to bots', () => {
-    let state = step(empty('WEBINAR'), { ...join('z'), isSyntheticBot: true } as StageCommand);
+    rejects(
+      empty('WEBINAR'),
+      { ...join('z'), isSyntheticBot: true } as StageCommand,
+      'demo_not_ready',
+    );
+    let state = step(empty('WEBINAR'), join('z'));
     expect(state.participants[0]?.role).toBe('ATTENDEE');
     expect(state.stageParticipantIds).toEqual([]);
     state = step(step(state, join('host')), join('a'));
@@ -338,7 +343,10 @@ describe('applyStageCommand', () => {
       ),
     ),
   )('normalizes attendee joins with requested flags %j', (flags) => {
-    const state = step(empty('WEBINAR'), { ...join('guest'), ...flags } as StageCommand);
+    const state = step(step(empty('WEBINAR'), join('host')), {
+      ...join('guest'),
+      ...flags,
+    } as StageCommand);
     expect(state.participants[0]).toMatchObject({
       role: 'ATTENDEE',
       isAudioMuted: true,
@@ -346,7 +354,7 @@ describe('applyStageCommand', () => {
       isScreenSharing: false,
       isSyntheticBot: flags.isSyntheticBot,
     });
-    expect(state.stageParticipantIds).toEqual([]);
+    expect(state.stageParticipantIds).toEqual(['host']);
   });
 
   it.each([
@@ -492,7 +500,7 @@ describe('applyStageCommand', () => {
         targetParticipantId: 'b',
         kind: 'audio',
         locked: true,
-      } as Extract<StageCommand, { actorParticipantId: string }>;
+      } as Extract<StageCommand, { targetParticipantId: string }>;
       rejects(webinar(), command, 'not_host');
       rejects(webinar(), { ...command, actorParticipantId: 'missing' }, 'not_host');
       rejects(
@@ -580,5 +588,104 @@ describe('applyStageCommand', () => {
     expect(
       run(state, { type: 'patchMedia', participantId: 'a', patch: { isAudioMuted: true } }),
     ).toMatchObject({ ok: true, changed: false });
+  });
+});
+
+describe('scheduled stage commands', () => {
+  it('seats leftover waiters before rejecting a newcomer at capacity', () => {
+    let state: LiveState = { ...empty(), status: 'SCHEDULED', requireAdmission: true };
+    for (const id of ['host', 'a', 'b', 'c', 'd']) state = step(state, join(id));
+    state = step(state, { type: 'start', actorParticipantId: 'host' });
+    // Seed the partially filled automatic-admission state the join rule must repair.
+    state = { ...state, requireAdmission: false };
+    const result = run(state, join('new'));
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'stage_full',
+      expiry: {
+        state: { stageParticipantIds: ['a', 'b', 'c', 'host'], waitingParticipantIds: ['d'] },
+      },
+    });
+  });
+
+  it('starts with the host and oldest three; frees a real seat before filling a waiter', () => {
+    let state = { ...empty(), status: 'SCHEDULED' as const } as LiveState;
+    for (const id of ['e', 'd', 'c', 'b', 'a'])
+      state = step(state, { ...join(id), joinedAt: id.charCodeAt(0) } as StageCommand);
+    state = step(state, join('host'));
+    rejects(state, { ...join('bot'), isSyntheticBot: true } as StageCommand, 'demo_not_ready');
+    rejects(state, { type: 'start', actorParticipantId: 'a' }, 'not_host');
+    state = step(state, { type: 'start', actorParticipantId: 'host' });
+    expect(state.status).toBe('LIVE');
+    expect(state.stageParticipantIds).toEqual(['a', 'b', 'c', 'host']);
+    expect(state.waitingParticipantIds).toEqual(['d', 'e']);
+    rejects(state, { type: 'start', actorParticipantId: 'host' }, 'already_started');
+    state = step(state, { type: 'suspend', participantId: 'a', now: 1000 });
+    expect(state.stageParticipantIds).toHaveLength(4);
+    expect(state.waitingParticipantIds).toEqual(['d', 'e']);
+    state = step(state, { type: 'leave', participantId: 'b' });
+    expect(state.stageParticipantIds).toEqual(['a', 'c', 'd', 'host']);
+    expect(state.participants.find((p) => p.participantId === 'd')).toMatchObject({
+      role: 'SPEAKER',
+      isAudioMuted: true,
+      isVideoOff: true,
+    });
+    state = step(state, { type: 'expire', now: 21000 });
+    expect(state.stageParticipantIds).toEqual(['c', 'd', 'e', 'host']);
+  });
+
+  it('requires Admit when enabled, preserves a full waiter, and Remove seats nobody', () => {
+    let state: LiveState = { ...empty(), status: 'SCHEDULED', requireAdmission: true };
+    for (const id of ['host', 'a', 'b', 'c', 'd']) state = step(state, join(id));
+    state = step(state, { type: 'start', actorParticipantId: 'host' });
+    expect(state.stageParticipantIds).toEqual(['host']);
+    state = step(state, join('e'));
+    expect(state.waitingParticipantIds).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(state.resumeDigests).toEqual({});
+    for (const id of ['a', 'b', 'c'])
+      state = step(state, { type: 'admit', actorParticipantId: 'host', targetParticipantId: id });
+    rejects(
+      state,
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'd' },
+      'stage_full',
+    );
+    state = step(state, { type: 'leave', participantId: 'a' });
+    expect(state.stageParticipantIds).toHaveLength(3);
+    state = step(state, {
+      type: 'removeWaiter',
+      actorParticipantId: 'host',
+      targetParticipantId: 'd',
+    });
+    expect(state.stageParticipantIds).toHaveLength(3);
+    rejects(
+      state,
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'd' },
+      'not_waiting',
+    );
+    state = step(state, { type: 'suspend', participantId: 'e', now: 2000 });
+    expect(state.participants.some((p) => p.participantId === 'e')).toBe(false);
+    expect(state.deadlines.e).toBeUndefined();
+  });
+
+  it('releases webinar attendees and cancels only a scheduled room', () => {
+    let state: LiveState = { ...empty('WEBINAR'), status: 'SCHEDULED' };
+    for (const id of ['a', 'b', 'host']) state = step(state, join(id));
+    const cancelled = step(state, { type: 'cancel', actorParticipantId: 'host' });
+    expect(cancelled).toMatchObject({
+      status: 'ENDED',
+      participants: [],
+      stageParticipantIds: [],
+      waitingParticipantIds: [],
+    });
+    state = step(state, { type: 'start', actorParticipantId: 'host' });
+    expect(state.stageParticipantIds).toEqual(['host']);
+    expect(state.waitingParticipantIds).toEqual([]);
+    expect(state.participants.filter((p) => p.role === 'ATTENDEE')).toHaveLength(2);
+    rejects(state, { type: 'cancel', actorParticipantId: 'host' }, 'not_scheduled');
+    rejects(
+      state,
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'a' },
+      'admission_off',
+    );
   });
 });

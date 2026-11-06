@@ -5,6 +5,9 @@ local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)
 local transportsKey = KEYS[7]
 local resumeKey, deadlinesKey = KEYS[8], KEYS[9]
 local waitingKey = KEYS[10]
+local catalogStatus = room.status
+local lifecycle = redis.call('GET', endingKey)
+if lifecycle == 'started' and room.status == 'SCHEDULED' then room.status = 'LIVE' end
 local revision = tonumber(redis.call('GET', revKey)) or 0
 local participants = {}
 local raw = redis.call('HGETALL', participantsKey)
@@ -64,10 +67,30 @@ end
 
 local function hostTarget()
   local actor = participants[command.actorParticipantId]
-  if not actor or actor.role ~= 'HOST' then return nil, 'not_host' end
+  if not actor or actor.role ~= 'HOST' or actor.presence ~= 'connected' then return nil, 'not_host' end
   local target = participants[command.targetParticipantId]
   if not target then return nil, 'participant_not_found' end
   return target, nil
+end
+
+local function fillWaiting()
+  if room.status ~= 'LIVE' or room.mode ~= 'MEETING' or room.requireAdmission == true then return false end
+  local queue = {}
+  for id in pairs(waiting) do queue[#queue + 1] = id end
+  table.sort(queue, function(a, b)
+    if waiting[a] == waiting[b] then return a < b end
+    return waiting[a] < waiting[b]
+  end)
+  local filled = false
+  for _, id in ipairs(queue) do
+    if stageCount() >= 4 then break end
+    filled = true
+    participants[id].role = 'SPEAKER'
+    saveParticipant(id)
+    setWaiting(id, nil)
+    setStage(id, true)
+  end
+  return filled
 end
 
 -- Redis cjson encodes an empty Lua table as {}, so encode lists explicitly.
@@ -133,6 +156,7 @@ finish = function(changed, roomEnded)
     .. ',"hostId":' .. cjson.encode(room.hostId)
     .. ',"mode":' .. cjson.encode(room.mode)
     .. ',"status":' .. cjson.encode(roomEnded and 'ENDED' or room.status)
+    .. (type(room.requireAdmission) == 'boolean' and ',"requireAdmission":' .. tostring(room.requireAdmission) or '')
     .. ',"participants":' .. arrayJson(participantList)
     .. ',"stageParticipantIds":' .. arrayJson(stageList)
     .. ',"waitingParticipantIds":' .. arrayJson(waitingList)
@@ -165,7 +189,7 @@ end
 
 -- Shared by the sweeper and the atomic join/resume paths, including delayed timers.
 local function expireOverdue(now)
-  if room.status == 'ENDED' or redis.call('EXISTS', endingKey) == 1 then return false, true end
+  if room.status == 'ENDED' or redis.call('GET', endingKey) == '1' then return false, true end
   local overdue = {}
   for id, deadline in pairs(deadlines) do
     local participant = participants[id]
@@ -174,7 +198,12 @@ local function expireOverdue(now)
       overdue[#overdue + 1] = id
     end
   end
-  for _, id in ipairs(overdue) do removeMember(id) end
+  local freed = false
+  for _, id in ipairs(overdue) do
+    freed = freed or stage[id] == true
+    removeMember(id)
+  end
+  if freed then fillWaiting() end
   return #overdue > 0, false
 end
 

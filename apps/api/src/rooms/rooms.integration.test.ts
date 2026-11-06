@@ -1,4 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { Redis } from 'ioredis';
+import { LiveRepository } from '../live/live.repository';
+import { LiveService, type LiveSession, type LiveTransport } from '../live/live.service';
+import { SerializedOperations } from '../live/serialized-operations';
+import { liveKeys, roomPrefix } from '../live/live.keys';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { DataSource } from 'typeorm';
 import { databaseOptions } from '../database/data-source';
@@ -286,5 +291,126 @@ it('rejects guest scheduling and invalid host bodies over HTTP without inserting
     status: 'LIVE',
     scheduledStartAt: null,
     requireAdmission: false,
+  });
+});
+
+it('cancels a past scheduled room durably before clearing Redis, without inserting a broadcast', async () => {
+  const db = database();
+  const rooms = new RoomsService(db.getRepository(Room));
+  const host = {
+    ...(await db.getRepository(User).findOneByOrFail({ id: hostId })),
+    isGuest: false,
+  };
+  const scheduled = await rooms.create(host, {
+    title: 'Cancel before Start',
+    mode: 'WEBINAR',
+    status: 'SCHEDULED',
+    scheduledStartAt: '2000-01-01T00:00:00.000Z',
+  });
+  expect((await rooms.getById(scheduled.id))?.status).toBe('SCHEDULED');
+  const namespace = 'sf_itest_schedule_' + randomUUID().replaceAll('-', '');
+  const prefix = roomPrefix(scheduled.id, namespace);
+  if (!process.env.REDIS_URL) throw new Error('REDIS_URL is required.');
+  const redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 0 });
+  const repository = new LiveRepository(redis);
+  const sessions: LiveSession[] = [];
+  const transport: LiveTransport = {
+    join: async () => {},
+    leave: async () => {},
+    forceMute: () => {},
+    publish: () => {},
+    peer: (id) => ({ connected: true, roomId: sessions.find((p) => p.id === id)?.room?.roomId }),
+    end: async () => {
+      expect(await rooms.getById(scheduled.id)).toMatchObject({
+        status: 'ENDED',
+        endedAt: expect.any(Date),
+      });
+      expect(await redis.exists(...liveKeys(prefix))).toBe(0);
+      for (const s of sessions) s.room = undefined;
+    },
+  };
+  const service = new LiveService(
+    rooms,
+    repository,
+    new SerializedOperations(),
+    undefined,
+    namespace,
+  );
+  try {
+    for (const userId of [host.id, randomUUID()]) {
+      const session: LiveSession = {
+        id: randomUUID(),
+        user: { id: userId, displayName: 'Guest' },
+        connected: true,
+        room: undefined,
+      };
+      sessions.push(session);
+      expect(
+        await service.join(
+          session,
+          { roomId: scheduled.id, isAudioMuted: false, isVideoOff: false, isSyntheticBot: false },
+          transport,
+          randomUUID(),
+        ),
+      ).toEqual({ ok: true });
+    }
+    expect(await redis.zcard(prefix + ':waiting')).toBe(1);
+    // At the first cleanup write, PostgreSQL must already be ended.
+    const apply = repository.apply.bind(repository);
+    repository.apply = async (key, room, command) => {
+      if (command.type === 'cancel')
+        expect((await rooms.getById(scheduled.id))?.status).toBe('ENDED');
+      return apply(key, room, command);
+    };
+    expect(await service.scheduleCommand(sessions[0]!, 'cancel', transport)).toEqual({ ok: true });
+    expect(await db.query('SELECT id FROM broadcasts WHERE room_id = $1', [scheduled.id])).toEqual(
+      [],
+    );
+    expect(await rooms.startScheduled(scheduled.id)).toBe(false);
+    expect(await rooms.cancelScheduled(scheduled.id)).toBe(false);
+  } finally {
+    service.onModuleDestroy();
+    await repository.deleteRoom(prefix);
+    redis.disconnect();
+  }
+});
+
+it('starts only SCHEDULED catalog rows and cannot cancel a live room', async () => {
+  const db = database();
+  const rooms = new RoomsService(db.getRepository(Room));
+  const host = {
+    ...(await db.getRepository(User).findOneByOrFail({ id: hostId })),
+    isGuest: false,
+  };
+  const room = await rooms.create(host, {
+    title: 'Explicit Start',
+    mode: 'MEETING',
+    status: 'SCHEDULED',
+    scheduledStartAt: '2000-01-01T00:00:00.000Z',
+  });
+  expect((await rooms.getById(room.id))?.status).toBe('SCHEDULED');
+  expect(await rooms.startScheduled(room.id)).toBe(true);
+  expect(await rooms.startScheduled(room.id)).toBe(false);
+  expect(await rooms.cancelScheduled(room.id)).toBe(false);
+  expect(await rooms.getById(room.id)).toMatchObject({ status: 'LIVE', endedAt: null });
+});
+
+it('can finish live shutdown when an interrupted Start left the catalog SCHEDULED', async () => {
+  const db = database();
+  const rooms = new RoomsService(db.getRepository(Room));
+  const host = {
+    ...(await db.getRepository(User).findOneByOrFail({ id: hostId })),
+    isGuest: false,
+  };
+  const room = await rooms.create(host, {
+    title: 'Interrupted Start shutdown',
+    mode: 'MEETING',
+    status: 'SCHEDULED',
+    scheduledStartAt: '2000-01-01T00:00:00.000Z',
+  });
+  await rooms.end(room.id);
+  expect(await rooms.getById(room.id)).toMatchObject({
+    status: 'ENDED',
+    endedAt: expect.any(Date),
   });
 });

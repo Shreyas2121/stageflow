@@ -1,6 +1,6 @@
 import { roomPrefix } from './live.keys';
 import { Logger } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import {
   canRelay,
   type CommandAck,
@@ -33,6 +33,7 @@ export interface LiveSession {
   participantId?: string;
   generation?: number;
   isSyntheticBot?: boolean;
+  resumeEnabled?: boolean;
 }
 export type LiveClock = { now(): number; schedule(action: () => void, delay: number): () => void };
 const systemClock: LiveClock = {
@@ -53,12 +54,18 @@ export interface LiveTransport {
   join(socketId: string, roomId: string): Promise<void>;
   leave(socketId: string, roomId: string): Promise<void>;
   publish(snapshot: RoomSnapshot): void;
+  resumeCredential?(
+    socketId: string,
+    payload: { roomId: string; participantId: string; resumeCredential: string },
+  ): void;
   forceMute(socketId: string, payload: StageForceMute): void;
   peer(socketId: string): { connected: boolean; roomId: string | undefined } | undefined;
   end(roomId: string): void | Promise<void>;
 }
 export class LiveService {
   private readonly logger = new Logger(LiveService.name);
+  private readonly credentialSecret = randomBytes(32);
+  private readonly roomViews = new Map<string, LiveRoom>();
   // Rooms whose host shutdown has not finished catalog end, key deletion, and notification.
   private readonly ending = new Set<string>();
   // Known broadcast projection. A missing key is not loaded; null means no attempt.
@@ -83,11 +90,15 @@ export class LiveService {
   private cancelSweep?: () => void;
   private disposed = false;
   constructor(
-    private readonly rooms: Pick<RoomsService, 'getById' | 'end'>,
+    private readonly rooms: Pick<
+      RoomsService,
+      'getById' | 'end' | 'startScheduled' | 'cancelScheduled'
+    >,
     private readonly live: Pick<
       LiveRepository,
       'apply' | 'readStage' | 'readConnectedStage' | 'readSocket' | 'readParticipant' | 'deleteRoom'
-    >,
+    > &
+      Partial<Pick<LiveRepository, 'grantResume'>>,
     private readonly operations: SerializedOperations,
     private readonly availability: { isReady(): boolean } = { isReady: () => true },
     private readonly namespace = 'sf',
@@ -128,6 +139,7 @@ export class LiveService {
     client.participantId = undefined;
     client.generation = undefined;
     client.isSyntheticBot = undefined;
+    client.resumeEnabled = undefined;
   }
 
   private openBinding(client: LiveSession): BindingAttempt {
@@ -164,7 +176,10 @@ export class LiveService {
     generation: number,
     isSyntheticBot: boolean,
   ): void {
-    client.room = room;
+    const sharedRoom = this.roomViews.get(room.roomId) ?? room;
+    Object.assign(sharedRoom, room);
+    this.roomViews.set(room.roomId, sharedRoom);
+    client.room = sharedRoom;
     client.participantId = participantId;
     client.generation = generation;
     client.isSyntheticBot = isSyntheticBot;
@@ -360,11 +375,45 @@ export class LiveService {
     transport: LiveTransport,
   ): Promise<void> {
     const roomId = result.state.roomId;
+    const view = this.roomViews.get(roomId);
+    if (view) view.status = result.state.status;
+    if (!result.state.participants.length) this.roomViews.delete(roomId);
     const pending = this.unpublished.get(roomId);
     // A changed command supersedes an older unpublished revision. An unchanged retry delivers it.
     const delivery = result.changed ? result : pending;
     if (!delivery) return;
     try {
+      // Pre-start members had no credential. Enable recovery only after Lua releases them.
+      if (delivery.state.status === 'LIVE' && transport.resumeCredential && this.live.grantResume) {
+        for (const p of delivery.state.participants) {
+          if (
+            p.role === 'WAITING' ||
+            (!delivery.state.stageParticipantIds.includes(p.participantId) &&
+              p.role !== 'ATTENDEE') ||
+            p.isSyntheticBot ||
+            p.presence !== 'connected' ||
+            delivery.state.resumeDigests[p.participantId]
+          )
+            continue;
+          const credential = createHmac('sha256', this.credentialSecret)
+            .update(JSON.stringify([roomId, p.participantId]))
+            .digest('base64url');
+          const digest = createHash('sha256').update(credential).digest('hex');
+          if (
+            await this.live.grantResume(
+              roomPrefix(roomId, this.namespace),
+              p.participantId,
+              p.connectionGeneration,
+              digest,
+            )
+          )
+            transport.resumeCredential(p.socketId!, {
+              roomId,
+              participantId: p.participantId,
+              resumeCredential: credential,
+            });
+        }
+      }
       transport.publish(await this.roomSnapshot(delivery));
       const stored = this.unpublished.get(roomId);
       if (stored && stored.revision <= delivery.revision) this.unpublished.delete(roomId);
@@ -443,6 +492,7 @@ export class LiveService {
                 hostId: room.hostId,
                 mode: room.mode,
                 status: room.status,
+                requireAdmission: room.requireAdmission,
               };
               const user = client.user;
               const now = this.clock.now();
@@ -486,6 +536,8 @@ export class LiveService {
                 throw error;
               }
               if (!result.ok) return this.failedResult(result, liveRoom, transport);
+              client.resumeEnabled = !!result.state.resumeDigests[participantId];
+              liveRoom.status = result.state.status;
               this.attachMembership(client, liveRoom, participantId, 1, request.isSyntheticBot);
               const abandoned = this.abandonIfLost(client, attempt, abandonedCommit);
               if (abandoned) return abandoned;
@@ -546,6 +598,7 @@ export class LiveService {
                 hostId: room.hostId,
                 mode: room.mode,
                 status: room.status,
+                requireAdmission: room.requireAdmission,
               };
               if (this.suspendedRooms.has(room.id)) {
                 await this.expireInRoom(liveRoom, transport, this.clock.now());
@@ -589,6 +642,7 @@ export class LiveService {
                 throw error;
               }
               if (!result.ok) return this.failedResult(result, liveRoom, transport);
+              liveRoom.status = result.state.status;
               const participant = result.state.participants.find(
                 (p) => p.participantId === request.participantId,
               )!;
@@ -643,7 +697,6 @@ export class LiveService {
       now: this.disconnectedAt.get(client.id) ?? this.clock.now(),
     };
     this.pendingDisconnects.set(client.id, pending);
-    if (client.room.status !== 'SCHEDULED') this.scheduleSweep();
     return this.execute(
       client,
       async () => {
@@ -671,7 +724,13 @@ export class LiveService {
                   client.participantId,
                 )
               : null;
-            if (room.status === 'SCHEDULED') {
+            // A lost Start reply can leave the local/catalog view behind Redis.
+            if (
+              room.status === 'SCHEDULED' &&
+              (await this.live.readStage(roomPrefix(room.roomId, this.namespace))).length
+            )
+              room.status = 'LIVE';
+            if (room.status === 'SCHEDULED' || current?.role === 'WAITING') {
               const invalid = await this.validateBinding(client, room, true);
               if (invalid) {
                 this.settleDisconnect(client);
@@ -728,6 +787,68 @@ export class LiveService {
     });
   }
 
+  scheduleCommand(
+    client: LiveSession,
+    type: 'start' | 'cancel',
+    transport: LiveTransport,
+  ): Promise<CommandAck> {
+    return this.execute(client, async () => {
+      const room = client.room;
+      if (!room) return failure('not_joined');
+      return this.operations.run(`room:${room.roomId}`, async () => {
+        if (client.room !== room) return failure('not_joined');
+        if (this.ending.has(room.roomId)) {
+          await this.finishShutdown(room, transport);
+          return { ok: true };
+        }
+        const invalid = await this.validateBinding(client, room);
+        if (invalid) return failure(invalid);
+        const actor = await this.live.readParticipant(
+          roomPrefix(room.roomId, this.namespace),
+          client.participantId!,
+        );
+        if (actor?.role !== 'HOST') return failure('not_host');
+        const stored = await this.rooms.getById(room.roomId);
+        if (!stored) return failure('room_not_found');
+        const catalogRoom = {
+          ...room,
+          status: stored.status,
+          requireAdmission: stored.requireAdmission,
+        };
+        if (type === 'cancel') {
+          if (
+            stored.status !== 'SCHEDULED' ||
+            room.status === 'LIVE' ||
+            (await this.live.readStage(roomPrefix(room.roomId, this.namespace))).includes(
+              client.participantId!,
+            )
+          )
+            return failure('not_scheduled');
+          if (!(await this.rooms.cancelScheduled(room.roomId))) return failure('not_scheduled');
+          // Catalog end is durable before Redis cleanup. Shutdown retains retry intent.
+          this.ending.add(room.roomId);
+          await this.live.apply(roomPrefix(room.roomId, this.namespace), catalogRoom, {
+            type: 'cancel',
+            actorParticipantId: client.participantId!,
+            transport: this.binding(client),
+          });
+          await this.finishShutdown(room, transport);
+          return { ok: true };
+        }
+        const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), catalogRoom, {
+          type,
+          actorParticipantId: client.participantId!,
+          transport: this.binding(client),
+        });
+        if (!result.ok) return failure(result.error);
+        room.status = 'LIVE';
+        await this.publish({ ...result, changed: true }, transport);
+        await this.rooms.startScheduled(room.roomId);
+        return { ok: true };
+      });
+    });
+  }
+
   update(
     client: LiveSession,
     command: StageCommand,
@@ -741,6 +862,13 @@ export class LiveService {
         if (client.room !== room || this.ending.has(room.roomId)) return failure('room_ended');
         const invalid = await this.validateBinding(client, room);
         if (invalid) return failure(invalid);
+        const removed =
+          command.type === 'removeWaiter'
+            ? await this.live.readParticipant(
+                roomPrefix(room.roomId, this.namespace),
+                command.targetParticipantId,
+              )
+            : null;
         const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
           ...command,
           transport: this.binding(client),
@@ -755,6 +883,7 @@ export class LiveService {
             transport.forceMute(socketId, { kind: command.kind, locked: command.locked });
         }
         await this.publish(result, transport);
+        if (removed?.socketId) await transport.leave(removed.socketId, room.roomId);
         return { ok: true };
       });
     });
@@ -866,6 +995,7 @@ export class LiveService {
       await this.chat?.delete(roomPrefix(room.roomId, this.namespace));
       await transport.end(room.roomId);
       this.ending.delete(room.roomId);
+      this.roomViews.delete(room.roomId);
       this.broadcastView.delete(room.roomId);
       this.unpublished.delete(room.roomId);
       this.suspendedRooms.delete(room.roomId);

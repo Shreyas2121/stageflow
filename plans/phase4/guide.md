@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** in progress. C01 through C03 are implemented and verified; C04 through C06 remain planned.\
+**Status:** in progress. C01 through C04 are implemented and verified; C05 and C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -133,9 +133,9 @@ pnpm lint
 
 ## 4. V3P4-C03 — Off-stage waiting
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `feat(api-live): hold early joiners off stage`\
-**Actual commit:**
+**Actual commit:** `30f915641ad99df78fa71b36c00552c2f70ff929`
 
 **Why:** Early joiners need a membership the host can see without taking a stage seat or a resume credential. Covers SCH-02.
 
@@ -178,7 +178,7 @@ pnpm lint
 
 ## 5. V3P4-C04 — Start, admit, and cancel
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `feat(api-live): start, admit, and cancel a scheduled room`\
 **Actual commit:**
 
@@ -190,16 +190,20 @@ pnpm lint
 
 - `packages/shared/src/stage.ts`
 - `packages/shared/src/signaling.ts`
+- `apps/api/src/live/scripts/common.lua`
 - `apps/api/src/live/scripts/start.lua`
 - `apps/api/src/live/scripts/admit.lua`
 - `apps/api/src/live/scripts/removeWaiter.lua`
 - `apps/api/src/live/scripts/cancel.lua`
+- `apps/api/src/live/scripts/grantResume.lua`
 - `apps/api/src/live/scripts/join.lua`, `leave.lua`, `demote.lua`, and `expire.lua`
 - `apps/api/src/live/live.repository.ts`
 - `apps/api/src/live/live.service.ts`
 - `apps/api/src/live/signaling.gateway.ts`
 - `apps/api/src/live/signaling.messages.ts`
-- `apps/api/src/live/live.integration.test.ts`
+- `apps/api/src/live/live.integration.test.ts` and adjacent service/gateway regressions
+- `apps/api/src/rooms/rooms.service.ts` and `rooms.integration.test.ts`
+- `scripts/check-artifacts.mjs`
 
 **Implementation:**
 
@@ -207,7 +211,7 @@ pnpm lint
 2. The shared reducer owns the seat decision. The Lua scripts mirror it. Meeting admission off fills the oldest waiters up to four, counting every stage id. Meeting admission on seats only the host at Start, and Admit moves one chosen waiter. A full stage leaves that waiter in the set. Webinar Start seats the host and changes every waiter to `ATTENDEE` without a stage seat. Promote still returns `stage_full` at four.
 3. Handle the commands inside the existing per-room queue. Start runs the script while Postgres is `SCHEDULED`, publishes `LIVE`, then updates Postgres only where the status is still `SCHEDULED`. A repeated Start does not add a second host seat. Cancel updates Postgres to `ENDED` first, then clears memberships and the waiting key. It does not insert a broadcast.
 4. The join, leave, demote, and expire scripts admit the oldest meeting waiter only when admission is off and a seat was actually freed. Suspend keeps the reservation, so it admits nobody. Join seats remaining waiters before a new meeting joiner can take a free seat.
-5. Reject a synthetic join unless the room is `LIVE` and the host is on stage. Tests on real Redis cover five early meeting joiners, a suspended seat, two concurrent Admit commands, webinar release, cancel with no broadcast row, and a past `scheduledStartAt` that remains `SCHEDULED`.
+5. Reject a synthetic join unless the room is `LIVE` and the host is on stage. Tests on real Redis cover five early meeting joiners, a suspended seat, two concurrent Admit commands, webinar release, cancel with no broadcast row, and a past `scheduledStartAt` that remains `SCHEDULED`. Preserve recovery after release: issue `room:resume-credential` only after Start or Admit, never to a waiter or pre-start host.
 
 **Verification:**
 
@@ -219,6 +223,8 @@ pnpm lint
 ```
 
 **Done when:** Start, Admit, and Cancel match phase Section 5.3, and a concurrent fill never leaves five ids in the stage set.
+
+**C04 verification (2026-11-06):** Shared tests passed (363), API tests passed (470), and workspace typecheck and lint passed. Reducer/real-Redis parity covers Start with five early meeting joiners, arrival/id ordering, admission on/off, removal without filling, webinar release, and the four-seat promote limit. Concurrent Admit scripts count a suspended reservation: one takes the last seat, the other returns `stage_full` and keeps its waiter. Leave, demote, expiry, and join fill in Lua; suspension retains its seat. Tests cover a lost Start reply, failed catalog update, idempotent Start reconciliation, live host suspend/resume/expiry while Postgres still says `SCHEDULED`, and catalog cancellation failure/cleanup retry. An owned disposable-Postgres/Redis scenario verifies a past schedule remains scheduled, cancellation commits `ENDED`/`ended_at` before Redis cleanup, clears memberships/waiting, and inserts no broadcast. Demo joins are refused before a live host has a stage seat. Live waiters have no digest/deadline/grace timer, and Remove detaches the waiter transport. Guarded server-only credential metadata and targeted `room:resume-credential` delivery preserve recovery after release; C05 must handle that event in the browser hook. The existing ending key carries `started` or ending intent `1`; all ten key positions and broadcast `KEYS[6]` remain unchanged. The affected-check plan selected `pnpm check:release`, which passed on the final code: all 49 tooling tests; 363 shared, 470 API, and 488 web tests; typecheck; lint; both builds; formatting; nineteen Lua artifact checks; and both smokes. Broadcast smoke used the existing temporary FFmpeg 6.0 binary through a process-local `FFMPEG_PATH` override, with owned database/Redis/media fixtures. It verified all seven migrations, five chunks, two decoded HLS segments, ENDLIST/READY, restart cleanup, and missing-binary behavior. Edited plan links resolve. SCH-03 is verified by concurrent Redis tests. SCH-01/SCH-02/SCH-04/SCH-05 browser observations belong to C05 and remain unverified; C05/C06 and existing physical observations remain open.
 
 ## 6. V3P4-C05 — Schedule form and waiting panel
 
@@ -244,7 +250,7 @@ pnpm lint
 
 1. For a registered host, add **Schedule meeting**, **Schedule webinar**, a UTC start field, and **Require host admission** on a meeting. Guest home keeps **Create meeting** and **Create webinar** only. Submit the C02 body. Show `SCHEDULED` and the UTC instant on the library row. Keep the invitation control.
 2. Add a waiting panel. A `SCHEDULED` room, and a participant whose role is `WAITING`, render that panel instead of `GreenRoom`. Its join sends the socket join and does not construct local media or a peer connection. Show the waiting ids in snapshot order and the names beside them.
-3. The host sees **Start**, **Remove**, and **Cancel room**. The first cancel click reveals **Cancel this room** and **Keep waiting**. **Admit** is shown only when the room is a `LIVE` meeting and `requireAdmission` is true. When the snapshot places this participant on stage, the existing green room asks for consent before capture. A webinar attendee keeps the current attendee path.
+3. The host sees **Start**, **Remove**, and **Cancel room**. The first cancel click reveals **Cancel this room** and **Keep waiting**. **Admit** is shown only when the room is a `LIVE` meeting and `requireAdmission` is true. Handle the targeted `room:resume-credential` event in `use-live-room.ts` for the current room and membership. When the snapshot places this participant on stage, the existing green room asks for consent before capture. A webinar attendee keeps the current attendee path.
 4. Render **Spawn demo peer** only when the host is on stage. Keep `hls`, `LiveRoom`, and chat out of the home page. The entry-graph test still forbids `hls` on home. A source test for the waiting panel forbids `getUserMedia` and `RTCPeerConnection`.
 5. In the browser, as a registered host, schedule a meeting with a past UTC time and confirm it stays scheduled. Join from a second window and confirm the waiting copy, no camera prompt, and no peer connection. Start and confirm the host is first. Cover admission on with Admit, a scheduled webinar attendee, Cancel before start, and a guest immediate create. Record the browser. If no browser is available, leave that half unverified and named. Do not mark a physical-device observation verified.
 

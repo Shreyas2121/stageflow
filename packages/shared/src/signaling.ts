@@ -94,6 +94,10 @@ export interface ClientToServerEvents {
   'webrtc:ice-candidate': (payload: IceCandidateRequest, ack: (result: CommandAck) => void) => void;
   'room:join': (payload: JoinRoomRequest, ack: (result: JoinAck) => void) => void;
   'room:resume': (payload: ResumeRoomRequest, ack: (result: ResumeAck) => void) => void;
+  'room:start': (ack: (result: CommandAck) => void) => void;
+  'room:cancel': (ack: (result: CommandAck) => void) => void;
+  'stage:admit': (payload: StageTargetRequest, ack: (result: CommandAck) => void) => void;
+  'stage:remove-waiter': (payload: StageTargetRequest, ack: (result: CommandAck) => void) => void;
   'room:leave': (ack: (result: CommandAck) => void) => void;
   'media:state': (payload: MediaPatch, ack: (result: CommandAck) => void) => void;
   'stage:raise-hand': (payload: { raised: boolean }, ack: (result: CommandAck) => void) => void;
@@ -105,6 +109,11 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  'room:resume-credential': (payload: {
+    roomId: string;
+    participantId: string;
+    resumeCredential: string;
+  }) => void;
   'chat:message': (message: ChatMessage) => void;
   'chat:paused': (payload: ChatSetPausedRequest) => void;
   'stage:force-mute': (payload: StageForceMute) => void;

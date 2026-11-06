@@ -100,6 +100,8 @@ async function fixture() {
     {
       getById: async () =>
         ({ id: 'room', hostId: 'host', mode: 'WEBINAR', status: 'LIVE' }) as never,
+      startScheduled: vi.fn(async () => true),
+      cancelScheduled: vi.fn(async () => true),
       end: vi.fn(async () => {}),
     },
     stage,

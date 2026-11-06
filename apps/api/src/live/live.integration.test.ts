@@ -1,13 +1,13 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Redis } from 'ioredis';
 import { applyStageCommand, type LiveState, type StageCommand } from '@stageflow/shared';
 import { LiveRepository, type LiveRoom } from './live.repository';
-import { LiveService, type LiveTransport } from './live.service';
+import { LiveService, type LiveSession, type LiveTransport } from './live.service';
 import { LiveConnection } from './live.connection';
 import { liveKeys, roomPrefix } from './live.keys';
 import type { RoomsService } from '../rooms/rooms.service';
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { SerializedOperations } from './serialized-operations';
 
@@ -95,6 +95,77 @@ const resume = (
 });
 
 const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[] = [
+  {
+    name: 'Start fills the oldest three; suspension reserves a seat; leave, demote and expiry refill atomically',
+    initial: { ...empty(), status: 'SCHEDULED', requireAdmission: false },
+    commands: [
+      ...['e', 'd', 'c', 'b', 'a'].map((id) => ({ ...join(id), joinedAt: id.charCodeAt(0) })),
+      { ...join('demo'), isSyntheticBot: true },
+      join('host'),
+      { type: 'start', actorParticipantId: 'a' },
+      { type: 'start', actorParticipantId: 'host' },
+      { type: 'start', actorParticipantId: 'host' },
+      suspend('a'),
+      join('new'),
+      { type: 'leave', participantId: 'b' },
+      demote('c'),
+      { type: 'expire', now: 22000 },
+      join('new'),
+      { type: 'cancel', actorParticipantId: 'host' },
+    ],
+  },
+  {
+    name: 'admission on keeps live joiners waiting and removal never fills seats',
+    initial: { ...empty(), status: 'SCHEDULED', requireAdmission: true },
+    commands: [
+      join('a'),
+      join('b'),
+      join('c'),
+      join('d'),
+      join('host'),
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'a' },
+      { type: 'start', actorParticipantId: 'host' },
+      join('e'),
+      ...['a', 'b', 'c', 'd'].map((id): StageCommand => ({
+        type: 'admit',
+        actorParticipantId: 'host',
+        targetParticipantId: id,
+      })),
+      { type: 'leave', participantId: 'a' },
+      { type: 'removeWaiter', actorParticipantId: 'host', targetParticipantId: 'd' },
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'd' },
+      suspend('e'),
+    ],
+  },
+  {
+    name: 'webinar Start releases all waiters as attendees and keeps promotion bounded',
+    initial: { ...empty('WEBINAR'), status: 'SCHEDULED', requireAdmission: false },
+    commands: [
+      join('a'),
+      join('b'),
+      join('c'),
+      join('d'),
+      join('host'),
+      { type: 'start', actorParticipantId: 'host' },
+      promote('a'),
+      promote('b'),
+      promote('c'),
+      promote('d'),
+      { type: 'admit', actorParticipantId: 'host', targetParticipantId: 'd' },
+    ],
+  },
+  {
+    name: 'Cancel clears scheduled membership without starting it',
+    initial: { ...empty(), status: 'SCHEDULED' },
+    commands: [
+      join('a'),
+      join('host'),
+      { type: 'cancel', actorParticipantId: 'a' },
+      { type: 'removeWaiter', actorParticipantId: 'host', targetParticipantId: 'missing' },
+      { type: 'cancel', actorParticipantId: 'host' },
+      join('b'),
+    ],
+  },
   ...(['MEETING', 'WEBINAR'] as const).map((mode) => ({
     name: `scheduled ${mode} waits before host, drops without grace, and rejoins at the back`,
     initial: { ...empty(mode), status: 'SCHEDULED' as const },
@@ -407,6 +478,286 @@ describe('Redis Lua stage transitions', () => {
     };
   }
 
+  it('fills leftover waiters atomically before a newcomer can take their seats', async () => {
+    const value = prefix();
+    const room = { ...empty(), status: 'SCHEDULED' as const, requireAdmission: true };
+    for (const id of ['host', 'a', 'b', 'c', 'd']) await repository.apply(value, room, join(id));
+    const started = await repository.apply(value, room, {
+      type: 'start',
+      actorParticipantId: 'host',
+    });
+    if (!started.ok) throw new Error(started.error);
+    const state = { ...started.state, requireAdmission: false };
+    const expected = applyStageCommand(state, join('new'));
+    expect(await repository.apply(value, state, join('new'))).toEqual({
+      ...expected,
+      revision: started.revision + 1,
+    });
+    expect((await stored(value)).stage).toEqual(['a', 'b', 'c', 'host']);
+    expect((await stored(value)).waiting).toEqual(['d']);
+  });
+
+  it('two concurrent Admit scripts count a suspended reservation and never create a fifth seat', async () => {
+    const value = prefix();
+    const room = { ...empty(), status: 'SCHEDULED' as const, requireAdmission: true };
+    for (const id of ['host', 'a', 'b', 'c', 'd']) await repository.apply(value, room, join(id));
+    await repository.apply(value, room, { type: 'start', actorParticipantId: 'host' });
+    const liveRoom = { ...room, status: 'LIVE' as const };
+    for (const id of ['a', 'b'])
+      await repository.apply(value, liveRoom, {
+        type: 'admit',
+        actorParticipantId: 'host',
+        targetParticipantId: id,
+      });
+    await repository.apply(value, liveRoom, suspend('a'));
+    const results = await Promise.all(
+      ['c', 'd'].map((id) =>
+        repository.apply(value, liveRoom, {
+          type: 'admit',
+          actorParticipantId: 'host',
+          targetParticipantId: id,
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.find((r) => !r.ok)).toMatchObject({ error: 'stage_full' });
+    const state = await stored(value);
+    expect(state.stage).toHaveLength(4);
+    expect(state.stage).toContain('a');
+    expect(state.waiting).toHaveLength(1);
+    expect(state.waiting[0]).toBe(results[0]!.ok ? 'd' : 'c');
+  });
+
+  it('keeps bounded host recovery after a lost Start reply while the catalog remains scheduled', async () => {
+    const namespace = 'sf_itest_' + randomUUID().replaceAll('-', '');
+    const value = roomPrefix('room', namespace);
+    prefixes.add(value);
+    const room = { ...empty(), status: 'SCHEDULED' as const };
+    await repository.apply(value, room, join('host'));
+    await repository.apply(value, room, join('a'));
+    await repository.apply(value, room, { type: 'start', actorParticipantId: 'host' });
+    const credential = 'x'.repeat(43);
+    await repository.grantResume(
+      value,
+      'host',
+      1,
+      createHash('sha256').update(credential).digest('hex'),
+    );
+    let status: LiveState['status'] = 'SCHEDULED';
+    const rooms = {
+      getById: async () =>
+        ({ id: 'room', hostId: 'host', mode: 'MEETING', status }) as Awaited<
+          ReturnType<RoomsService['getById']>
+        >,
+      startScheduled: async () => {
+        status = 'LIVE';
+        return true;
+      },
+      cancelScheduled: async () => {
+        status = 'ENDED';
+        return true;
+      },
+      end: vi.fn(async () => {
+        status = 'ENDED';
+      }),
+    };
+    const transport: LiveTransport = {
+      join: async () => {},
+      leave: async () => {},
+      publish: () => {},
+      forceMute: () => {},
+      peer: () => ({ connected: true, roomId: 'room' }),
+      end: () => {},
+    };
+    const clock = { now: () => 1000, schedule: vi.fn(() => () => {}) };
+    const service = new LiveService(
+      rooms,
+      repository,
+      new SerializedOperations(),
+      undefined,
+      namespace,
+      undefined,
+      clock,
+    );
+    const host: LiveSession = {
+      id: 'socket-host',
+      user: { id: 'host', displayName: 'Host' },
+      connected: true,
+      room: { roomId: 'room', hostId: 'host', mode: 'MEETING', status: 'SCHEDULED' },
+      participantId: 'host',
+      generation: 1,
+    };
+    try {
+      expect(await service.disconnect(host, transport)).toEqual({ ok: true });
+      expect((await repository.readParticipant(value, 'host'))?.presence).toBe('suspended');
+      expect(status).toBe('SCHEDULED');
+      expect(rooms.end).not.toHaveBeenCalled();
+      const resumed: LiveSession = {
+        id: 'replacement',
+        user: host.user,
+        connected: true,
+        room: undefined,
+      };
+      expect(
+        await service.resume(
+          resumed,
+          { roomId: 'room', participantId: 'host', resumeCredential: credential },
+          transport,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(resumed.room?.status).toBe('LIVE');
+      expect(status).toBe('SCHEDULED');
+      expect(await service.disconnect(resumed, transport)).toEqual({ ok: true });
+      expect(await service.expire('room', 21000)).toEqual({ ok: true });
+      expect(status).toBe('ENDED');
+      expect(rooms.end).toHaveBeenCalledOnce();
+      expect(await redis.exists(...liveKeys(value))).toBe(0);
+    } finally {
+      service.onModuleDestroy();
+    }
+  });
+
+  it('Start repairs a failed catalog update without reseating or republishing SCHEDULED', async () => {
+    // Use the normal service prefix convention, with an owned independent namespace.
+    const ownedNamespace = 'sf_itest_' + randomUUID().replaceAll('-', '');
+    const ownedPrefix = roomPrefix('room', ownedNamespace);
+    prefixes.add(ownedPrefix);
+    let status: LiveState['status'] = 'SCHEDULED';
+    const calls: string[] = [];
+    const rooms = {
+      getById: async () =>
+        ({
+          id: 'room',
+          hostId: 'host',
+          mode: 'MEETING',
+          status,
+          requireAdmission: false,
+        }) as Awaited<ReturnType<RoomsService['getById']>>,
+      startScheduled: vi.fn(async () => {
+        calls.push('database:start');
+        status = 'LIVE';
+        return true;
+      }),
+      cancelScheduled: vi.fn(async () => {
+        status = 'ENDED';
+        return true;
+      }),
+      end: vi.fn(async () => {}),
+    };
+    const sessions = new Map<string, LiveSession>();
+    const credentials = new Map<string, string>();
+    const transport: LiveTransport = {
+      join: async () => {},
+      leave: async () => {},
+      forceMute: () => {},
+      end: () => {},
+      peer: (id) => ({ connected: true, roomId: sessions.get(id)?.room?.roomId }),
+      publish: (snapshot) => {
+        calls.push('publish:' + snapshot.status);
+      },
+      resumeCredential: (id, payload) => {
+        credentials.set(id, payload.resumeCredential);
+      },
+    };
+    const service = new LiveService(
+      rooms,
+      repository,
+      new SerializedOperations(),
+      undefined,
+      ownedNamespace,
+    );
+    try {
+      for (const id of ['a', 'b', 'c', 'd', 'e', 'host']) {
+        const session = {
+          id,
+          user: { id, displayName: id },
+          connected: true,
+          room: undefined,
+        } as LiveSession;
+        sessions.set(id, session);
+        expect(
+          await service.join(
+            session,
+            { roomId: 'room', isAudioMuted: false, isVideoOff: false, isSyntheticBot: false },
+            transport,
+            id,
+          ),
+        ).toEqual({ ok: true });
+      }
+      expect(credentials.size).toBe(0);
+      expect(await repository.grantResume(ownedPrefix, 'host', 1, 'forbidden')).toBe(false);
+      expect(await repository.grantResume(ownedPrefix, 'a', 1, 'forbidden')).toBe(false);
+      expect(await redis.hlen(ownedPrefix + ':resume')).toBe(0);
+      // Lose the reply after Redis committed Start; Cancel must not end that live stage.
+      const apply = repository.apply.bind(repository);
+      const lost = vi.spyOn(repository, 'apply').mockImplementationOnce(async (...args) => {
+        await apply(...args);
+        throw new Error('lost Start reply');
+      });
+      const lostErrors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+      try {
+        expect(
+          await service.scheduleCommand(sessions.get('host')!, 'start', transport),
+        ).toMatchObject({ error: 'server_error' });
+      } finally {
+        lost.mockRestore();
+        lostErrors.mockRestore();
+      }
+      expect(
+        await service.scheduleCommand(sessions.get('host')!, 'cancel', transport),
+      ).toMatchObject({ error: 'not_scheduled' });
+      expect(status).toBe('SCHEDULED');
+      expect((await stored(ownedPrefix)).stage).toHaveLength(4);
+      rooms.startScheduled.mockRejectedValueOnce(new Error('catalog offline'));
+      const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+      try {
+        expect(
+          await service.scheduleCommand(sessions.get('host')!, 'start', transport),
+        ).toMatchObject({ error: 'server_error' });
+      } finally {
+        errors.mockRestore();
+      }
+      expect(status).toBe('SCHEDULED');
+      expect((await stored(ownedPrefix)).stage).toHaveLength(4);
+      expect(credentials.size).toBe(4);
+      const before = await stored(ownedPrefix);
+      expect(await service.scheduleCommand(sessions.get('host')!, 'start', transport)).toEqual({
+        ok: true,
+      });
+      expect(await stored(ownedPrefix)).toEqual(before);
+      expect(status).toBe('LIVE');
+      expect(calls.lastIndexOf('publish:LIVE')).toBeLessThan(calls.lastIndexOf('database:start'));
+      expect([...sessions.values()].every((s) => s.room?.status === 'LIVE')).toBe(true);
+      expect(
+        await service.scheduleCommand(sessions.get('host')!, 'start', transport),
+      ).toMatchObject({ error: 'already_started' });
+      // A waiter still has no credential or grace after Start.
+      expect(credentials.has('e')).toBe(false);
+      expect(await repository.grantResume(ownedPrefix, 'e', 1, 'forbidden')).toBe(false);
+      expect(await repository.grantResume(ownedPrefix, 'host', 2, 'stale')).toBe(false);
+      expect(await service.disconnect(sessions.get('a')!, transport)).toEqual({ ok: true });
+      const replacement = {
+        id: 'replacement-a',
+        user: { id: 'a', displayName: 'a' },
+        connected: true,
+        room: undefined,
+      } as LiveSession;
+      sessions.set(replacement.id, replacement);
+      expect(
+        await service.resume(
+          replacement,
+          { roomId: 'room', participantId: 'a', resumeCredential: credentials.get('a')! },
+          transport,
+        ),
+      ).toMatchObject({ ok: true, connectionGeneration: 2 });
+      expect(await service.disconnect(sessions.get('e')!, transport)).toEqual({ ok: true });
+      expect(await repository.readParticipant(ownedPrefix, 'e')).toBeNull();
+      expect(await redis.zscore(ownedPrefix + ':deadlines', 'e')).toBeNull();
+    } finally {
+      service.onModuleDestroy();
+    }
+  });
+
   it('caps the waiting sorted set at 100 without writes on overflow, and cleans it with the room', async () => {
     const value = prefix();
     const room = { ...empty(), status: 'SCHEDULED' as const };
@@ -455,6 +806,8 @@ describe('Redis Lua stage transitions', () => {
       prefixes.add(value);
       const room = { id: roomId, hostId: 'host', mode, status: 'SCHEDULED' as const };
       const rooms = {
+        startScheduled: vi.fn(async () => true),
+        cancelScheduled: vi.fn(async () => true),
         getById: vi.fn(async () => room as Awaited<ReturnType<RoomsService['getById']>>),
         end: vi.fn(async () => undefined),
       };
@@ -655,9 +1008,11 @@ describe('Redis Lua stage transitions', () => {
           repository.readParticipant(key, participantId),
         deleteRoom: (key: string) => repository.deleteRoom(key),
       };
-      const rooms: Pick<RoomsService, 'getById' | 'end'> = {
+      const rooms: Pick<RoomsService, 'getById' | 'end' | 'startScheduled' | 'cancelScheduled'> = {
         getById: async () =>
           ({ ...liveRoom, id: roomId }) as unknown as Awaited<ReturnType<RoomsService['getById']>>,
+        startScheduled: async () => true,
+        cancelScheduled: async () => true,
         end: async () => undefined,
       };
       const service = new LiveService(
@@ -858,30 +1213,38 @@ describe('Redis Lua stage transitions', () => {
     ),
   )('normalizes attendee join flags %j before persisting a snapshot', async (flags) => {
     const value = prefix();
+    await repository.apply(value, empty('WEBINAR'), join('host'));
     const result = await repository.apply(value, empty('WEBINAR'), { ...join('guest'), ...flags });
     expect(result).toMatchObject({
       ok: true,
       changed: true,
-      revision: 1,
+      revision: 2,
       state: {
-        stageParticipantIds: [],
+        stageParticipantIds: ['host'],
         waitingParticipantIds: [],
-        participants: [
-          {
+        participants: expect.arrayContaining([
+          expect.objectContaining({
             role: 'ATTENDEE',
             isAudioMuted: true,
             isVideoOff: true,
             isScreenSharing: false,
             isSyntheticBot: flags.isSyntheticBot,
-          },
-        ],
+          }),
+        ]),
       },
     });
     const persisted = await stored(value);
-    expect(persisted.stage).toEqual([]);
-    expect(persisted.participants).toMatchObject([
-      { role: 'ATTENDEE', isAudioMuted: true, isVideoOff: true, isScreenSharing: false },
-    ]);
+    expect(persisted.stage).toEqual(['host']);
+    expect(persisted.participants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'ATTENDEE',
+          isAudioMuted: true,
+          isVideoOff: true,
+          isScreenSharing: false,
+        }),
+      ]),
+    );
   });
 
   it('rejects off-stage activation without any write or TTL refresh and preserves canonical no-ops', async () => {

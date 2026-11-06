@@ -2,7 +2,7 @@ import { beforeHistoryCursor } from '../database/catalog-cursor';
 import { isUuid, isRoomSlug } from '@stageflow/shared';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   createRoomSlugFromCrypto,
   encodeHistoryCursor,
@@ -30,9 +30,22 @@ export class RoomsService {
     return this.rooms.findOneBy({ id });
   }
 
+  async startScheduled(roomId: string): Promise<boolean> {
+    const result = await this.rooms.update({ id: roomId, status: 'SCHEDULED' }, { status: 'LIVE' });
+    return result.affected === 1;
+  }
+
+  async cancelScheduled(roomId: string): Promise<boolean> {
+    const result = await this.rooms.update(
+      { id: roomId, status: 'SCHEDULED' },
+      { status: 'ENDED', endedAt: new Date() },
+    );
+    return result.affected === 1;
+  }
+
   async end(roomId: string): Promise<void> {
     await this.rooms.update(
-      { id: roomId, status: 'LIVE' },
+      { id: roomId, status: In(['LIVE', 'SCHEDULED']) },
       { status: 'ENDED', endedAt: new Date() },
     );
   }

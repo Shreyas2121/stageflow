@@ -11,12 +11,19 @@ import type {
 } from '@stageflow/shared';
 import { liveKeys } from './live.keys';
 
-export type LiveRoom = Pick<LiveState, 'roomId' | 'hostId' | 'mode' | 'status'>;
+export type LiveRoom = Pick<
+  LiveState,
+  'roomId' | 'hostId' | 'mode' | 'status' | 'requireAdmission'
+>;
 export type LiveResult =
   | { ok: true; state: LiveState; revision: number; changed: boolean; roomEnded: boolean }
   | { ok: false; error: StageError; revision: number; expiry?: StageSuccess };
 
 const commandTypes = [
+  'start',
+  'admit',
+  'removeWaiter',
+  'cancel',
   'join',
   'leave',
   'patchMedia',
@@ -28,7 +35,13 @@ const commandTypes = [
   'resume',
   'expire',
 ] as const;
-const scriptNames = [...commandTypes, 'tryBeginBroadcast', 'clearBroadcast', 'snapshot'] as const;
+const scriptNames = [
+  ...commandTypes,
+  'tryBeginBroadcast',
+  'clearBroadcast',
+  'grantResume',
+  'snapshot',
+] as const;
 type ScriptName = (typeof scriptNames)[number];
 
 export class LiveRepository {
@@ -42,7 +55,9 @@ export class LiveRepository {
       scriptNames.map((type) => {
         const body = readFileSync(join(directory, `${type}.lua`), 'utf8');
         const source =
-          type === 'tryBeginBroadcast' || type === 'clearBroadcast' ? body : `${common}\n${body}`;
+          type === 'tryBeginBroadcast' || type === 'clearBroadcast' || type === 'grantResume'
+            ? body
+            : `${common}\n${body}`;
         return [type, { source, sha: createHash('sha1').update(source).digest('hex') }];
       }),
     ) as Record<ScriptName, { source: string; sha: string }>;
@@ -55,6 +70,21 @@ export class LiveRepository {
     if (!parsed.ok && parsed.expiry)
       delete (parsed.expiry as StageSuccess & { revision?: number }).revision;
     return parsed;
+  }
+
+  async grantResume(
+    prefix: string,
+    participantId: string,
+    generation: number,
+    digest: string,
+  ): Promise<boolean> {
+    return (
+      (await this.execute(
+        'grantResume',
+        prefix,
+        JSON.stringify({ participantId, generation, digest }),
+      )) === 1
+    );
   }
 
   async tryBeginBroadcast(prefix: string, broadcastId: string): Promise<boolean> {

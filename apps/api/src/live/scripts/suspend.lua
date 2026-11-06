@@ -1,7 +1,9 @@
 local participant = participants[command.participantId]
 if not participant then return reject('participant_not_found') end
 if participant.isSyntheticBot or room.status == 'SCHEDULED' or participant.role == 'WAITING' then
+  local freed = stage[command.participantId]
   removeMember(command.participantId)
+  if freed then fillWaiting() end
   return finish(true)
 end
 if participant.presence == 'suspended' then return finish(false) end

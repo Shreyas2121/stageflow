@@ -55,6 +55,7 @@ type SocketData = {
   generation?: number;
   isSyntheticBot?: boolean;
   joinCredential?: string;
+  resumeEnabled?: boolean;
 };
 type GuestSocket = Socket<
   ClientToServerEvents,
@@ -120,6 +121,12 @@ export class SignalingGateway
       set isSyntheticBot(value: boolean | undefined) {
         client.data.isSyntheticBot = value;
       },
+      get resumeEnabled() {
+        return client.data.resumeEnabled;
+      },
+      set resumeEnabled(value: boolean | undefined) {
+        client.data.resumeEnabled = value;
+      },
       get connected() {
         return client.connected;
       },
@@ -137,10 +144,21 @@ export class SignalingGateway
       await this.server.sockets.sockets.get(socketId)?.join(roomId);
     },
     leave: async (socketId, roomId) => {
-      await this.server.sockets.sockets.get(socketId)?.leave(roomId);
+      const socket = this.server.sockets.sockets.get(socketId);
+      await socket?.leave(roomId);
+      if (socket?.data.room?.roomId === roomId) {
+        delete socket.data.room;
+        delete socket.data.participantId;
+        delete socket.data.generation;
+        delete socket.data.isSyntheticBot;
+        delete socket.data.resumeEnabled;
+      }
     },
     publish: (snapshot) => {
       this.server.to(snapshot.roomId).emit('room:state', snapshot);
+    },
+    resumeCredential: (socketId, payload) => {
+      this.server.sockets.sockets.get(socketId)?.emit('room:resume-credential', payload);
     },
     forceMute: (socketId, payload) => {
       this.server.sockets.sockets.get(socketId)?.emit('stage:force-mute', payload);
@@ -236,7 +254,14 @@ export class SignalingGateway
       ok: true,
       participantId: client.data.participantId!,
       iceServers: this.iceServers,
-      ...(credential && client.data.room?.status === 'LIVE'
+      ...(credential &&
+      client.data.resumeEnabled !== false &&
+      client.data.room?.status === 'LIVE' &&
+      !(
+        client.data.room.mode === 'MEETING' &&
+        client.data.room.requireAdmission &&
+        client.data.user.id !== client.data.room.hostId
+      )
         ? { resumeCredential: credential }
         : {}),
     };
@@ -341,6 +366,44 @@ export class SignalingGateway
         raised: request.raised,
         raisedAt: Date.now(),
       },
+      this.transport,
+    );
+  }
+
+  @SubscribeMessage('room:start')
+  startRoom(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
+    return this.live.scheduleCommand(this.session(client), 'start', this.transport);
+  }
+
+  @SubscribeMessage('room:cancel')
+  cancelRoom(@ConnectedSocket() client: GuestSocket): Promise<CommandAck> {
+    return this.live.scheduleCommand(this.session(client), 'cancel', this.transport);
+  }
+
+  @SubscribeMessage('stage:admit')
+  admit(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<CommandAck> | CommandAck {
+    const request = parseStageTargetRequest(payload);
+    if (!request) return failure('invalid_payload');
+    return this.live.update(
+      this.session(client),
+      { type: 'admit', actorParticipantId: client.data.participantId!, ...request },
+      this.transport,
+    );
+  }
+
+  @SubscribeMessage('stage:remove-waiter')
+  removeWaiter(
+    @ConnectedSocket() client: GuestSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<CommandAck> | CommandAck {
+    const request = parseStageTargetRequest(payload);
+    if (!request) return failure('invalid_payload');
+    return this.live.update(
+      this.session(client),
+      { type: 'removeWaiter', actorParticipantId: client.data.participantId!, ...request },
       this.transport,
     );
   }

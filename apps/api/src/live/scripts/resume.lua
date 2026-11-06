@@ -1,7 +1,7 @@
 local expiredSelf = participants[command.participantId] and participants[command.participantId].presence == 'suspended'
   and deadlines[command.participantId] and command.now and deadlines[command.participantId] <= command.now
 if command.now then expiryChanged, expiryEnded = expireOverdue(command.now) end
-if expiryEnded or room.status == 'ENDED' or redis.call('EXISTS', endingKey) == 1 then return reject('room_ended') end
+if expiryEnded or room.status == 'ENDED' or redis.call('GET', endingKey) == '1' then return reject('room_ended') end
 if expiredSelf then return reject('resume_expired') end
 local participant = participants[command.participantId]
 if not participant then return reject('participant_not_found') end
