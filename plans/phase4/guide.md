@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** in progress. C01 through C05 are implemented and verified; C06 remains planned.\
+**Status:** complete. C01 through C06 are implemented and verified; final slice hash recording follows.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -228,9 +228,9 @@ pnpm lint
 
 ## 6. V3P4-C05 — Schedule form and waiting panel
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): schedule a room and wait without media`\
-**Actual commit:**
+**Actual commit:** `2ff08fc175d9f2f8fc33a5d04b7122944d237c30`
 
 **Why:** The host and the early joiner need the controls, and the joiner must not enter the green room. Covers the browser halves of SCH-01 through SCH-05.
 
@@ -274,7 +274,7 @@ Then check the home form, the waiting panel, and Start in the browser.
 
 ## 7. V3P4-C06 — README
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `docs(readme): describe scheduled rooms and admission`\
 **Actual commit:**
 
@@ -305,5 +305,7 @@ pnpm exec prettier --check README.md plans/phase4.md plans/phase4/guide.md plans
 Read the edited README against phase Sections 5 and 6.
 
 **Done when:** The README matches the schedule and waiting limits and this guide records C01 through C05. C06's hash is recorded in the follow-up `docs(v3-phase4): record the final slice hash`.
+
+**C06 verification (2026-11-06):** `pnpm exec prettier --check README.md plans/phase4.md plans/phase4/guide.md plans/README.md` passed. The affected-check plan selected only `pnpm format:check`, which passed. Mechanical validation resolved all 78 local references and all 7 Markdown anchors across the four edited files; `git diff --check` passed. The README was reviewed against phase Sections 5 and 6: registered scheduling, advertised time without automatic Start, immediate guest create, off-stage waiting, no pre-start/waiter grace, four seats including suspensions, admission on/off, webinar release, Remove, and confirmed Cancel without a broadcast agree. Its existing capture, recovery, chat, Redis-key, and migration descriptions now include the waiting path. Phase 1/2/3 links and earlier acceptance records remain. The C05 Chrome result is recorded in the README and retained in this guide, including synthetic media/permission UI, zero pre-consent capture/peers, connected native peers after consent, and the open physical observations. This slice changes documentation only; application suites and browser probes were not rerun. No open V1/V2 id was promoted. C01 through C06 are verified; record C06's real hash and committed status in the required follow-up `docs(v3-phase4): record the final slice hash`.
 
 **Handoff:** V3 phase 5 is moderated Q&A and the canvas lower-third. Do not write `plans/phase5.md` until that phase is requested.
