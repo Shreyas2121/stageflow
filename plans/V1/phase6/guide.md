@@ -425,7 +425,7 @@ The web build was additionally rerun with `NODE_ENV=production`, followed by bot
 
 ## Maintenance: V3M-C09 — Bound room projections (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(broadcast): bound reloadable room projections`.
-Actual commit:
+Status: committed. Proposed commit: `fix(broadcast): bound reloadable room projections`.
+Actual commit: `62fbaf9`.
 
 R08's reloadable BroadcastsService projection cache is capped at 256 LRU entries, including nulls and unfinished reads. Entry identity prevents an older read from undoing a lifecycle write or invalidation. Domain cleanup and encoder reservations are retained independently of eviction. Focused tests passed (73); all selected API gates passed (587 tests, typecheck/lint/build/artifacts, formatting, live smoke, and real FFmpeg broadcast/restart/deletion-recovery smoke). Commands, regression scope, and observation limits are in [phase6.md](../phase6.md). This does not establish VPS capacity or close existing physical acceptance gaps.

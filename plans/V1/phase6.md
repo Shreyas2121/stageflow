@@ -296,8 +296,8 @@ Evidence:
 
 ## Maintenance: V3-R08 / V3M-C09 (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(broadcast): bound reloadable room projections`.
-Actual commit:
+Status: committed. Proposed commit: `fix(broadcast): bound reloadable room projections`.
+Actual commit: `62fbaf9`.
 
 BroadcastsService's reloadable room projection cache now uses least-recently-used eviction with a fixed cap of 256 entries, including null results and unfinished reads. Reads promote retained entries, lifecycle writes use the same bound, and evicted entries reload from the existing repository paths. Cache entry identity prevents delayed reads from repopulating an evicted/deleted entry or overwriting a newer remembered projection; a failed read removes only its own unfinished entry. This adds no timers, background work, environment settings, or public DTO changes. It bounds entry retention, not the entire process heap or supported room/audience capacity. Running attempts, abandoned reservations, pending cleanup, membership, and encoder capacity remain with their existing owners and are not evicted.
 
