@@ -279,8 +279,8 @@ Abort signals the child and settles the attempt without waiting for the process 
 
 ## Maintenance: V3-R04 / V3M-C06 (2026-11-06)
 
-Status: verified. Proposed commit: `feat(ops): enforce recording and storage budgets`.
-Actual commit:
+Status: committed. Proposed commit: `feat(ops): enforce recording and storage budgets`.
+Actual commit: `14311c5`.
 
 A start is refused with `storage_full` (`Recording storage is full. Try again shortly.`) before an encoder slot is taken when free space is below `MIN_FREE_BYTES`, when retained broadcast bytes plus `RECORDING_MAX_BYTES` would pass `STORAGE_MAX_BYTES`, or when a guest host already has `GUEST_RECORDING_LIMIT` non-deleting recordings or `GUEST_STORAGE_BYTES` retained. Guest starts in one process run one at a time, and the allowance is checked again after the slot is taken and before the row insert. The chunk that would pass `RECORDING_MAX_MS`, the recording's accepted bytes, that guest byte allowance, or the free-space minimum is not written. That attempt is finalized through the normal stop path. Other recordings stay on disk. Duration and size return HTTP 409 `recording_limit` (`This recording reached its time limit.` or `This recording reached its size limit.`). Guest-byte and free-disk pressure on a chunk return HTTP 507 `storage_full`. An unmeasurable directory refuses the start, or finalizes the attempt when the failure happens on a chunk. The walker does not follow links, does not leave the broadcast root, and does not delete files. There is no recursive cleanup job.
 
