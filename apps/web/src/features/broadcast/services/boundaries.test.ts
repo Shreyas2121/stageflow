@@ -15,6 +15,7 @@ describe('broadcast service boundaries', () => {
       const source = readFileSync(join(directory, name), 'utf8');
       expect(source, name).not.toMatch(/from ['"]react['"]/);
       expect(source, name).not.toMatch(/features\/live/);
+      expect(source, name).not.toMatch(/features\/qa/);
       expect(source, name).not.toMatch(/from ['"]hls\.js['"]/);
     }
   });

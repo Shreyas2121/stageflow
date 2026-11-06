@@ -25,6 +25,7 @@ function recorderFake() {
   return {
     start: vi.fn(),
     update: vi.fn(),
+    setLowerThird: vi.fn(),
     stop: vi.fn(),
     finish: vi.fn(() => Promise.resolve<RecorderFinish>({ ok: true })),
   };
@@ -56,6 +57,31 @@ function sync(
 }
 
 describe('BroadcastSession', () => {
+  it('stores the feature without starting, supplies it before recorder start, and forwards replacement/clear', () => {
+    const recorder = recorderFake();
+    const createRecorder = vi.fn(() => recorder);
+    const { session, stopBroadcast } = opened(createRecorder);
+    const feature = { text: 'Before recording', authorName: 'Sam' };
+    session.setLowerThird(feature);
+    sync(session, { broadcast: live });
+    expect(createRecorder).not.toHaveBeenCalled();
+    expect(session.active).toBe(false);
+    session.arm();
+    sync(session, { broadcast: live });
+    expect(recorder.setLowerThird).toHaveBeenCalledExactlyOnceWith(feature);
+    expect(recorder.setLowerThird.mock.invocationCallOrder[0]).toBeLessThan(
+      recorder.start.mock.invocationCallOrder[0]!,
+    );
+    session.setLowerThird({ text: 'Replacement', authorName: 'Ava' });
+    expect(recorder.setLowerThird).toHaveBeenLastCalledWith({
+      text: 'Replacement',
+      authorName: 'Ava',
+    });
+    session.setLowerThird(null);
+    expect(recorder.setLowerThird).toHaveBeenLastCalledWith(null);
+    expect(recorder.start).toHaveBeenCalledOnce();
+    expect(stopBroadcast).not.toHaveBeenCalled();
+  });
   it('starts only after arm, while joined, on the live broadcast', () => {
     const recorder = recorderFake();
     const createRecorder = vi.fn(() => recorder);

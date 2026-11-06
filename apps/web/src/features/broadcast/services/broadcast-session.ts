@@ -1,5 +1,5 @@
 import type { BroadcastStatus } from '@stageflow/shared';
-import type { BroadcastRecorder, RecorderFinish, StageSource } from './stage-recorder';
+import type { BroadcastRecorder, LowerThird, RecorderFinish, StageSource } from './stage-recorder';
 
 export const RECORDER_START_FAILURE =
   'The broadcast recorder could not start. Room media is still available.';
@@ -38,6 +38,7 @@ export class BroadcastSession {
   private recorder: BroadcastRecorder | null = null;
   private recordingId: string | null = null;
   private armed = false;
+  private lowerThird: LowerThird = null;
 
   constructor(private readonly host: BroadcastSessionHost) {}
 
@@ -48,6 +49,11 @@ export class BroadcastSession {
 
   arm(): void {
     this.armed = true;
+  }
+
+  setLowerThird(value: LowerThird): void {
+    this.lowerThird = value;
+    this.recorder?.setLowerThird(value);
   }
 
   /** Chunks are accepted only while the broadcast is LIVE, which the start ack already waited for. */
@@ -74,6 +80,7 @@ export class BroadcastSession {
         },
       });
       this.recorder = recorder;
+      recorder.setLowerThird(this.lowerThird);
       recorder.start();
       recorder.update(sources());
     } catch {

@@ -220,6 +220,13 @@ export class RoomSession {
         this.emit();
       },
     });
+    this.qa.subscribe(() => {
+      if (this.room.mode !== 'WEBINAR') return;
+      const feature = this.qa.getSnapshot().featured;
+      this.broadcastSession.setLowerThird(
+        feature ? { text: feature.text, authorName: feature.authorName } : null,
+      );
+    });
     const publishSpeaker = (participantId: string | null) => {
       this.state.activeParticipantId = participantId;
       this.emit();

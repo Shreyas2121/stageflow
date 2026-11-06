@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 through C03 are committed; C04 is verified. The release broadcast smoke remains unverified because `ffmpeg` is absent from `PATH`. C05 and C06 remain planned.\
+**Status:** in progress. V3P5-C01 through C04 are committed; C05 is verified. The C05 release check uses the existing temporary FFmpeg 6.0 binary. C06 remains planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -213,9 +213,9 @@ Then typecheck, lint, and the affected-check selection. Include a concurrent dou
 
 ## 5. V3P5-C04 — Question list and host banner
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `feat(web-room): show the question list and host banner`\
-**Actual commit:**
+**Actual commit:** `92b93fb`
 
 **Why:** Members need the board, and the host needs the same words locally, before any pixel is recorded. This slice does not close QA3-03.
 
@@ -261,7 +261,7 @@ Then typecheck, lint, and the affected-check selection. Browser verification cli
 
 ## 6. V3P5-C05 — Canvas lower-third
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `feat(web-broadcast): paint the featured question on the canvas`\
 **Actual commit:**
 
@@ -274,6 +274,8 @@ Then typecheck, lint, and the affected-check selection. Browser verification cli
 - `apps/web/src/features/broadcast/services/stage-recorder.ts`
 - `apps/web/src/features/broadcast/services/stage-recorder.test.ts`
 - `apps/web/src/features/broadcast/services/broadcast-session.ts`
+- `apps/web/src/features/broadcast/services/broadcast-session.test.ts`
+- `apps/web/src/features/broadcast/services/boundaries.test.ts`
 - `apps/web/src/features/live/services/room-session.ts`
 - `apps/web/src/features/live/services/room-session.test.ts`
 
@@ -295,6 +297,15 @@ pnpm --filter @stageflow/web test -- src/features/broadcast/services/stage-recor
 Then typecheck, lint, and the affected-check selection. Browser or FFmpeg evidence is recorded in this guide when it is run.
 
 **Done when:** The unit test shows unchanged tile rectangles and the two text lines. The meeting path does not paint and does not start a broadcast. The played-HLS result is either observed or named unverified. `Actual commit` is recorded after the slice commit.
+
+**Verification record (2026-11-06):**
+
+- Added the plain `{ text, authorName } | null` lower-third value to the recorder interface and broadcast session. The broadcast owner retains the feature before recording, supplies it before `start`, and forwards later replacements/clear without starting another recorder. RoomSession subscribes to its Q&A owner and passes only text/author for webinars; meetings never call the setter. Neither broadcast service imports live or Q&A code.
+- The recorder still paints the background and existing tile rectangles first. It then paints the specified `0,624,1280,96` band, author/question fonts, colors, baselines, and 24-pixel inset. Each line is measured against 1,232 pixels and truncated with `…`. A measurement failure skips that line and allows the other line and subsequent frames/uploads to continue. A null feature paints no band, and votes are never recorder input.
+- Focused recorder/broadcast-session/room-session tests passed: 3 files / 146 tests. Added cases compare unchanged rectangles with/without the band for zero through four sources and screen sharing, verify draw order, font/color/text coordinates, exact fit, literal text and author/question truncation, and inject failure independently into each line while later frames and uploads continue. Coordinator tests cover a feature already present at recorder creation, a public replacement, private clear acknowledgement, no duplicate start/stop, and a meeting feature that never calls the broadcast setter or recorder. Existing layout, cleanup, finish, and producer-failure tests remain green.
+- Workspace `pnpm typecheck` and `pnpm lint` passed. `pnpm check:affected --plan --files <changed code paths>` selected `check:release`. The release run used process-local `$env:FFMPEG_PATH = Join-Path $env:TEMP 'stageflow-ffmpeg-b6.0/ffmpeg.exe'` with FFmpeg `6.0-essentials_build-www.gyan.dev`; no environment file or Git configuration changed. The selected `pnpm check:release` passed: 49 tooling tests; all workspace typechecks/lint; 454 shared, 525 web, and 519 API tests; both builds; repository formatting; Lua/import artifacts; and both smokes. The broadcast smoke applied all seven migrations once, accepted five WebM chunks, decoded two HLS segments with audio/video, checked ENDLIST/READY, and verified restart/missing-binary isolation with owned fixtures. This successful run supersedes the earlier missing-binary release gap for the current tree. Vite retained its existing large-chunk warning.
+- Controlled Chrome `156.0.8078.80` headless on Windows, viewport `1280 by 800`, locale `en-GB`, time zone `UTC`, ran `node --env-file=.env "$env:TEMP/sf-v3p5-c05-20261106/probe.cjs"`. The probe used the real compiled API, Vite, native MediaRecorder, the existing temporary FFmpeg binary through a fixture-local `FFMPEG_PATH`, an owned disposable PostgreSQL database/Redis namespace, and a media root under that temporary evidence directory. Camera/microphone input and permissions were synthetic. It featured `Before recording` before Start broadcast, played that lower-third in the attendee HLS, then featured `Can we ship the lower third?` while the same webinar was drawing. The played live video at 17.456 seconds was unpaused, readyState 4, and decoded at 1280 by 720. Inspection of the video-only screenshot showed `Sam Questions` and the new question in the band. Stop reached READY; the played replay also visibly contained that author/question. No second broadcast was created and no page errors occurred.
+- Evidence is retained locally in `sf-v3p5-c05-20261106`: `probe.cjs`, `result.json`, `initial-feature-hls.png`, `live-feature-hls.png`, `replay-feature-hls.png`, and the owned media output. Browser/process/database/Redis fixtures were cleaned up. This observes the played HLS rather than substituting canvas calls or a sidebar screenshot. Together with C02's server isolation and the C05 measurement regressions, QA3-03 and QA3-04 have their required evidence. MEDIA-04, REC-05, physical-device, audible-output, camera-indicator, and native-picker observations remain open. C06 remains planned.
 
 ## 7. V3P5-C06 — README
 

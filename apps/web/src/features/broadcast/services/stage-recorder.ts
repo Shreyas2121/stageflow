@@ -22,9 +22,12 @@ export type StageSource = {
 export type RecorderFinish =
   { ok: true } | { ok: false; reason: 'timeout' | 'upload' | 'aborted' | 'recorder' };
 
+export type LowerThird = { text: string; authorName: string } | null;
+
 export type BroadcastRecorder = {
   start(): void;
   update(sources: readonly StageSource[]): void;
+  setLowerThird(value: LowerThird): void;
   /** Drops unsent media immediately and releases owned tracks. */
   stop(): void;
   /** Collects the final blob, uploads accepted chunks, then releases owned tracks. */
@@ -102,6 +105,7 @@ export class StageRecorder implements BroadcastRecorder {
     options: MediaRecorderOptions,
   ) => MediaRecorder;
   private sources: readonly StageSource[] = [];
+  private lowerThird: LowerThird = null;
   private audible: MediaStreamTrack[] = [];
   private nodes: MediaStreamAudioSourceNode[] = [];
   private canvas: HTMLCanvasElement | null = null;
@@ -185,6 +189,10 @@ export class StageRecorder implements BroadcastRecorder {
       this.stop();
       throw error;
     }
+  }
+
+  setLowerThird(value: LowerThird): void {
+    this.lowerThird = value;
   }
 
   update(sources: readonly StageSource[]): void {
@@ -395,5 +403,30 @@ export class StageRecorder implements BroadcastRecorder {
       if (!video || video.readyState < HAVE_CURRENT_DATA) continue;
       drawing.drawImage(video, placed.rect.x, placed.rect.y, placed.rect.width, placed.rect.height);
     }
+    if (this.lowerThird) {
+      drawing.fillStyle = '#161b22';
+      drawing.fillRect(0, 624, STAGE_WIDTH, 96);
+      this.paintLine(this.lowerThird.authorName, '600 22px sans-serif', '#9ca3af', 660);
+      this.paintLine(this.lowerThird.text, '28px sans-serif', '#f9fafb', 696);
+    }
+  }
+
+  private paintLine(text: string, font: string, color: string, baseline: number): void {
+    const drawing = this.drawing;
+    if (!drawing) return;
+    drawing.font = font;
+    drawing.fillStyle = color;
+    try {
+      if (drawing.measureText(text).width > 1232) {
+        let length = text.length;
+        while (length > 0 && drawing.measureText(`${text.slice(0, length)}…`).width > 1232)
+          length -= 1;
+        text = `${text.slice(0, length)}…`;
+      }
+    } catch {
+      // A bad measurement skips only this line; the next line/frame still draws.
+      return;
+    }
+    drawing.fillText(text, 24, baseline);
   }
 }

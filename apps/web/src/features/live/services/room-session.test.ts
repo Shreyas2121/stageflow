@@ -11,6 +11,7 @@ import type {
 import type { DemoFactory } from './demo-registry';
 import type { PeerManager } from './peer-manager';
 import type { BroadcastRecorder, RecorderFinish } from '../../broadcast/services/stage-recorder';
+import { BroadcastSession } from '../../broadcast/services/broadcast-session';
 import type { InputKind } from './local-media';
 import { RoomSession, type RoomMedia, type RoomSessionOptions } from './room-session';
 import { bindAudioOutput, selectAudioOutput } from './output-route';
@@ -236,6 +237,7 @@ function recorderFake() {
   return {
     start: vi.fn(),
     update: vi.fn(),
+    setLowerThird: vi.fn(),
     stop: vi.fn(),
     finish: vi.fn(() => Promise.resolve<RecorderFinish>({ ok: true })),
   };
@@ -1826,6 +1828,58 @@ describe('RoomSession', () => {
     expect(onEnded).toHaveBeenCalledOnce();
     expect(media.stopped).toBe(1);
     expect(session.phase).toBe('lobby');
+  });
+
+  it('supplies the current feature at webinar recorder creation and forwards events and private acks without restarting', async () => {
+    const recorder = recorderFake();
+    const h = open({ room: webinar, userId: 'host-user', createRecorder: () => recorder });
+    const featured = { questionId: '1', text: 'Already featured', authorName: 'Sam' };
+    const board = { submissionsOpen: true, featured, questions: [], votedQuestionIds: [] };
+    h.connection.qaState.mockResolvedValueOnce({ ok: true, ...board });
+    await startLiveBroadcast(h);
+    expect(recorder.setLowerThird).toHaveBeenCalledWith({
+      text: featured.text,
+      authorName: featured.authorName,
+    });
+    expect(recorder.setLowerThird.mock.invocationCallOrder[0]).toBeLessThan(
+      recorder.start.mock.invocationCallOrder[0]!,
+    );
+    const replacement = { questionId: '2', text: 'New feature', authorName: 'Ava' };
+    h.callbacks()!.onQaState?.({ ...board, featured: replacement });
+    expect(recorder.setLowerThird).toHaveBeenLastCalledWith({
+      text: replacement.text,
+      authorName: replacement.authorName,
+    });
+    h.connection.qaClearFeature.mockResolvedValueOnce({ ok: true, ...board, featured: null });
+    await h.session.qa.clearFeature();
+    expect(recorder.setLowerThird).toHaveBeenLastCalledWith(null);
+    expect(recorder.start).toHaveBeenCalledOnce();
+    expect(recorder.stop).not.toHaveBeenCalled();
+    expect(h.connection.startBroadcast).toHaveBeenCalledOnce();
+    expect(h.connection.stopBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('keeps meeting features out of the broadcast owner and never starts a recorder', async () => {
+    const recorder = recorderFake();
+    const createRecorder = vi.fn(() => recorder);
+    const h = open({ createRecorder });
+    const setter = vi.spyOn(BroadcastSession.prototype, 'setLowerThird');
+    try {
+      await joinStage(h.session, h.media, h.connection);
+      h.callbacks()!.onQaState?.({
+        submissionsOpen: true,
+        featured: { questionId: '1', text: 'Meeting', authorName: 'Sam' },
+        questions: [],
+      });
+      await h.session.startBroadcast();
+      expect(h.session.qa.getSnapshot().featured?.text).toBe('Meeting');
+      expect(setter).not.toHaveBeenCalled();
+      expect(createRecorder).not.toHaveBeenCalled();
+      expect(recorder.setLowerThird).not.toHaveBeenCalled();
+      expect(h.connection.startBroadcast).not.toHaveBeenCalled();
+    } finally {
+      setter.mockRestore();
+    }
   });
 
   it('keeps Q&A errors independent of the active broadcast, retains the board after end, and ignores old callbacks', async () => {

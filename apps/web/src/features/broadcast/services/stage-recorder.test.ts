@@ -43,6 +43,10 @@ describe('StageRecorder', () => {
   let draws: Draw[];
   let fills: number[][];
   let fillStyle: string;
+  let font: string;
+  let textCalls: { text: string; x: number; y: number; font: string; color: string }[];
+  let operations: string[];
+  const measureText = vi.fn<(text: string) => TextMetrics>();
   let captureRate: number;
   let canvas: HTMLCanvasElement;
   let nodes: MixNode[];
@@ -166,6 +170,12 @@ describe('StageRecorder', () => {
     draws = [];
     fills = [];
     fillStyle = '';
+    font = '';
+    textCalls = [];
+    operations = [];
+    measureText
+      .mockReset()
+      .mockImplementation((text) => ({ width: text.length * 20 }) as TextMetrics);
     captureRate = -1;
     nodes = [];
     recorders = [];
@@ -186,8 +196,20 @@ describe('StageRecorder', () => {
           set fillStyle(value: string) {
             fillStyle = value;
           },
+          get font() {
+            return font;
+          },
+          set font(value: string) {
+            font = value;
+          },
+          measureText,
+          fillText: (text: string, x: number, y: number) => {
+            textCalls.push({ text, x, y, font, color: fillStyle });
+            operations.push('text');
+          },
           fillRect: (...args: number[]) => {
             fills.push(args);
+            operations.push('fill');
           },
           drawImage: (
             image: HTMLVideoElement,
@@ -197,6 +219,7 @@ describe('StageRecorder', () => {
             height: number,
           ) => {
             draws.push({ image, x, y, width, height });
+            operations.push('video');
           },
         }) as unknown as CanvasRenderingContext2D,
       captureStream: (rate?: number) => {
@@ -371,6 +394,94 @@ describe('StageRecorder', () => {
     expect(draws).toEqual([{ image: people[1]!.video, x: 0, y: 0, width: 1280, height: 720 }]);
     stage.stop();
   });
+
+  it.each([
+    { count: 0, sharing: false },
+    { count: 1, sharing: false },
+    { count: 2, sharing: false },
+    { count: 3, sharing: false },
+    { count: 4, sharing: false },
+    { count: 3, sharing: true },
+  ])(
+    'paints the lower-third after unchanged tiles for $count sources, sharing=$sharing',
+    ({ count, sharing }) => {
+      const people = Array.from({ length: count }, (_, index) =>
+        source({ id: String(index), screenSharing: sharing && index === 1 }),
+      );
+      const stage = recorder(async () => 204);
+      stage.update(people);
+      stage.start();
+      tick(0);
+      const original = draws.slice();
+      draws.length = 0;
+      operations.length = 0;
+      fills.length = 0;
+      stage.setLowerThird({ text: 'Q'.repeat(100), authorName: 'Sam' });
+      tick(50);
+      expect(draws).toEqual(original);
+      expect(fills).toEqual([
+        [0, 0, 1280, 720],
+        [0, 624, 1280, 96],
+      ]);
+      expect(operations).toEqual(['fill', ...original.map(() => 'video'), 'fill', 'text', 'text']);
+      expect(textCalls).toEqual([
+        { text: 'Sam', x: 24, y: 660, font: '600 22px sans-serif', color: '#9ca3af' },
+        { text: `${'Q'.repeat(60)}…`, x: 24, y: 696, font: '28px sans-serif', color: '#f9fafb' },
+      ]);
+      textCalls.length = 0;
+      fills.length = 0;
+      stage.setLowerThird(null);
+      tick(100);
+      expect(fills).toEqual([[0, 0, 1280, 720]]);
+      expect(textCalls).toEqual([]);
+      stage.stop();
+    },
+  );
+
+  it('measures each font, retains exact-fit and literal text, and truncates the author too', () => {
+    const stage = recorder(async () => 204);
+    measureText.mockImplementation((text) => ({ width: text.length * 40 }) as TextMetrics);
+    stage.setLowerThird({ authorName: 'W'.repeat(40), text: '<b>hi</b>' });
+    stage.start();
+    tick(0);
+    expect(textCalls.map((call) => call.text)).toEqual([`${'W'.repeat(29)}…`, '<b>hi</b>']);
+    measureText.mockImplementation(() => ({ width: 1232 }) as TextMetrics);
+    stage.setLowerThird({ authorName: 'Exact fit', text: '😀 Fits' });
+    tick(50);
+    expect(textCalls.slice(-2).map((call) => call.text)).toEqual(['Exact fit', '😀 Fits']);
+    stage.stop();
+  });
+
+  it.each([0, 1])(
+    'skips only line %s on measurement failure and keeps recording later frames',
+    async (failedLine) => {
+      const onCap = vi.fn();
+      const send = vi.fn(async () => 204);
+      const stage = recorder(send, onCap);
+      const person = source();
+      stage.update([person]);
+      const read = (text: string) => ({ width: text.length * 20 }) as TextMetrics;
+      if (failedLine === 1) measureText.mockImplementationOnce(read);
+      measureText.mockImplementationOnce(() => {
+        throw new Error('measurement failed');
+      });
+      stage.setLowerThird({ authorName: 'Sam', text: 'Question' });
+      stage.start();
+      tick(0);
+      expect(textCalls.map((call) => call.text)).toEqual([failedLine === 0 ? 'Question' : 'Sam']);
+      tick(50);
+      expect(textCalls.slice(-2).map((call) => call.text)).toEqual(['Sam', 'Question']);
+      expect(draws).toHaveLength(2);
+      expect(frames.size).toBe(1);
+      recorders[0]!.emit(new Blob(['media']));
+      await Promise.resolve();
+      expect(send).toHaveBeenCalledOnce();
+      expect(onCap).not.toHaveBeenCalled();
+      expect(recorders[0]!.state).toBe('recording');
+      expect(captureTrack.readyState).toBe('live');
+      stage.stop();
+    },
+  );
 
   it('uploads the first blob as sequence 0 and holds the next until 204', async () => {
     const sent: ChunkRequest[] = [];
