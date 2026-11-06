@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 import { In, Not, Repository } from 'typeorm';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { env } from '../config/env';
+import { EncoderBudget } from './encoder-budget';
 import { readOrderingInstant } from '../database/ordering-instant';
 import { ApiException } from '../http/api.exception';
 import { failure } from '../live/signaling.messages';
@@ -64,6 +65,7 @@ type RunningBroadcast = {
   terminal?: Pick<Broadcast, 'status' | 'endedAt' | 'playlistPath' | 'errorMessage'>;
   cleanup?: AttemptCleanup;
   finishing?: Promise<void>;
+  releaseEncoder?: () => void;
 };
 
 export type BroadcastPage = {
@@ -105,7 +107,15 @@ export class BroadcastsService {
   constructor(
     @InjectRepository(Broadcast) private readonly broadcasts: Repository<Broadcast>,
     private readonly rooms: RoomsService,
-    private readonly createSupervisor = () => new FfmpegSupervisor(env.FFMPEG_PATH),
+    private readonly createSupervisor = () =>
+      new FfmpegSupervisor(
+        env.FFMPEG_PATH,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        env.FFMPEG_THREADS,
+      ),
     private readonly dataRoot = resolve(__dirname, '../../../..', env.DATA_ROOT),
     private readonly uploads = new UploadAllowance(env),
     private readonly activeBroadcast: ActiveBroadcastReader = {
@@ -114,6 +124,10 @@ export class BroadcastsService {
       },
       close: async () => {},
     },
+    private readonly encoders = new EncoderBudget(
+      env.ENCODER_GLOBAL_LIMIT,
+      env.ENCODER_PRINCIPAL_LIMIT,
+    ),
   ) {}
 
   async snapshot(roomId: string, activeId: string | null): Promise<RoomSnapshot['broadcast']> {
@@ -146,6 +160,25 @@ export class BroadcastsService {
 
   async start(roomId: string, hostId: string, hooks: BroadcastHooks): Promise<CommandAck> {
     if (this.closing) return failure('server_error');
+    const releaseEncoder = this.encoders.tryAcquire(hostId);
+    if (!releaseEncoder) return failure('encoder_capacity');
+    let ownedByEntry = false;
+    try {
+      return await this.startReserved(roomId, hostId, hooks, releaseEncoder, () => {
+        ownedByEntry = true;
+      });
+    } finally {
+      if (!ownedByEntry) releaseEncoder();
+    }
+  }
+
+  private async startReserved(
+    roomId: string,
+    hostId: string,
+    hooks: BroadcastHooks,
+    releaseEncoder: () => void,
+    own: () => void,
+  ): Promise<CommandAck> {
     if (!(await this.reconcileAbandoned(roomId))) return failure('server_error');
     let row: Broadcast;
     try {
@@ -184,8 +217,10 @@ export class BroadcastsService {
       hooks,
       starting: true,
       stopping: false,
+      releaseEncoder,
     };
     this.running.set(row.id, entry);
+    own();
     void entry.supervisor.done.then((exit) => {
       // Start and stop own an in-flight exit. Shutdown sets stopping and leaves catalog recovery
       // to the next process, so it must not finalize here either.
@@ -226,6 +261,11 @@ export class BroadcastsService {
       return failure('ffmpeg_unavailable');
     }
     return { ok: true };
+  }
+
+  private releaseEncoder(entry: RunningBroadcast): void {
+    entry.releaseEncoder?.();
+    entry.releaseEncoder = undefined;
   }
 
   private async deleteRow(id: string): Promise<void> {
@@ -317,6 +357,7 @@ export class BroadcastsService {
           await entry.hooks.publish();
           cleanup.published = true;
           this.running.delete(entry.row.id);
+          this.releaseEncoder(entry);
         }
       } catch (error) {
         lastError = error;
@@ -466,6 +507,8 @@ export class BroadcastsService {
           await entry.supervisor.stop();
         } catch (error) {
           this.logger.error(error);
+        } finally {
+          this.releaseEncoder(entry);
         }
       }),
     );

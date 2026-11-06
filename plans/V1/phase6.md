@@ -262,3 +262,17 @@ Phase 6 is done when A01–A08 are verified and each slice is committed under ma
 There is no later phase. A finished V1 still carries the open Phase 3 physical observations until those are recorded. `READY` replays remain playable after a restart. The repository must contain no secrets, no filled `.env`, and no broadcast media.
 
 RC18 current evidence (2026-11-03): P6-A05/A06/A08 were exercised through native Chrome 156.0.8078.74 on Windows with synthetic devices and real FFmpeg 6.0, against `326dea3`. The Phase 6 guide records live/replay metrics, final-tail ordering, a short recording, native recorder stop, actual encoder termination, guest replay entry, host leave, navigation/history cleanup and command results. These observations do not verify physical input, human audible output, the native picker/stop UI, or hardware indicators. The user explicitly retained those P3-A03/P3-A05/P3-A06 gaps.
+
+## Maintenance: V3-R04 / V3M-C05 (2026-11-06)
+
+Status: verified. Proposed commit: `fix(broadcast): reserve global encoder capacity`.
+Actual commit:
+
+A broadcast start takes one process-wide encoder slot and one slot for that host before the row insert, room claim, directory, or FFmpeg spawn. The same host cannot hold a second slot even when the process budget has room. A full budget returns `encoder_capacity` with `Recording capacity is full. Try again shortly.` and does not retain a row or spawn. The slot is released when the attempt leaves the running set, when setup fails before that, and when the API shuts the child down. A repeated release does not free a second slot. WebM decode and libx264 each receive `FFMPEG_THREADS`, default 1, and a count outside 1..8 is rejected. Defaults are one global recording, one recording per host, and one thread. Guest hosts use that same per-host slot in this slice.
+
+Evidence:
+
+- Encoder budget, FFmpeg supervisor, broadcast runtime, and config tests passed, including a second host blocked by the process budget, the same host blocked while the process budget has room, release after the child exits, release when the room claim is refused, and release on shutdown.
+- `pnpm check:release` passed with process-local `FFMPEG_PATH` pointing at the existing temporary FFmpeg 6.0 binary: 49 tooling, 455 shared, 525 web, and 545 API tests; workspace typecheck/lint; both builds; formatting; artifacts; and live and broadcast smokes. The broadcast smoke decoded video and audio, reached READY with ENDLIST, and passed restart and missing-binary checks. No environment file changed. The Vite large-chunk warning remains.
+
+Abort signals the child and settles the attempt without waiting for the process to disappear, so a replacement can overlap a dying FFmpeg for a moment. Recording duration, retained bytes, free-disk refusal, and a guest-specific allowance are not part of this slice. The target VPS mixed workload was not measured. These defaults are not a capacity promise. No physical-device acceptance or production launch approval is claimed. The untracked review report remains outside the commit.

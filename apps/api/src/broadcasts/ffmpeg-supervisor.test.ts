@@ -43,6 +43,22 @@ it.each([false, true])('fails an abandoned producer after first input: %s', asyn
   expect(supervisor.outcome?.premature).toBe(true);
 });
 
+it('passes the configured thread cap to FFmpeg', async () => {
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+  const spawn = vi.fn<SpawnFfmpeg>(() => {
+    queueMicrotask(() => child.emit('spawn'));
+    return child as unknown as ChildProcessWithoutNullStreams;
+  });
+  const supervisor = new FfmpegSupervisor('ffmpeg-test', spawn, 100, 100, PRODUCER_IDLE_MS, 2);
+  await supervisor.start('server directory');
+  expect(spawn).toHaveBeenCalledWith('ffmpeg-test', buildHlsArgs('server directory', 2));
+});
+
 it('starts one child, writes stdin bytes, and closes stdin on clean stop', async () => {
   const { supervisor, child, spawn } = fixture();
   await supervisor.start('server directory');

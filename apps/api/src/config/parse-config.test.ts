@@ -25,6 +25,9 @@ it('validates through one Zod schema and infers parsed defaults', () => {
   expect(parsed.PASSWORD_WORKER_LIMIT).toBe(1);
   expect(parsed.PASSWORD_QUEUE_LIMIT).toBe(4);
   expect(parsed.PASSWORD_ACCOUNT_LIMIT).toBe(10);
+  expect(parsed.ENCODER_GLOBAL_LIMIT).toBe(1);
+  expect(parsed.ENCODER_PRINCIPAL_LIMIT).toBe(1);
+  expect(parsed.FFMPEG_THREADS).toBe(1);
   expect(parsed.LIVE_NAMESPACE).toBe('sf_development');
   expect(parseConfig({ ...valid, NODE_ENV: 'test' }).LIVE_NAMESPACE).toBe('sf_test');
 });
@@ -39,6 +42,12 @@ it('rejects password budgets outside their supported range', () => {
     expect(() => parseConfig({ ...valid, [key]: value })).toThrow(new RegExp(key));
   }
   expect(parseConfig({ ...valid, PASSWORD_QUEUE_LIMIT: '0' }).PASSWORD_QUEUE_LIMIT).toBe(0);
+});
+it('rejects encoder budgets outside their supported range', () => {
+  for (const key of ['ENCODER_GLOBAL_LIMIT', 'ENCODER_PRINCIPAL_LIMIT', 'FFMPEG_THREADS']) {
+    expect(() => parseConfig({ ...valid, [key]: '0' })).toThrow(new RegExp(key));
+    expect(() => parseConfig({ ...valid, [key]: '9' })).toThrow(new RegExp(key));
+  }
 });
 
 describe('optional Google configuration', () => {

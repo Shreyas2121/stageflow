@@ -27,6 +27,7 @@ export class FfmpegSupervisor {
     private readonly stopTimeoutMs = 10_000,
     private readonly writeTimeoutMs = 5_000,
     private readonly producerTimeoutMs = PRODUCER_IDLE_MS,
+    private readonly threads = 1,
   ) {}
 
   private settle(code: number | null): void {
@@ -40,7 +41,7 @@ export class FfmpegSupervisor {
     if (this.started) throw new Error('FFmpeg has already been started.');
     this.started = true;
     await new Promise<void>((resolve, reject) => {
-      const child = this.spawnChild(this.binary, buildHlsArgs(outputDir));
+      const child = this.spawnChild(this.binary, buildHlsArgs(outputDir, this.threads));
       this.child = child;
       const timer = setTimeout(() => {
         this.stderr = `FFmpeg ${this.binary} did not spawn.`.slice(-2000);

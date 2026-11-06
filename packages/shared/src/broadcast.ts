@@ -32,10 +32,16 @@ export function acceptChunk(history: ChunkHistory, chunk: ChunkMetadata): ChunkD
 }
 
 /** outputDir is a server-owned, confined directory, passed as an argument without a shell. */
-export function buildHlsArgs(outputDir: string): string[] {
+export function buildHlsArgs(outputDir: string, threads = 1): string[] {
+  if (!Number.isInteger(threads) || threads < 1 || threads > 8) {
+    throw new Error('FFmpeg thread count is outside 1..8.');
+  }
+  const threadCount = String(threads);
   const directory = outputDir.replace(/[\\/]$/, '');
   return [
     '-y',
+    '-threads',
+    threadCount,
     '-fflags',
     '+genpts',
     '-f',
@@ -44,6 +50,8 @@ export function buildHlsArgs(outputDir: string): string[] {
     'pipe:0',
     '-c:v',
     'libx264',
+    '-threads',
+    threadCount,
     '-pix_fmt',
     'yuv420p',
     '-s',

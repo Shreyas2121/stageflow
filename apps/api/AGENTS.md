@@ -31,6 +31,7 @@ Tests are adjacent to these modules. The broadcast test names above are in `src/
 - An ambiguous reservation failure can leave a committed claim. Retain cleanup evidence and conditionally clear only the known attempt; stale cleanup must preserve a newer claim. Keep cleanup idempotent and bounded.
 - Preserve admission/media budgets and media-path confinement. Missing FFmpeg must not prevent ordinary API/stage use. Keep chat work independent from the stage operation queue.
 - Password hashes stay at bcrypt cost 12 on the bounded worker pool. Do not hash on the API thread, lower the cost to hide latency, or share that budget with guest creation or Google exchange. Idle workers are unreferenced so a one-shot script can exit; Nest shutdown still closes the pool.
+- Reserve an encoder slot before FFmpeg setup and release it when the attempt leaves the running set or the process shuts down. Do not start libx264 without the configured thread cap. A full budget is `encoder_capacity`.
 
 ## Checks and prerequisites
 

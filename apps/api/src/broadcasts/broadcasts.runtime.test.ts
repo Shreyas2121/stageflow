@@ -12,6 +12,7 @@ import type { RoomsService } from '../rooms/rooms.service';
 import type { Broadcast } from './broadcast.entity';
 import { UploadAllowance } from '../admission/upload-allowance';
 import { BroadcastsService, type BroadcastHooks } from './broadcasts.service';
+import { EncoderBudget } from './encoder-budget';
 import { FfmpegSupervisor, PRODUCER_IDLE_MS } from './ffmpeg-supervisor';
 
 const roots: string[] = [];
@@ -19,7 +20,11 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
-async function fixture(stdin = new PassThrough(), uploads?: UploadAllowance) {
+async function fixture(
+  stdin = new PassThrough(),
+  uploads?: UploadAllowance,
+  encoders?: EncoderBudget,
+) {
   const root = await mkdtemp(join(tmpdir(), 'sf-cast-'));
   roots.push(root);
   const rows: Broadcast[] = [];
@@ -58,6 +63,8 @@ async function fixture(stdin = new PassThrough(), uploads?: UploadAllowance) {
     () => supervisor,
     root,
     uploads,
+    undefined,
+    encoders,
   );
   const tasks: Promise<unknown>[] = [];
   const hooks: BroadcastHooks = {
@@ -325,6 +332,55 @@ it('closes input on API shutdown and refuses new starts while leaving catalog re
 function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
+
+it('reserves encoder capacity before setup and releases it on success, rejection, and shutdown', async () => {
+  const global = new EncoderBudget(1, 1);
+  const saturated = await fixture(undefined, undefined, global);
+  expect(await saturated.service.start(randomUUID(), 'ava', saturated.hooks)).toEqual({
+    ok: true,
+  });
+  expect(global.active).toBe(1);
+  expect(await saturated.service.start(randomUUID(), 'sam', saturated.hooks)).toMatchObject({
+    error: 'encoder_capacity',
+    message: 'Recording capacity is full. Try again shortly.',
+  });
+  expect(saturated.spawn).toHaveBeenCalledOnce();
+  expect(saturated.rows).toHaveLength(1);
+  saturated.child.emit('close', 1);
+  await vi.waitFor(() => expect(saturated.tasks).toHaveLength(1));
+  await Promise.all(saturated.tasks);
+  expect(global.active).toBe(0);
+  expect(global.principals).toBe(0);
+
+  const principal = new EncoderBudget(2, 1);
+  const sameHost = await fixture(undefined, undefined, principal);
+  expect(await sameHost.start()).toEqual({ ok: true });
+  expect(await sameHost.service.start(randomUUID(), 'host', sameHost.hooks)).toMatchObject({
+    error: 'encoder_capacity',
+  });
+  expect(sameHost.spawn).toHaveBeenCalledOnce();
+  expect(sameHost.rows).toHaveLength(1);
+
+  const rejectedBudget = new EncoderBudget(1, 1);
+  const rejected = await fixture(undefined, undefined, rejectedBudget);
+  vi.mocked(rejected.hooks.reserve).mockResolvedValueOnce(false);
+  expect(await rejected.service.start('room-full', 'host', rejected.hooks)).toMatchObject({
+    error: 'broadcast_active',
+  });
+  expect(rejected.spawn).not.toHaveBeenCalled();
+  expect(rejected.repository.delete).toHaveBeenCalledOnce();
+  expect(rejectedBudget.active).toBe(0);
+  expect(rejectedBudget.principals).toBe(0);
+
+  const stoppingBudget = new EncoderBudget(1, 1);
+  const stopping = await fixture(undefined, undefined, stoppingBudget);
+  await stopping.start();
+  expect(stoppingBudget.active).toBe(1);
+  stopping.child.stdin.once('finish', () => stopping.child.emit('close', 0));
+  await stopping.service.onModuleDestroy();
+  expect(stoppingBudget.active).toBe(0);
+  expect(stoppingBudget.principals).toBe(0);
+});
 
 it('does not spawn when the insert or reservation fails, and the next start can proceed', async () => {
   const logger = silenceErrors();

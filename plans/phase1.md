@@ -222,8 +222,8 @@ No physical-device acceptance, Google provider round trip, VPS capacity, or prod
 
 ## Maintenance: V3-R03 / V3M-C04 (2026-11-06)
 
-Status: verified. Proposed commit: `fix(auth): bound and isolate password computation`.
-Actual commit:
+Status: committed. Proposed commit: `fix(auth): bound and isolate password computation`.
+Actual commit: `1badda9`.
 
 Cost-12 bcryptjs now runs on a reusable worker pool. The pool defaults to one worker and a queue of four, clamped to available CPUs, and rejects overflow with `server_busy` before the password is retained. Register, login, promotion, and password change use that pool. Guest creation and Google exchange keep `GUEST_PENDING_LIMIT`. Each email, and each signed-in user, has ten password attempts per rate window. The window expires, the message is the same for a missing email and a bad password, and a full pool does not consume that window. Wrong-credential responses, the dummy compare, UTF-8 validation, and cost 12 stay as they were. Idle workers are unreferenced so a one-shot script can exit. Nest shutdown closes the pool. Three consecutive worker boot failures stop further spawn attempts. A timed-out or crashed worker does not keep the password.
 

@@ -83,6 +83,10 @@ describe('buildHlsArgs', () => {
     }
     expect(args.at(-1)).toBe('/data/broadcasts/server-id/index.m3u8');
     expect(args.join(' ')).not.toContain('delete_segments');
+    expect(args.filter((arg) => arg === '-threads')).toHaveLength(2);
+    expect(args.filter((arg, index) => arg === '-threads' && args[index + 1] === '1')).toHaveLength(
+      2,
+    );
     expect(args.filter((arg) => arg === '-c:v')).toHaveLength(1);
     expect(args.filter((arg) => arg === '-i')).toHaveLength(1);
   });
@@ -95,6 +99,14 @@ describe('buildHlsArgs', () => {
     expect(changes).toEqual([before.length - 2, before.length - 1]);
     expect(after.at(-2)).toBe('C:\\broadcast data\\two/segment%06d.ts');
     expect(after.at(-1)).toBe('C:\\broadcast data\\two/index.m3u8');
+  });
+
+  it('uses the same thread cap for decode and libx264, and rejects an unbounded count', () => {
+    const args = buildHlsArgs('/data/broadcasts/server-id', 2);
+    const values = args.flatMap((arg, index) => (arg === '-threads' ? [args[index + 1]] : []));
+    expect(values).toEqual(['2', '2']);
+    expect(() => buildHlsArgs('/data/broadcasts/server-id', 0)).toThrow(/thread/i);
+    expect(() => buildHlsArgs('/data/broadcasts/server-id', 9)).toThrow(/thread/i);
   });
 
   it('handles a trailing directory separator without adding a duplicate', () => {

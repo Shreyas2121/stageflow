@@ -38,6 +38,7 @@ export type SignalingError =
   | 'server_busy'
   | 'broadcast_not_available'
   | 'broadcast_active'
+  | 'encoder_capacity'
   | 'ffmpeg_unavailable'
   | 'peer_unavailable'
   | 'chat_invalid'
