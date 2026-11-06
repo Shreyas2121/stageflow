@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Redis } from 'ioredis';
 import { describe, expect, it, vi } from 'vitest';
 import { LiveRepository } from './live.repository';
@@ -7,6 +9,20 @@ import { liveKeys, parseLiveNamespace, roomPrefix } from './live.keys';
 const room = { roomId: 'room', hostId: 'host', mode: 'MEETING', status: 'LIVE' } as const;
 const command = { type: 'leave', participantId: 'missing' } as const;
 const result = JSON.stringify({ ok: true, revision: 0, changed: false, roomEnded: false });
+
+it('appends waiting as key ten and retains the broadcast script key contract', () => {
+  const keys = liveKeys('test:room:one');
+  expect(keys).toHaveLength(10);
+  expect(keys[5]).toBe('test:room:one:broadcast');
+  expect(keys[9]).toBe('test:room:one:waiting');
+  const common = readFileSync(join(__dirname, 'scripts/common.lua'), 'utf8');
+  expect(common).toContain(
+    'local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)',
+  );
+  const broadcast = readFileSync(join(__dirname, 'scripts/tryBeginBroadcast.lua'), 'utf8');
+  expect(broadcast).toContain('KEYS[6]');
+  expect(broadcast).not.toContain('KEYS[10]');
+});
 function fixture() {
   const redis = {
     evalsha: vi.fn().mockResolvedValue(result),
@@ -16,7 +32,7 @@ function fixture() {
 }
 
 describe('Lua script cache', () => {
-  it('uses a SHA with nine actual keys and falls back only on a cache miss', async () => {
+  it('uses a SHA with ten actual keys and falls back only on a cache miss', async () => {
     const { redis, repository } = fixture();
     redis.evalsha.mockRejectedValueOnce(new Error('NOSCRIPT No matching script. Please use EVAL.'));
     await repository.apply('test:room:one', room, command);
@@ -24,7 +40,7 @@ describe('Lua script cache', () => {
     const cached = redis.evalsha.mock.calls[0] as unknown as [string, number, ...string[]];
     expect(cached).toEqual([
       createHash('sha1').update(loaded[0]).digest('hex'),
-      9,
+      10,
       ...liveKeys('test:room:one'),
       JSON.stringify({ ...command, room }),
     ]);

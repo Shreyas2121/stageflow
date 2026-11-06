@@ -66,6 +66,7 @@ function snapshot(
     status: 'LIVE',
     participants: [person(participantId, role)],
     stageParticipantIds: onStage ? [participantId] : [],
+    waitingParticipantIds: [],
     handParticipantIds: [],
     broadcast: null,
   };
@@ -478,6 +479,7 @@ describe('RoomSession', () => {
         ...snapshot('self', 'HOST', true, 1),
         participants: [person('self', 'HOST'), person('other', 'SPEAKER')],
         stageParticipantIds: ['self', 'other'],
+        waitingParticipantIds: [],
       });
       useRoomStore.getState().joined('self', []);
       order.push('after-store');
@@ -894,6 +896,7 @@ describe('RoomSession', () => {
       ...original,
       participants: [person('self', 'HOST'), person('guest', 'SPEAKER')],
       stageParticipantIds: ['self', 'guest'],
+      waitingParticipantIds: [],
       handParticipantIds: [],
     };
     useRoomStore.getState().receive(promoted);
@@ -1000,6 +1003,7 @@ describe('RoomSession', () => {
       ...offStage,
       revision: 2,
       stageParticipantIds: ['self', 'host'],
+      waitingParticipantIds: [],
       participants: [{ ...offStage.participants[0]!, role: 'SPEAKER' }, person('host', 'HOST')],
     };
     useRoomStore.getState().receive(promoted);
@@ -1675,6 +1679,7 @@ describe('RoomSession', () => {
       revision: 3,
       participants: [person('self', 'HOST'), remote],
       stageParticipantIds: ['self', 'remote'],
+      waitingParticipantIds: [],
     });
     expect(
       recorder.update.mock.calls.at(-1)?.[0].map((source: { id: string }) => source.id),
@@ -1693,6 +1698,7 @@ describe('RoomSession', () => {
         },
       ],
       stageParticipantIds: ['self', 'remote'],
+      waitingParticipantIds: [],
     });
     expect(
       recorder.update.mock.calls.at(-1)?.[0].map((source: { id: string }) => source.id),

@@ -1,6 +1,9 @@
 local participant = participants[command.participantId]
 if not participant then return reject('participant_not_found') end
-if participant.isSyntheticBot then removeMember(command.participantId); return finish(true) end
+if participant.isSyntheticBot or room.status == 'SCHEDULED' or participant.role == 'WAITING' then
+  removeMember(command.participantId)
+  return finish(true)
+end
 if participant.presence == 'suspended' then return finish(false) end
 redis.call('HDEL', transportsKey, participant.socketId)
 participant.presence = 'suspended'

@@ -57,6 +57,7 @@ const snapshot = (roomId: string): RoomSnapshot => ({
   status: 'LIVE',
   participants: [],
   stageParticipantIds: [],
+  waitingParticipantIds: [],
   handParticipantIds: [],
   broadcast: null,
 });
@@ -73,6 +74,7 @@ function resumeAck(revision = 10): Extract<ResumeAck, { ok: true }> {
       revision,
       participants: [person('self'), person('remote')],
       stageParticipantIds: ['self', 'remote'],
+      waitingParticipantIds: [],
     },
   };
 }
@@ -462,6 +464,7 @@ describe('signaling connection ownership', () => {
       sockets[0]!.emit('room:state', {
         ...snapshot('room'),
         stageParticipantIds: ['socket-0', 'other'],
+        waitingParticipantIds: [],
         participants: [person('socket-0'), person('other')],
       });
       sockets[0]!.emit('webrtc:description', {
@@ -520,6 +523,7 @@ describe('signaling connection ownership', () => {
         ...snapshot('room'),
         revision: 2,
         stageParticipantIds: ['socket-0', 'host'],
+        waitingParticipantIds: [],
         participants: [person('socket-0'), person('host')],
       });
     };

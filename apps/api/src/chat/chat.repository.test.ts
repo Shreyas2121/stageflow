@@ -153,8 +153,44 @@ describe('chat scripts against Redis', () => {
         messages: sent.map((result) => result.ok && result.value),
       },
     });
-    expect(liveKeys(f.prefix)).toHaveLength(9);
+    expect(liveKeys(f.prefix)).toHaveLength(10);
     expect(liveKeys(f.prefix)[5]).toBe(`${f.prefix}:broadcast`);
+  });
+
+  it('authorizes a connected scheduled waiter for chat and removes access on drop', async () => {
+    const prefix = `sf:itest:${randomUUID()}`;
+    prefixes.add(prefix);
+    const room = {
+      roomId: randomUUID(),
+      hostId: 'host',
+      mode: 'MEETING',
+      status: 'SCHEDULED',
+    } as const;
+    await live.apply(prefix, room, {
+      type: 'join',
+      participantId: 'waiter',
+      socketId: 'socket-waiter',
+      userId: 'waiter',
+      displayName: 'Waiting guest',
+      isAudioMuted: false,
+      isVideoOff: false,
+      isSyntheticBot: false,
+      joinedAt: 1000,
+    });
+    expect(
+      await repository.accept(
+        prefix,
+        binding('waiter'),
+        { requestId: randomUUID(), text: 'Waiting' },
+        limits,
+        1000,
+      ),
+    ).toMatchObject({ ok: true, value: { role: 'WAITING', displayName: 'Waiting guest' } });
+    await live.apply(prefix, room, { type: 'leave', participantId: 'waiter' });
+    expect(await repository.history(prefix, binding('waiter'), { limit: 10 })).toMatchObject({
+      ok: false,
+      error: 'stale_transport',
+    });
   });
 
   it('deduplicates concurrent retries, keeps the original identity, and spends no additional rate', async () => {

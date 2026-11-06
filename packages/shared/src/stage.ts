@@ -1,7 +1,7 @@
 import { RECONNECT_GRACE_MS, STAGE_CAPACITY } from './limits';
 import type { RoomMode, RoomStatus } from './contracts';
 
-export type ParticipantRole = 'HOST' | 'SPEAKER' | 'ATTENDEE';
+export type ParticipantRole = 'HOST' | 'SPEAKER' | 'ATTENDEE' | 'WAITING';
 
 export type ParticipantState = {
   participantId: string;
@@ -28,6 +28,7 @@ export type LiveState = {
   status: RoomStatus;
   participants: ParticipantState[];
   stageParticipantIds: string[];
+  waitingParticipantIds: string[];
   hands: { participantId: string; raisedAt: number }[];
   // Server-only metadata; RoomSnapshot deliberately does not project these maps.
   resumeDigests: Record<string, string>;
@@ -93,6 +94,7 @@ export type StageError =
   | 'already_joined'
   | 'host_not_present'
   | 'stage_full'
+  | 'waiting_full'
   | 'participant_not_found'
   | 'audio_locked'
   | 'video_locked'
@@ -151,6 +153,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     ...state,
     participants: state.participants.map((participant) => ({ ...participant })),
     stageParticipantIds: [...state.stageParticipantIds],
+    waitingParticipantIds: [...state.waitingParticipantIds],
     hands: state.hands.map((hand) => ({ ...hand })),
     resumeDigests: { ...state.resumeDigests },
     deadlines: { ...state.deadlines },
@@ -159,6 +162,10 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
   const success = (changed: boolean, roomEnded = false): StageResult => {
     next.participants.sort((a, b) => compareIds(a.participantId, b.participantId));
     next.stageParticipantIds.sort(compareIds);
+    const arrivals = new Map(next.participants.map((p) => [p.participantId, p.joinedAt]));
+    next.waitingParticipantIds.sort(
+      (a, b) => arrivals.get(a)! - arrivals.get(b)! || compareIds(a, b),
+    );
     next.hands.sort(
       (a, b) => a.raisedAt - b.raisedAt || compareIds(a.participantId, b.participantId),
     );
@@ -170,6 +177,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
   const removeMember = (id: string) => {
     next.participants = next.participants.filter((p) => p.participantId !== id);
     next.stageParticipantIds = next.stageParticipantIds.filter((value) => value !== id);
+    next.waitingParticipantIds = next.waitingParticipantIds.filter((value) => value !== id);
     removeHand(id);
     delete next.resumeDigests[id];
     delete next.deadlines[id];
@@ -178,6 +186,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     next.status = 'ENDED';
     next.participants = [];
     next.stageParticipantIds = [];
+    next.waitingParticipantIds = [];
     next.hands = [];
     next.resumeDigests = {};
     next.deadlines = {};
@@ -230,10 +239,18 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       return fail('already_joined');
     }
     const isHost = command.userId === state.hostId;
-    if (state.mode === 'MEETING' && !isHost && !state.participants.some((p) => p.role === 'HOST')) {
+    const scheduled = state.status === 'SCHEDULED';
+    if (
+      !scheduled &&
+      state.mode === 'MEETING' &&
+      !isHost &&
+      !state.participants.some((p) => p.role === 'HOST')
+    ) {
       return fail('host_not_present');
     }
-    const onStage = isHost || state.mode === 'MEETING';
+    const waiting = scheduled && !isHost;
+    if (waiting && state.waitingParticipantIds.length >= 100) return fail('waiting_full');
+    const onStage = !scheduled && (isHost || state.mode === 'MEETING');
     if (onStage && state.stageParticipantIds.length >= STAGE_CAPACITY) return fail('stage_full');
     next.participants.push({
       participantId: command.participantId,
@@ -242,7 +259,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       presence: 'connected',
       userId: command.userId,
       displayName: command.displayName,
-      role: isHost ? 'HOST' : onStage ? 'SPEAKER' : 'ATTENDEE',
+      role: isHost ? 'HOST' : waiting ? 'WAITING' : onStage ? 'SPEAKER' : 'ATTENDEE',
       isAudioMuted: onStage ? command.isAudioMuted : true,
       isVideoOff: onStage ? command.isVideoOff : true,
       isScreenSharing: false,
@@ -253,7 +270,8 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       joinedAt: command.joinedAt,
     });
     if (onStage) next.stageParticipantIds.push(command.participantId);
-    if (!command.isSyntheticBot && command.resumeDigest)
+    if (waiting) next.waitingParticipantIds.push(command.participantId);
+    if (!scheduled && !command.isSyntheticBot && command.resumeDigest)
       next.resumeDigests[command.participantId] = command.resumeDigest;
     return success(true);
   }
@@ -264,7 +282,7 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
       // A later leave must still report shutdown after the host record is gone.
       if (state.status === 'ENDED') return success(false, true);
       if (!participant) return success(false);
-      if (participant.role === 'HOST') {
+      if (participant.role === 'HOST' && state.status !== 'SCHEDULED') {
         return endRoom();
       }
       removeMember(command.participantId);
@@ -272,7 +290,11 @@ export function applyStageCommand(state: LiveState, command: StageCommand): Stag
     }
     if (!participant) return fail('participant_not_found');
     if (command.type === 'suspend') {
-      if (participant.isSyntheticBot) {
+      if (
+        participant.isSyntheticBot ||
+        state.status === 'SCHEDULED' ||
+        participant.role === 'WAITING'
+      ) {
         removeMember(participant.participantId);
         return success(true);
       }

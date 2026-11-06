@@ -16,6 +16,7 @@ function success(): Extract<ResumeAck, { ok: true }> {
       revision: 2,
       participants: [],
       stageParticipantIds: [],
+      waitingParticipantIds: [],
       handParticipantIds: [],
       broadcast: null,
     },

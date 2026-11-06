@@ -11,6 +11,7 @@ const messages: Record<SignalingError, string> = {
   already_joined: 'This guest is already in the room.',
   host_not_present: 'The host has to join this meeting before anyone else.',
   stage_full: 'This meeting already has 4 people on stage.',
+  waiting_full: 'This room cannot take another person yet.',
   room_not_found: 'No room exists for that slug.',
   not_attendee: 'Only attendees can raise a hand.',
   audio_locked: 'The host has muted your microphone.',

@@ -150,6 +150,7 @@ describe('DemoPeer cleanup', () => {
       status: 'LIVE',
       participants: [self, host],
       stageParticipantIds: ['host'],
+      waitingParticipantIds: [],
       handParticipantIds: [],
       broadcast: null,
     };
@@ -162,6 +163,7 @@ describe('DemoPeer cleanup', () => {
       revision: 2,
       participants: [{ ...self, role: 'SPEAKER' }, host],
       stageParticipantIds: ['demo', 'host'],
+      waitingParticipantIds: [],
     };
     callbacks.onState(promoted);
     expect(pcs).toHaveLength(1);
@@ -222,6 +224,7 @@ describe('DemoPeer cleanup', () => {
       status: 'LIVE',
       participants: [],
       stageParticipantIds: ['demo', 'host'],
+      waitingParticipantIds: [],
       handParticipantIds: [],
       broadcast: null,
     });
@@ -254,6 +257,7 @@ describe('DemoPeer cleanup', () => {
       status: 'LIVE',
       participants: [],
       stageParticipantIds: ['host'],
+      waitingParticipantIds: [],
       handParticipantIds: [],
       broadcast: null,
     });

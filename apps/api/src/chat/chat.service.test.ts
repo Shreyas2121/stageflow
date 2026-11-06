@@ -46,6 +46,7 @@ async function fixture() {
     status: 'LIVE',
     participants: [],
     stageParticipantIds: [],
+    waitingParticipantIds: [],
     hands: [],
     resumeDigests: {},
     deadlines: {},

@@ -6,7 +6,7 @@ end
 if room.status == 'ENDED' then return finish(false, true) end
 local participant = participants[command.participantId]
 if not participant then return finish(false) end
-if participant.role == 'HOST' then
+if participant.role == 'HOST' and room.status ~= 'SCHEDULED' then
   endRoom()
   return finish(true, true)
 end

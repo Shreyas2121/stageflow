@@ -19,6 +19,7 @@ function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
     status: 'LIVE',
     participants: [],
     stageParticipantIds: [],
+    waitingParticipantIds: [],
     hands: [],
     resumeDigests: {},
     deadlines: {},
@@ -94,6 +95,23 @@ const resume = (
 });
 
 const scenarios: { name: string; initial: LiveState; commands: StageCommand[] }[] = [
+  ...(['MEETING', 'WEBINAR'] as const).map((mode) => ({
+    name: `scheduled ${mode} waits before host, drops without grace, and rejoins at the back`,
+    initial: { ...empty(mode), status: 'SCHEDULED' as const },
+    commands: [
+      { ...recoverJoin('later'), joinedAt: 2000 },
+      recoverJoin('b'),
+      recoverJoin('a'),
+      recoverJoin('host'),
+      patch({ isAudioMuted: false }),
+      hand('a'),
+      { type: 'leave' as const, participantId: 'host' },
+      suspend('a', 3000),
+      { ...recoverJoin('a-new'), userId: 'a', joinedAt: 4000 },
+      recoverJoin('host'),
+      suspend('host', 5000),
+    ],
+  })),
   {
     name: 'suspend and resume preserve a locked membership, hand and join order',
     initial: empty('WEBINAR'),
@@ -376,6 +394,7 @@ describe('Redis Lua stage transitions', () => {
       ),
       stage: (await redis.smembers(stageKey)).sort(),
       hands: await redis.zrange(handsKey, 0, '-1', 'WITHSCORES'),
+      waiting: await redis.zrange(`${value}:waiting`, 0, '-1'),
       transports: await redis.hgetall(`${value}:transports`),
       resumeDigests: await redis.hgetall(`${value}:resume`),
       deadlines: Object.fromEntries(
@@ -387,6 +406,137 @@ describe('Redis Lua stage transitions', () => {
       ),
     };
   }
+
+  it('caps the waiting sorted set at 100 without writes on overflow, and cleans it with the room', async () => {
+    const value = prefix();
+    const room = { ...empty(), status: 'SCHEDULED' as const };
+    for (let index = 0; index < 100; index++) {
+      const result = await repository.apply(value, room, {
+        ...recoverJoin(`guest-${index}`),
+        joinedAt: index,
+      });
+      expect(result).toMatchObject({ ok: true, roomEnded: false });
+    }
+    expect(await redis.zcard(`${value}:waiting`)).toBe(100);
+    expect(await redis.ttl(`${value}:waiting`)).toBeGreaterThan(86390);
+    expect(await redis.hlen(`${value}:resume`)).toBe(0);
+    const before = await stored(value);
+    for (const key of liveKeys(value)) if (await redis.exists(key)) await redis.expire(key, 120);
+    expect(await repository.apply(value, room, recoverJoin('overflow'))).toEqual({
+      ok: false,
+      error: 'waiting_full',
+      revision: before.revision,
+    });
+    expect(await stored(value)).toEqual(before);
+    expect(await redis.ttl(`${value}:waiting`)).toBeLessThanOrEqual(120);
+    expect(await repository.apply(value, room, recoverJoin('host'))).toMatchObject({
+      ok: true,
+      state: { stageParticipantIds: [], waitingParticipantIds: before.waiting, resumeDigests: {} },
+    });
+    // The common end path must remove waiters as well as stage members.
+    await repository.apply(
+      value,
+      { ...room, status: 'LIVE' },
+      { type: 'leave', participantId: 'host' },
+    );
+    expect(await redis.exists(`${value}:waiting`)).toBe(0);
+    await repository.deleteRoom(value);
+    expect(await redis.exists(...liveKeys(value))).toBe(0);
+    await repository.apply(value, room, recoverJoin('again'));
+    await repository.deleteRoom(value);
+    expect(await redis.exists(`${value}:waiting`)).toBe(0);
+  });
+
+  it.each(['MEETING', 'WEBINAR'] as const)(
+    'drops a scheduled %s waiter and host through the service without grace',
+    async (mode) => {
+      const roomId = randomUUID();
+      const value = roomPrefix(roomId, 'itest');
+      prefixes.add(value);
+      const room = { id: roomId, hostId: 'host', mode, status: 'SCHEDULED' as const };
+      const rooms = {
+        getById: vi.fn(async () => room as Awaited<ReturnType<RoomsService['getById']>>),
+        end: vi.fn(async () => undefined),
+      };
+      let now = 1000;
+      const clock = { now: () => now, schedule: vi.fn(() => vi.fn()) };
+      const service = new LiveService(
+        rooms,
+        repository,
+        new SerializedOperations(),
+        undefined,
+        'itest',
+        undefined,
+        clock,
+      );
+      const transport: LiveTransport = {
+        join: async () => undefined,
+        leave: async () => undefined,
+        publish: vi.fn(),
+        forceMute: () => undefined,
+        peer: () => undefined,
+        end: vi.fn(),
+      };
+      const client = (id: string, userId = id) => ({
+        id: `socket-${id}`,
+        user: { id: userId, displayName: id },
+        connected: true,
+        room: undefined as LiveRoom | undefined,
+        participantId: undefined as string | undefined,
+      });
+      const joinClient = (peer: ReturnType<typeof client>, id: string) =>
+        service.join(
+          peer,
+          {
+            roomId,
+            isAudioMuted: false,
+            isVideoOff: false,
+            isSyntheticBot: false,
+          },
+          transport,
+          id,
+          `digest-${id}`,
+        );
+      try {
+        const first = client('first'),
+          second = client('second'),
+          host = client('host');
+        for (const [peer, id] of [
+          [first, 'first'],
+          [second, 'second'],
+          [host, 'host'],
+        ] as const) {
+          expect(await joinClient(peer, id)).toEqual({ ok: true });
+          now += 1000;
+        }
+        first.connected = false;
+        expect(await service.disconnect(first, transport)).toEqual({ ok: true });
+        expect(await repository.readParticipant(value, 'first')).toBeNull();
+        expect(await redis.zrange(`${value}:waiting`, 0, '-1')).toEqual(['second']);
+        expect(await joinClient(client('new-first', 'first'), 'new-first')).toEqual({ ok: true });
+        expect(await redis.zrange(`${value}:waiting`, 0, '-1')).toEqual(['second', 'new-first']);
+        host.connected = false;
+        expect(await service.disconnect(host, transport)).toEqual({ ok: true });
+        expect(await repository.readParticipant(value, 'host')).toBeNull();
+        expect(await redis.exists(`${value}:ending`, `${value}:resume`, `${value}:deadlines`)).toBe(
+          0,
+        );
+        expect(await repository.readStage(value)).toEqual([]);
+        expect(clock.schedule).not.toHaveBeenCalled();
+        expect(rooms.end).not.toHaveBeenCalled();
+        expect(transport.end).not.toHaveBeenCalled();
+        expect(transport.publish).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            status: 'SCHEDULED',
+            stageParticipantIds: [],
+            waitingParticipantIds: ['second', 'new-first'],
+          }),
+        );
+      } finally {
+        service.onModuleDestroy();
+      }
+    },
+  );
 
   it('admits one broadcast atomically, preserves the active id, and clears only that key', async () => {
     const value = prefix();
@@ -468,107 +618,126 @@ describe('Redis Lua stage transitions', () => {
     }
   });
 
-  it('suspends a committed join when its socket is already gone, and a stale binding cannot evict the next generation', async () => {
-    const roomId = randomUUID();
-    const namespace = 'itest';
-    const value = roomPrefix(roomId, namespace);
-    prefixes.add(value);
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let markEntered!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      markEntered = resolve;
-    });
-    const liveRoom: LiveRoom = {
-      roomId,
-      hostId: 'host-user',
-      mode: 'MEETING',
-      status: 'LIVE',
-    };
-    const live = {
-      apply: async (key: string, room: LiveRoom, command: StageCommand) => {
-        if (command.type === 'join') {
-          markEntered();
-          await gate;
-        }
-        return repository.apply(key, room, command);
-      },
-      readStage: (key: string) => repository.readStage(key),
-      readConnectedStage: (key: string) => repository.readConnectedStage(key),
-      readSocket: (key: string, participantId: string) => repository.readSocket(key, participantId),
-      readParticipant: (key: string, participantId: string) =>
-        repository.readParticipant(key, participantId),
-      deleteRoom: (key: string) => repository.deleteRoom(key),
-    };
-    const rooms: Pick<RoomsService, 'getById' | 'end'> = {
-      getById: async () =>
-        ({ ...liveRoom, id: roomId }) as unknown as Awaited<ReturnType<RoomsService['getById']>>,
-      end: async () => undefined,
-    };
-    const service = new LiveService(rooms, live, new SerializedOperations(), undefined, namespace);
-    const sockets: LiveTransport = {
-      join: async () => undefined,
-      leave: async () => undefined,
-      publish: () => undefined,
-      forceMute: () => undefined,
-      peer: () => undefined,
-      end: () => undefined,
-    };
-    const client = {
-      id: 'socket-host',
-      user: { id: 'host-user', displayName: 'Host' },
-      connected: true,
-      room: undefined as LiveRoom | undefined,
-      participantId: undefined as string | undefined,
-      generation: undefined as number | undefined,
-    };
-    const joining = service.join(
-      client,
-      { roomId, isAudioMuted: true, isVideoOff: true, isSyntheticBot: false },
-      sockets,
-      'host-member',
-      'digest-host',
-    );
-    await entered;
-    client.connected = false;
-    await service.disconnect(client, sockets);
-    release();
-    await expect(joining).resolves.toMatchObject({ ok: false, error: 'not_joined' });
-    await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
-      presence: 'suspended',
-      socketId: null,
-      connectionGeneration: 1,
-      role: 'HOST',
-    });
-    expect(await redis.zscore(`${value}:deadlines`, 'host-member')).not.toBeNull();
-    expect(await redis.hget(`${value}:transports`, 'socket-host')).toBeNull();
-    const resumed = await repository.apply(value, liveRoom, {
-      type: 'resume',
-      participantId: 'host-member',
-      userId: 'host-user',
-      socketId: 'socket-new',
-      resumeDigest: 'digest-host',
-      expectedGeneration: 1,
-      now: Date.now(),
-    });
-    expect(resumed.ok).toBe(true);
-    const before = await stored(value);
-    client.room = liveRoom;
-    client.participantId = 'host-member';
-    client.generation = 1;
-    await expect(service.disconnect(client, sockets)).resolves.toMatchObject({
-      error: 'stale_transport',
-    });
-    expect(await stored(value)).toEqual(before);
-    await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
-      presence: 'connected',
-      socketId: 'socket-new',
-      connectionGeneration: 2,
-    });
-    service.onModuleDestroy();
-  });
+  it.each(['LIVE', 'SCHEDULED'] as const)(
+    'cleans a committed %s join when its socket is already gone and preserves later generations',
+    async (status) => {
+      const roomId = randomUUID();
+      const namespace = 'itest';
+      const value = roomPrefix(roomId, namespace);
+      prefixes.add(value);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let markEntered!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        markEntered = resolve;
+      });
+      const liveRoom: LiveRoom = {
+        roomId,
+        hostId: 'host-user',
+        mode: 'MEETING',
+        status,
+      };
+      const live = {
+        apply: async (key: string, room: LiveRoom, command: StageCommand) => {
+          if (command.type === 'join') {
+            markEntered();
+            await gate;
+          }
+          return repository.apply(key, room, command);
+        },
+        readStage: (key: string) => repository.readStage(key),
+        readConnectedStage: (key: string) => repository.readConnectedStage(key),
+        readSocket: (key: string, participantId: string) =>
+          repository.readSocket(key, participantId),
+        readParticipant: (key: string, participantId: string) =>
+          repository.readParticipant(key, participantId),
+        deleteRoom: (key: string) => repository.deleteRoom(key),
+      };
+      const rooms: Pick<RoomsService, 'getById' | 'end'> = {
+        getById: async () =>
+          ({ ...liveRoom, id: roomId }) as unknown as Awaited<ReturnType<RoomsService['getById']>>,
+        end: async () => undefined,
+      };
+      const service = new LiveService(
+        rooms,
+        live,
+        new SerializedOperations(),
+        undefined,
+        namespace,
+      );
+      const sockets: LiveTransport = {
+        join: async () => undefined,
+        leave: async () => undefined,
+        publish: () => undefined,
+        forceMute: () => undefined,
+        peer: () => undefined,
+        end: () => undefined,
+      };
+      const client = {
+        id: 'socket-host',
+        user: { id: 'host-user', displayName: 'Host' },
+        connected: true,
+        room: undefined as LiveRoom | undefined,
+        participantId: undefined as string | undefined,
+        generation: undefined as number | undefined,
+      };
+      const joining = service.join(
+        client,
+        { roomId, isAudioMuted: true, isVideoOff: true, isSyntheticBot: false },
+        sockets,
+        'host-member',
+        'digest-host',
+      );
+      await entered;
+      client.connected = false;
+      await service.disconnect(client, sockets);
+      release();
+      await expect(joining).resolves.toMatchObject({ ok: false, error: 'not_joined' });
+      if (status === 'SCHEDULED') {
+        expect(await repository.readParticipant(value, 'host-member')).toBeNull();
+        expect(await redis.exists(`${value}:resume`, `${value}:deadlines`, `${value}:ending`)).toBe(
+          0,
+        );
+        expect(await repository.readStage(value)).toEqual([]);
+        service.onModuleDestroy();
+        return;
+      }
+      await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
+        presence: 'suspended',
+        socketId: null,
+        connectionGeneration: 1,
+        role: 'HOST',
+      });
+      expect(await redis.zscore(`${value}:deadlines`, 'host-member')).not.toBeNull();
+      expect(await redis.hget(`${value}:transports`, 'socket-host')).toBeNull();
+      const resumed = await repository.apply(value, liveRoom, {
+        type: 'resume',
+        participantId: 'host-member',
+        userId: 'host-user',
+        socketId: 'socket-new',
+        resumeDigest: 'digest-host',
+        expectedGeneration: 1,
+        now: Date.now(),
+      });
+      expect(resumed.ok).toBe(true);
+      const before = await stored(value);
+      client.room = liveRoom;
+      client.participantId = 'host-member';
+      client.generation = 1;
+      await expect(service.disconnect(client, sockets)).resolves.toMatchObject({
+        error: 'stale_transport',
+      });
+      expect(await stored(value)).toEqual(before);
+      await expect(repository.readParticipant(value, 'host-member')).resolves.toMatchObject({
+        presence: 'connected',
+        socketId: 'socket-new',
+        connectionGeneration: 2,
+      });
+      service.onModuleDestroy();
+    },
+  );
 
   it.each([true, false])(
     'keeps one membership when resume and expiry race (resume first %s)',
@@ -657,6 +826,7 @@ describe('Redis Lua stage transitions', () => {
             expect(persisted.participants).toEqual(expect.arrayContaining(state.participants));
             expect(persisted.participants).toHaveLength(state.participants.length);
             expect(persisted.stage).toEqual(state.stageParticipantIds);
+            expect(persisted.waiting).toEqual(state.waitingParticipantIds);
             expect(persisted.transports).toEqual(
               Object.fromEntries(
                 state.participants
@@ -668,7 +838,7 @@ describe('Redis Lua stage transitions', () => {
               state.hands.flatMap((h) => [h.participantId, String(h.raisedAt)]),
             );
             if (!expected.changed) expect(persisted).toEqual(before);
-            for (const key of keys(value)) {
+            for (const key of liveKeys(value)) {
               const ttl = await redis.ttl(key);
               expect(ttl === -2 || (ttl > 86390 && ttl <= 86400)).toBe(true);
             }
@@ -695,6 +865,7 @@ describe('Redis Lua stage transitions', () => {
       revision: 1,
       state: {
         stageParticipantIds: [],
+        waitingParticipantIds: [],
         participants: [
           {
             role: 'ATTENDEE',

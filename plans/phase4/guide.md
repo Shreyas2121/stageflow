@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** in progress. C01 storage and C02 host scheduling are implemented and verified; C03 through C06 remain planned.\
+**Status:** in progress. C01 through C03 are implemented and verified; C04 through C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -96,9 +96,9 @@ pnpm lint
 
 ## 3. V3P4-C02 — Host scheduling
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `feat(api-rooms): let a host schedule a room`\
-**Actual commit:**
+**Actual commit:** `d19211bd2d65a2c7b27bad8e14580a24047d243d`
 
 **Why:** The host needs to create the room and share its slug before anyone can wait in it. Covers the create half of SCH-01.
 
@@ -133,7 +133,7 @@ pnpm lint
 
 ## 4. V3P4-C03 — Off-stage waiting
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `feat(api-live): hold early joiners off stage`\
 **Actual commit:**
 
@@ -173,6 +173,8 @@ pnpm lint
 ```
 
 **Done when:** A scheduled joiner is visible in the waiting list, absent from the stage, and gone without grace when the socket drops.
+
+**C03 verification (2026-11-06):** Shared tests passed (359), API tests passed (454), and `pnpm typecheck` and `pnpm lint` passed. Reducer and real Redis scenarios agree on scheduled meeting/webinar membership, arrival-time/id queue ordering, off-stage media normalization/rejection, host leave/drop without ending, waiter drop, and rejoin at the back. Real Redis rejects waiter 101 without writes or TTL refresh, admits a pre-start host even with 100 waiters, and verifies waiting TTL, room-end cleanup, and `deleteRoom`. Service regressions cover disconnect during a committed join and cleanup retries before/after a lost leave reply without creating a suspended reservation. Gateway regressions return no pre-start resume credential; neither host nor waiter stores a digest/deadline. A connected waiter can chat and loses chat authorization on leave. Repository, chat, and artifact checks use ten live keys, retain the broadcast key at index 5, and assert `tryBeginBroadcast.lua` still uses `KEYS[6]`. Existing snapshot fixtures now include the waiting ids. Immediate `LIVE` admission/recovery remains covered by the existing suite. The affected-check plan selected `pnpm check:release`, which passed: all 49 tooling tests; 359 shared, 454 API, and 488 web tests; typecheck; lint; builds; formatting; artifact checks; and both smokes. The broadcast smoke used the existing temporary FFmpeg 6.0 binary via process-local `FFMPEG_PATH`, with owned database/Redis/media fixtures. Edited plan links resolve. SCH-02's browser waiting-panel/no-capture/no-peer-connection observations remain unverified and belong to C05. C04 through C06 and existing physical observation gaps remain open.
 
 ## 5. V3P4-C04 — Start, admit, and cancel
 

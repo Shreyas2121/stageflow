@@ -4,6 +4,7 @@ local room = command.room
 local revKey, participantsKey, stageKey, handsKey, endingKey = unpack(KEYS)
 local transportsKey = KEYS[7]
 local resumeKey, deadlinesKey = KEYS[8], KEYS[9]
+local waitingKey = KEYS[10]
 local revision = tonumber(redis.call('GET', revKey)) or 0
 local participants = {}
 local raw = redis.call('HGETALL', participantsKey)
@@ -18,9 +19,13 @@ raw = redis.call('HGETALL', resumeKey)
 for i = 1, #raw, 2 do resumeDigests[raw[i]] = raw[i + 1] end
 raw = redis.call('ZRANGE', deadlinesKey, 0, -1, 'WITHSCORES')
 for i = 1, #raw, 2 do deadlines[raw[i]] = tonumber(raw[i + 1]) end
+local waiting = {}
+raw = redis.call('ZRANGE', waitingKey, 0, -1, 'WITHSCORES')
+for i = 1, #raw, 2 do waiting[raw[i]] = tonumber(raw[i + 1]) end
 
 local dirtyParticipants, dirtyStage, dirtyHands = {}, {}, {}
 local dirtyResume, dirtyDeadlines = {}, {}
+local dirtyWaiting = {}
 local clearRoom = false
 local expiryChanged, expiryEnded = false, false
 local finish
@@ -36,6 +41,11 @@ local function setHand(id, raisedAt)
   if hands[id] == raisedAt then return end
   hands[id] = raisedAt
   dirtyHands[id] = true
+end
+local function setWaiting(id, arrivedAt)
+  if waiting[id] == arrivedAt then return end
+  waiting[id] = arrivedAt
+  dirtyWaiting[id] = true
 end
 
 local function reject(error)
@@ -72,7 +82,7 @@ finish = function(changed, roomEnded)
   roomEnded = roomEnded or expiryEnded
   if changed then
     if clearRoom then
-      redis.call('DEL', participantsKey, stageKey, handsKey, transportsKey, resumeKey, deadlinesKey)
+      redis.call('DEL', participantsKey, stageKey, handsKey, transportsKey, resumeKey, deadlinesKey, waitingKey)
     else
       for id in pairs(dirtyParticipants) do
         if participants[id] then redis.call('HSET', participantsKey, id, cjson.encode(participants[id]))
@@ -94,16 +104,25 @@ finish = function(changed, roomEnded)
         if deadlines[id] then redis.call('ZADD', deadlinesKey, deadlines[id], id)
         else redis.call('ZREM', deadlinesKey, id) end
       end
+      for id in pairs(dirtyWaiting) do
+        if waiting[id] then redis.call('ZADD', waitingKey, waiting[id], id)
+        else redis.call('ZREM', waitingKey, id) end
+      end
     end
     revision = redis.call('INCR', revKey)
-    local expiring = { revKey, participantsKey, stageKey, handsKey, transportsKey, resumeKey, deadlinesKey }
+    local expiring = { revKey, participantsKey, stageKey, handsKey, transportsKey, resumeKey, deadlinesKey, waitingKey }
     if redis.call('EXISTS', endingKey) == 1 then expiring[#expiring + 1] = endingKey end
     for _, key in ipairs(expiring) do redis.call('EXPIRE', key, 86400) end
   end
-  local participantList, stageList, handList = {}, {}, {}
+  local participantList, stageList, handList, waitingList = {}, {}, {}, {}
   for _, participant in pairs(participants) do participantList[#participantList + 1] = participant end
   for id in pairs(stage) do stageList[#stageList + 1] = id end
   for id, raisedAt in pairs(hands) do handList[#handList + 1] = { participantId = id, raisedAt = raisedAt } end
+  for id in pairs(waiting) do waitingList[#waitingList + 1] = id end
+  table.sort(waitingList, function(a, b)
+    if waiting[a] == waiting[b] then return a < b end
+    return waiting[a] < waiting[b]
+  end)
   table.sort(participantList, function(a, b) return a.participantId < b.participantId end)
   table.sort(stageList)
   table.sort(handList, function(a, b)
@@ -116,6 +135,7 @@ finish = function(changed, roomEnded)
     .. ',"status":' .. cjson.encode(roomEnded and 'ENDED' or room.status)
     .. ',"participants":' .. arrayJson(participantList)
     .. ',"stageParticipantIds":' .. arrayJson(stageList)
+    .. ',"waitingParticipantIds":' .. arrayJson(waitingList)
     .. ',"hands":' .. arrayJson(handList)
     .. ',"resumeDigests":' .. cjson.encode(resumeDigests)
     .. ',"deadlines":' .. cjson.encode(deadlines) .. '}'
@@ -130,6 +150,7 @@ local function removeMember(id)
   participants[id] = nil
   saveParticipant(id)
   setStage(id, false)
+  setWaiting(id, nil)
   setHand(id, nil)
   if resumeDigests[id] then resumeDigests[id] = nil; dirtyResume[id] = true end
   if deadlines[id] then deadlines[id] = nil; dirtyDeadlines[id] = true end
@@ -138,6 +159,7 @@ end
 local function endRoom()
   redis.call('SET', endingKey, '1', 'EX', 86400)
   participants, stage, hands, resumeDigests, deadlines = {}, {}, {}, {}, {}
+  waiting = {}
   clearRoom = true
 end
 

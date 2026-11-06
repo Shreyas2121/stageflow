@@ -12,6 +12,7 @@ import type { ChatService } from '../chat/chat.service';
 it('issues a membership UUID and uses it for later commands instead of the socket id', async () => {
   const join = vi.fn<LiveService['join']>(async (session, _request, _transport, participantId) => {
     session.participantId = participantId;
+    session.room = { roomId: 'room', hostId: 'host', mode: 'MEETING', status: 'LIVE' };
     return { ok: true };
   });
   const update = vi.fn<LiveService['update']>(async () => ({ ok: true }));
@@ -54,6 +55,38 @@ it('issues a membership UUID and uses it for later commands instead of the socke
     expect.anything(),
   );
 });
+
+it.each(['host', 'waiter'])(
+  'does not return a resume credential to a scheduled %s',
+  async (userId) => {
+    const join = vi.fn<LiveService['join']>(async (session, request, _transport, participantId) => {
+      session.participantId = participantId;
+      session.room = {
+        roomId: request.roomId,
+        hostId: 'host',
+        mode: 'MEETING',
+        status: 'SCHEDULED',
+      };
+      return { ok: true };
+    });
+    const gateway = new SignalingGateway(
+      {} as SessionsService,
+      { join } as unknown as LiveService,
+      {} as LiveConnection,
+      {} as ChatService,
+    );
+    const client = { id: `socket-${userId}`, connected: true, data: { user: { id: userId } } };
+    const ack = await gateway.join(client as never, {
+      roomId: '01234567-89ab-cdef-0123-456789abcdef',
+      isAudioMuted: false,
+      isVideoOff: false,
+      isSyntheticBot: false,
+    });
+    expect(ack.ok).toBe(true);
+    expect(ack).not.toHaveProperty('resumeCredential');
+    expect(client.data).not.toHaveProperty('joinCredential');
+  },
+);
 
 it('gives synthetic joins no resume credential and rejects an expired JWT before resume', async () => {
   const join = vi.fn<LiveService['join']>(async (session, _request, _transport, id) => {

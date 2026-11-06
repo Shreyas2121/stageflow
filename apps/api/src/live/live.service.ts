@@ -384,6 +384,7 @@ export class LiveService {
       revision,
       participants: state.participants,
       stageParticipantIds: state.stageParticipantIds,
+      waitingParticipantIds: state.waitingParticipantIds,
       handParticipantIds: state.hands.map((hand) => hand.participantId),
       broadcast: await this.broadcastProjection(state),
     };
@@ -468,7 +469,7 @@ export class LiveService {
                   isSyntheticBot: request.isSyntheticBot,
                   joinedAt: now,
                   now,
-                  ...(resumeDigest ? { resumeDigest } : {}),
+                  ...(resumeDigest && room.status === 'LIVE' ? { resumeDigest } : {}),
                 });
               } catch (error) {
                 if (
@@ -642,7 +643,7 @@ export class LiveService {
       now: this.disconnectedAt.get(client.id) ?? this.clock.now(),
     };
     this.pendingDisconnects.set(client.id, pending);
-    this.scheduleSweep();
+    if (client.room.status !== 'SCHEDULED') this.scheduleSweep();
     return this.execute(
       client,
       async () => {
@@ -670,6 +671,25 @@ export class LiveService {
                   client.participantId,
                 )
               : null;
+            if (room.status === 'SCHEDULED') {
+              const invalid = await this.validateBinding(client, room, true);
+              if (invalid) {
+                this.settleDisconnect(client);
+                return failure(invalid);
+              }
+              const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
+                type: 'leave',
+                participantId: client.participantId!,
+                transport: this.binding(client),
+              });
+              if (!result.ok) return failure(result.error);
+              this.clearBinding(client);
+              this.settleDisconnect(client);
+              // A lost leave reply can hide a committed removal; the retry still publishes it.
+              await this.publish({ ...result, changed: result.changed || !current }, transport);
+              await transport.leave(client.id, room.roomId);
+              return { ok: true };
+            }
             // A lost Redis reply can hide a committed suspension. Adopt that generation without
             // extending its deadline; an old generation must never adopt a later suspension.
             const committed =
@@ -702,7 +722,10 @@ export class LiveService {
         );
       },
       true,
-    );
+    ).then((result) => {
+      if (!result.ok) this.scheduleSweep();
+      return result;
+    });
   }
 
   update(
@@ -889,7 +912,7 @@ export class LiveService {
             if (!this.ending.has(room.roomId)) {
               const invalid = await this.validateBinding(client, room, true);
               if (invalid) return failure(invalid);
-              if (client.user.id === room.hostId)
+              if (client.user.id === room.hostId && room.status === 'LIVE')
                 await this.broadcasts?.service.stopRoom(room.roomId);
               const result = await this.live.apply(roomPrefix(room.roomId, this.namespace), room, {
                 type: 'leave',

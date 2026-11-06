@@ -16,6 +16,7 @@ function empty(mode: LiveState['mode'] = 'MEETING'): LiveState {
     status: 'LIVE',
     participants: [],
     stageParticipantIds: [],
+    waitingParticipantIds: [],
     hands: [],
     resumeDigests: {},
     deadlines: {},
@@ -42,6 +43,7 @@ function run(state: LiveState, command: StageCommand) {
   for (const hand of state.hands) Object.freeze(hand);
   Object.freeze(state.participants);
   Object.freeze(state.stageParticipantIds);
+  Object.freeze(state.waitingParticipantIds);
   Object.freeze(state.hands);
   Object.freeze(state.deadlines);
   Object.freeze(state.resumeDigests);
@@ -63,6 +65,74 @@ function step(state: LiveState, command: StageCommand): LiveState {
 function rejects(state: LiveState, command: StageCommand, error: StageError) {
   expect(run(state, command)).toEqual({ ok: false, error });
 }
+
+describe('scheduled membership', () => {
+  it.each(['MEETING', 'WEBINAR'] as const)(
+    'waits off stage in arrival/id order before the %s host arrives',
+    (mode) => {
+      let state: LiveState = { ...empty(mode), status: 'SCHEDULED' };
+      for (const [id, joinedAt] of [
+        ['late', 2000],
+        ['b', 1000],
+        ['a', 1000],
+      ] as const) {
+        state = step(state, {
+          ...join(id),
+          joinedAt,
+          resumeDigest: `digest-${id}`,
+        } as StageCommand);
+      }
+      state = step(state, { ...join('host'), resumeDigest: 'digest-host' } as StageCommand);
+      expect(state.waitingParticipantIds).toEqual(['a', 'b', 'late']);
+      expect(state.stageParticipantIds).toEqual([]);
+      expect(state.resumeDigests).toEqual({});
+      expect(state.deadlines).toEqual({});
+      expect(
+        state.participants.every((p) => p.isAudioMuted && p.isVideoOff && !p.isScreenSharing),
+      ).toBe(true);
+      expect(state.participants.find((p) => p.participantId === 'host')?.role).toBe('HOST');
+      expect(state.participants.filter((p) => p.role === 'WAITING')).toHaveLength(3);
+      rejects(
+        state,
+        { type: 'patchMedia', participantId: 'a', patch: { isAudioMuted: false } },
+        'not_on_stage',
+      );
+      rejects(
+        state,
+        { type: 'patchMedia', participantId: 'host', patch: { isVideoOff: false } },
+        'not_on_stage',
+      );
+      rejects(
+        state,
+        { type: 'setHand', participantId: 'a', raised: true, raisedAt: 3000 },
+        'not_attendee',
+      );
+      expect(meshPeers('a', connectedStageIds(state))).toEqual([]);
+      expect(canRelay(connectedStageIds(state), 'a', 'host')).toBe(false);
+      state = step(state, { type: 'leave', participantId: 'host' });
+      expect(state.status).toBe('SCHEDULED');
+      expect(state.waitingParticipantIds).toEqual(['a', 'b', 'late']);
+      state = step(state, { type: 'suspend', participantId: 'a', now: 3000 });
+      expect(state.participants.some((p) => p.participantId === 'a')).toBe(false);
+      state = step(state, { ...join('rejoined', 'a'), joinedAt: 4000 } as StageCommand);
+      expect(state.waitingParticipantIds).toEqual(['b', 'late', 'rejoined']);
+      expect(state.deadlines).toEqual({});
+    },
+  );
+
+  it('caps only waiters at 100 and permits a host to arrive and drop without grace', () => {
+    let state: LiveState = { ...empty(), status: 'SCHEDULED' };
+    for (let index = 0; index < 100; index++) state = step(state, join(`guest-${index}`));
+    rejects(state, join('overflow'), 'waiting_full');
+    state = step(state, join('host'));
+    state = step(state, { type: 'suspend', participantId: 'host', now: 2000 });
+    expect(state.status).toBe('SCHEDULED');
+    expect(state.participants).toHaveLength(100);
+    expect(state.waitingParticipantIds).toHaveLength(100);
+    expect(state.deadlines).toEqual({});
+    rejects(state, join('live-guest'), 'waiting_full');
+  });
+});
 
 function webinar() {
   let state = step(empty('WEBINAR'), join('host'));

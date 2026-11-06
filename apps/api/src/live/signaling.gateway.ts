@@ -236,7 +236,9 @@ export class SignalingGateway
       ok: true,
       participantId: client.data.participantId!,
       iceServers: this.iceServers,
-      ...(credential ? { resumeCredential: credential } : {}),
+      ...(credential && client.data.room?.status === 'LIVE'
+        ? { resumeCredential: credential }
+        : {}),
     };
   }
 

@@ -20,14 +20,16 @@ function fixture(
   operations = new SerializedOperations(),
   broadcasts?: BroadcastControl,
   clock?: LiveClock,
+  status: LiveState['status'] = 'LIVE',
 ) {
   let state: LiveState = {
     roomId: 'room',
     hostId: 'host',
     mode,
-    status: 'LIVE',
+    status,
     participants: [],
     stageParticipantIds: [],
+    waitingParticipantIds: [],
     hands: [],
     resumeDigests: {},
     deadlines: {},
@@ -36,7 +38,7 @@ function fixture(
   const events: string[] = [];
   const snapshots: RoomSnapshot[] = [];
   const sessions = new Map<string, LiveSession>();
-  let catalogStatus: 'LIVE' | 'ENDED' = 'LIVE';
+  let catalogStatus: LiveState['status'] = status;
   const client = (id: string, userId = id): LiveSession => {
     const session = { id, user: { id: userId, displayName: id }, connected: true, room: undefined };
     sessions.set(id, session);
@@ -160,6 +162,57 @@ function silenceErrors() {
   return vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 }
 
+it.each(['host', 'waiter'])(
+  'removes a scheduled %s on disconnect without scheduling grace',
+  async (id) => {
+    const time = controlledClock();
+    const f = fixture(
+      'MEETING',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      time.clock,
+      'SCHEDULED',
+    );
+    try {
+      const first = f.client('first');
+      const departing = f.client(id);
+      await f.join(first);
+      await f.join(departing);
+      expect(f.snapshots.at(-1)).toMatchObject({
+        status: 'SCHEDULED',
+        stageParticipantIds: [],
+        waitingParticipantIds: id === 'host' ? ['first'] : ['first', 'waiter'],
+      });
+      expect(f.live.apply).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.anything(),
+        expect.not.objectContaining({ resumeDigest: expect.anything() }),
+      );
+      Object.assign(departing, { connected: false });
+      expect(await f.service.disconnect(departing, f.transport)).toEqual({ ok: true });
+      expect(departing.room).toBeUndefined();
+      expect(f.readState().participants.map((p) => p.participantId)).toEqual(['first']);
+      expect(f.readState().deadlines).toEqual({});
+      expect(f.readState().resumeDigests).toEqual({});
+      expect(time.clock.schedule).not.toHaveBeenCalled();
+      expect(f.rooms.end).not.toHaveBeenCalled();
+      expect(f.live.deleteRoom).not.toHaveBeenCalled();
+      expect(f.events).toContain('apply:leave');
+      expect(f.events).not.toContain('apply:suspend');
+      time.set(2000);
+      expect(await f.join(f.client('rejoined', id))).toEqual({ ok: true });
+      expect(f.readState().status).toBe('SCHEDULED');
+      expect(f.snapshots.at(-1)?.waitingParticipantIds).toEqual(
+        id === 'host' ? ['first'] : ['first', 'rejoined'],
+      );
+    } finally {
+      f.service.onModuleDestroy();
+    }
+  },
+);
+
 function controlledClock() {
   let now = 1000;
   const callbacks: (() => void)[] = [];
@@ -178,6 +231,49 @@ function controlledClock() {
     },
   };
 }
+
+it.each([false, true])(
+  'retries scheduled disconnect cleanup without grace when leave committed=%s',
+  async (committed) => {
+    const time = controlledClock();
+    const f = fixture(
+      'MEETING',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      time.clock,
+      'SCHEDULED',
+    );
+    const errors = silenceErrors();
+    try {
+      const peer = f.client('waiter');
+      await f.join(peer);
+      const apply = vi.mocked(f.live.apply);
+      const original = apply.getMockImplementation()!;
+      apply.mockImplementationOnce(async (...args) => {
+        if (committed) await original(...args);
+        throw new Error('Lost scheduled leave reply');
+      });
+      expect(await f.service.disconnect(peer, f.transport)).toMatchObject({
+        error: 'server_error',
+      });
+      expect(f.readState().deadlines).toEqual({});
+      expect(f.readState().resumeDigests).toEqual({});
+      expect(time.clock.schedule).toHaveBeenCalledOnce();
+      await f.service.sweep();
+      expect(peer.room).toBeUndefined();
+      expect(f.readState().waitingParticipantIds).toEqual([]);
+      expect(f.readState().participants).toEqual([]);
+      expect(f.snapshots.at(-1)).toMatchObject({ status: 'SCHEDULED', waitingParticipantIds: [] });
+      expect(f.events).not.toContain('apply:suspend');
+      expect(f.rooms.end).not.toHaveBeenCalled();
+    } finally {
+      f.service.onModuleDestroy();
+      errors.mockRestore();
+    }
+  },
+);
 const resumeRequest = (id: string) => ({
   roomId: 'room',
   participantId: id,
@@ -1037,6 +1133,7 @@ it('retries notification after Redis deletion without another participant lookup
         status: 'LIVE',
         participants: [],
         stageParticipantIds: [],
+        waitingParticipantIds: [],
         hands: [],
         resumeDigests: {},
         deadlines: {},

@@ -67,7 +67,8 @@ if (!args.length || args.includes('--api')) {
       name,
     );
   new ChatRepository({});
-  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 9);
+  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci')).length, 10);
+  assert.equal(liveKeys(roomPrefix('probe', 'sf_ci'))[5], 'sf_ci:room:probe:broadcast');
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(

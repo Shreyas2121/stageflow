@@ -16,6 +16,7 @@ export type RoomSnapshot = {
   status: RoomStatus;
   participants: ParticipantState[];
   stageParticipantIds: string[];
+  waitingParticipantIds: string[];
   handParticipantIds: string[];
   broadcast: {
     id: string;
