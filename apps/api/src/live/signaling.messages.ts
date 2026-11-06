@@ -1,5 +1,13 @@
 import type { CommandAck, SignalingError } from '@stageflow/shared';
 const messages: Record<SignalingError, string> = {
+  qa_invalid: 'Enter a question from 1 to 200 characters and at most 1,000 UTF-8 bytes.',
+  qa_closed: 'The host closed new questions.',
+  qa_full: 'This room already has 100 questions.',
+  qa_rate_limited: 'Too many questions. Try again shortly.',
+  qa_vote_rate_limited: 'Too many votes. Try again shortly.',
+  qa_not_allowed: 'Demo peers and people who are waiting cannot use questions.',
+  qa_missing: 'That question is no longer on the board.',
+  qa_busy: 'Questions are busy. Try again shortly.',
   chat_invalid: 'Enter a message from 1 to 1,000 characters and at most 4,000 UTF-8 bytes.',
   chat_paused: 'The host paused chat.',
   chat_rate_limited: 'Too many chat messages. Try again shortly.',

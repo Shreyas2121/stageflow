@@ -1,6 +1,6 @@
 # V3 Phase 5 — Moderated Q&A and the canvas lower-third
 
-**Status:** specified, not implemented. No slice has been started.\
+**Status:** in progress. V3P5-C01 shared question bounds and wire contracts are verified; the release broadcast smoke is unverified because `ffmpeg` is absent from `PATH`. C02 through C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.6`, Sections 4, 9, 10, and 12 (QA3-01 through QA3-04). Identity, Google, replay lifecycle, and scheduling stay as shipped in `plans/phase1.md`, `plans/phase2.md`, `plans/phase3.md`, and `plans/phase4.md`.\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns V3P5-C01 through V3P5-C06. Those ids are not the V1 commits in [V1/phase5/guide.md](V1/phase5/guide.md) or the V2 commits in [V2/phase5/guide.md](V2/phase5/guide.md).\

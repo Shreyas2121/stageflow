@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** planned. No slice is implemented.\
+**Status:** in progress. V3P5-C01 is verified; the release broadcast smoke is unverified because `ffmpeg` is absent from `PATH`. C02 through C06 remain planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -51,7 +51,7 @@ Keep guest create, register, login, promotion, Google sign-in, replay visibility
 
 ## 2. V3P5-C01 — Question bounds
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `feat(shared): add question bounds`\
 **Actual commit:**
 
@@ -86,6 +86,15 @@ pnpm --filter @stageflow/api typecheck
 Then `pnpm typecheck` and `pnpm lint` if the affected-check plan selects them.
 
 **Done when:** The parser tests cover trim, 200 code units, 1,000 bytes, a control character, angle brackets, a bad question id, and a forged author field. Chat parser tests still pass. `Actual commit` is recorded after the slice commit.
+
+**Verification record (2026-11-06):**
+
+- Added all twelve Q&A limits, strict submit/id/submission-lock parsers, the board/feature/question/ack and event types, exports, and all eight API error sentences. Chat constants, `StageError`, and `RoomSnapshot` are unchanged. No Redis or UI implementation was added.
+- `pnpm --filter @stageflow/shared test` passed: 12 files, 454 tests, including the new Q&A cases and existing chat parsers. Shared and API package typechecks passed.
+- Parser cases cover trim before validation, UTF-16 boundaries with BMP and astral text, all 33 ASCII controls, literal `<b>hi</b>`, decimal id bounds, booleans, malformed bodies, and forged identity fields. A valid 200-code-unit string cannot reach 1,000 UTF-8 bytes (at most 600); the explicit byte check remains, and tests reject 1,000-byte and over-budget inputs that also exceed the code-unit cap.
+- `pnpm check:affected --plan --files packages/shared/AGENTS.md packages/shared/src/limits.ts packages/shared/src/qa.ts packages/shared/src/qa.test.ts packages/shared/src/signaling.ts packages/shared/src/index.ts apps/api/src/live/signaling.messages.ts` selected `check:release`.
+- `pnpm check:release` passed tooling (49 tests), all workspace typechecks and lint, shared (454), web (499), and API (470) tests, both production builds, repository formatting, artifact checks, and the owned-fixture live smoke. It then failed at the final `smoke:broadcast` command with `spawn ffmpeg ENOENT`: `ffmpeg` is absent from `PATH`. The broadcast smoke is unverified; the release gate is not fully passed. Vite reported its existing large-chunk warning.
+- QA3-01 has parser evidence only. Its server/browser halves and QA3-02 through QA3-04 remain planned. No browser, canvas, or played-HLS acceptance was claimed; existing V1/V2 gaps remain open.
 
 ## 3. V3P5-C02 — Accept a question and one vote
 

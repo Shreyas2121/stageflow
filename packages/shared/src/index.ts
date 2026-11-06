@@ -2,6 +2,7 @@ export * from './contracts';
 export * from './account';
 export * from './catalog-page';
 export * from './chat';
+export * from './qa';
 export * from './stage';
 export * from './signaling';
 export * from './negotiation';

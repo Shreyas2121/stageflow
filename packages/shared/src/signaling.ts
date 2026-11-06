@@ -8,6 +8,7 @@ import type {
   ChatSendRequest,
   ChatSetPausedRequest,
 } from './chat';
+import type { QaQuestionIdRequest, QaSetSubmissionsRequest, QaSubmitRequest } from './qa';
 
 export type RoomSnapshot = {
   revision: number;
@@ -42,8 +43,34 @@ export type SignalingError =
   | 'chat_invalid'
   | 'chat_paused'
   | 'chat_rate_limited'
-  | 'chat_busy';
+  | 'chat_busy'
+  | 'qa_invalid'
+  | 'qa_closed'
+  | 'qa_full'
+  | 'qa_rate_limited'
+  | 'qa_vote_rate_limited'
+  | 'qa_not_allowed'
+  | 'qa_missing'
+  | 'qa_busy';
 export type CommandAck = { ok: true } | { ok: false; error: SignalingError; message: string };
+export type QaQuestion = {
+  id: string;
+  text: string;
+  authorName: string;
+  authorParticipantId: string;
+  /** Server clock in milliseconds since the Unix epoch. */
+  createdAt: number;
+  voteCount: number;
+};
+export type QaFeature = { questionId: string; text: string; authorName: string };
+export type QaState = {
+  submissionsOpen: boolean;
+  featured: QaFeature | null;
+  questions: QaQuestion[];
+};
+/** Only the caller's ack carries their votes; room events carry QaState alone. */
+export type QaStateAck =
+  ({ ok: true; votedQuestionIds: string[] } & QaState) | Extract<CommandAck, { ok: false }>;
 export type ChatSendAck = { ok: true; message: ChatMessage } | Extract<CommandAck, { ok: false }>;
 export type ChatHistoryAck =
   ({ ok: true } & ChatHistoryResult) | Extract<CommandAck, { ok: false }>;
@@ -84,6 +111,16 @@ export type StageLockRequest = StageTargetRequest & { kind: 'audio' | 'video'; l
 export type StageForceMute = Pick<StageLockRequest, 'kind' | 'locked'>;
 
 export interface ClientToServerEvents {
+  'qa:submit': (payload: QaSubmitRequest, ack: (result: QaStateAck) => void) => void;
+  'qa:vote': (payload: QaQuestionIdRequest, ack: (result: QaStateAck) => void) => void;
+  'qa:dismiss': (payload: QaQuestionIdRequest, ack: (result: QaStateAck) => void) => void;
+  'qa:feature': (payload: QaQuestionIdRequest, ack: (result: QaStateAck) => void) => void;
+  'qa:clear-feature': (ack: (result: QaStateAck) => void) => void;
+  'qa:set-submissions': (
+    payload: QaSetSubmissionsRequest,
+    ack: (result: QaStateAck) => void,
+  ) => void;
+  'qa:state': (ack: (result: QaStateAck) => void) => void;
   'chat:send': (payload: ChatSendRequest, ack: (result: ChatSendAck) => void) => void;
   'chat:history': (payload: ChatHistoryRequest, ack: (result: ChatHistoryAck) => void) => void;
   'chat:set-paused': (
@@ -109,6 +146,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  'qa:state': (state: QaState) => void;
   'room:resume-credential': (payload: {
     roomId: string;
     participantId: string;
