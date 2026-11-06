@@ -269,7 +269,7 @@ R06 supersedes the historical C03 behavior that restored finished status for eve
 
 ## Maintenance: V3M-C08 — Recover interrupted deletion (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
-Actual commit:
+Status: committed. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
+Actual commit: `12fc4dd`.
 
 R07 is resolved with paginated owner-only unfinished-deletion inventory and explicit pending-only retries in the recordings UI. Claims stay unplayable; failures stay actionable across restart. This is the review's owner-visible recovery option, with no automatic deletion job or polling on the shared VPS. Full release checks passed (49 tooling, 456 shared, 527 web, 575 API tests and both smokes), including four interrupted compiled-service process fixtures. A final UI error-clearing follow-up passed selected web checks again and the real API/PostgreSQL browser probe, including restart, failure/retry, privacy, and 390px layout. Commands, artifacts, and observation limits are recorded in [phase3.md](../phase3.md). Existing physical/VPS acceptance gaps remain open.

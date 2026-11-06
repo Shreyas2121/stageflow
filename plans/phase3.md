@@ -218,8 +218,8 @@ This closes R06's deletion-integrity defect within the tested boundaries. V3M-C0
 
 ## Maintenance: V3-R07 / V3M-C08 (2026-11-06)
 
-Status: verified; awaiting commit. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
-Actual commit:
+Status: committed. Proposed commit: `fix(replay): reconcile interrupted replay deletion`.
+Actual commit: `12fc4dd`.
 
 Chose the review's owner-visible pending/retry option. Registered owners now discover durable DELETING claims under Your rooms > Recordings > Unfinished deletions after a failure, reload, or API restart. A separate owner-only paginated endpoint returns minimal id/roomId/createdAt records; DELETING remains excluded from playable catalogs, snapshots, thumbnails, and HLS. The pending-only POST retry finishes the original deletion, returns ordinary not-found if its row is missing or has changed status, rechecks ownership/state after Redis, and preserves C07's irreversible-removal boundary and confined paths. Redis errors refuse disk work without losing the claim. Inventory pages default to 20, cap at 50, and use exact timestamp/UUID cursors. Explicit retries use the existing ordinary control rate budget and per-id concurrency guard. No automatic retries, polling, retention sweeper, schema migration, or background filesystem work were introduced, which also preserves headroom on the shared Hostinger KVM 2 target.
 
