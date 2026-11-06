@@ -4,23 +4,23 @@
     "module": "minimatch",
     "severity": "moderate",
     "owner": "StageFlow repository maintainer",
-    "reviewBy": "2026-11-08",
-    "reason": "C02: trusted local lint/build globs only; compatible parents still require vulnerable majors. Remove when a supported parent adopts a fix."
+    "reviewBy": "2026-11-13",
+    "reason": "V3M-C01 reviewed 2026-11-06: minimatch 10.2.6 remains required by current ESLint 10.14.0, config-array 0.23.5, typescript-estree 8.72.1, and Nest CLI 11's glob 13.0.6. Fixed minimatch >=11.0.1 is outside those parent ranges. Reachability is trusted repository lint/build patterns, not HTTP/socket input; untrusted checkout/config remains a tooling risk. Owner: StageFlow repository maintainer. Recheck parent adoption by 2026-11-13; remove when every affected path resolves a supported fix. See plans/phase1.md V3M-C01."
   },
   {
     "id": "GHSA-3g3m-2fjr-6pw4",
     "module": "glob",
     "severity": "moderate",
     "owner": "StageFlow repository maintainer",
-    "reviewBy": "2026-11-08",
-    "reason": "C02: Nest CLI local asset globs only; fixed release crosses its declared major. Remove on a supported CLI fix."
+    "reviewBy": "2026-11-13",
+    "reason": "V3M-C01 reviewed 2026-11-06: latest Nest CLI 11.0.24 pins glob 13.0.6; fixed glob >=14.0.2 is outside that declaration. CLI asset copying uses synchronous trusted nest-cli.json patterns without AbortSignal cancellation; no production request path. Nest CLI 12.0.12 removes glob but is an unvalidated major migration, not a compatible update. Owner: StageFlow repository maintainer. Recheck a CLI 11 fix or separately validate CLI 12 by 2026-11-13; remove on supported removal/update. See plans/phase1.md V3M-C01."
   },
   {
     "id": "GHSA-gcqx-w48m-w2h4",
     "module": "deepmerge",
     "severity": "low",
     "owner": "StageFlow repository maintainer",
-    "reviewBy": "2026-11-08",
-    "reason": "C02: webpack checker merges trusted local config; no compatible published patch. Remove when a supported parent fixes or replaces it."
+    "reviewBy": "2026-11-13",
+    "reason": "V3M-C01 reviewed 2026-11-06: deepmerge 4.3.1 is still latest with no published patch; Nest CLI 11.0.24 retains fork-ts-checker-webpack-plugin 9.1.0 and its deepmerge ^4.2.2 dependency. It merges local TypeScript/webpack configuration; this repository uses Nest's default tsc builder, not webpack, and no production request imports this toolchain. Untrusted build configuration remains a risk. CLI 12 removes the checker but requires separate migration validation. Owner: StageFlow repository maintainer. Recheck patch/checker removal by 2026-11-13. See plans/phase1.md V3M-C01."
   }
 ]
