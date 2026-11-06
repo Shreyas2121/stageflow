@@ -10,6 +10,12 @@ function source(path: string): string {
 }
 
 describe('home entry', () => {
+  it('keeps the waiting panel free of capture and peer creation', () => {
+    const panel = source('features/live/components/waiting-room.tsx');
+    expect(panel).not.toMatch(/getUserMedia|RTCPeerConnection|LocalMedia|PeerManager|GreenRoom/);
+    expect(panel).toContain('waitingParticipantIds.map');
+  });
+
   it('does not mention hls on the home page or the web entry', () => {
     const home = source('pages/HomePage.tsx');
     expect(home.toLowerCase()).not.toContain('hls');

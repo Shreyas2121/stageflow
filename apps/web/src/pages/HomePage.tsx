@@ -4,6 +4,7 @@ import {
   DISPLAY_NAME_MAX_LENGTH,
   ROOM_TITLE_MAX_LENGTH,
   parseDisplayName,
+  isScheduledStartAt,
   parseRoomJoinTarget,
   parseRoomMode,
   parseRoomTitle,
@@ -26,13 +27,15 @@ export function HomePage() {
   const clearSession = useSessionStore((state) => state.clearSession);
   const [displayName, setDisplayName] = useState(session?.displayName ?? '');
   const [title, setTitle] = useState('');
+  const [scheduledStartAt, setScheduledStartAt] = useState('');
+  const [requireAdmission, setRequireAdmission] = useState(false);
   const [slug, setSlug] = useState('');
   const [accountPending, setAccountPending] = useState(false);
   const navigate = useNavigate();
   const pendingRequest = useRef<AbortController | null>(null);
   useEffect(() => () => pendingRequest.current?.abort(), []);
   const submit = useMutation({
-    mutationFn: async (action: RoomMode | 'join') => {
+    mutationFn: async (action: RoomMode | 'join' | 'schedule-meeting' | 'schedule-webinar') => {
       pendingRequest.current?.abort();
       const controller = new AbortController();
       pendingRequest.current = controller;
@@ -53,9 +56,34 @@ export function HomePage() {
       }
       const parsedTitle = parseRoomTitle(title);
       if (!parsedTitle.ok) throw new Error(parsedTitle.message);
-      const mode = parseRoomMode(action);
+      const scheduled = action === 'schedule-meeting' || action === 'schedule-webinar';
+      if (scheduled && !isHostSession(current))
+        throw new Error('Create a host account before scheduling a room.');
+      if (scheduled && !isScheduledStartAt(scheduledStartAt))
+        throw new Error('Enter a UTC start time.');
+      const mode = parseRoomMode(
+        action === 'schedule-meeting'
+          ? 'MEETING'
+          : action === 'schedule-webinar'
+            ? 'WEBINAR'
+            : action,
+      );
       if (!mode.ok) throw new Error(mode.message);
-      return createRoom({ title: parsedTitle.value, mode: mode.value }, token, controller.signal);
+      return createRoom(
+        {
+          title: parsedTitle.value,
+          mode: mode.value,
+          ...(scheduled
+            ? {
+                status: 'SCHEDULED',
+                scheduledStartAt,
+                requireAdmission: mode.value === 'MEETING' && requireAdmission,
+              }
+            : {}),
+        },
+        token,
+        controller.signal,
+      );
     },
     onSuccess: (room) => {
       if (!pendingRequest.current?.signal.aborted) void navigate(`/r/${room.slug}`);
@@ -158,6 +186,35 @@ export function HomePage() {
                 Create webinar
               </Button>
             </div>
+            {isHost && (
+              <div className="mt-6 border-t border-line pt-6">
+                <FormField
+                  id="scheduled-start"
+                  name="scheduledStartAt"
+                  label="UTC start time"
+                  hint="YYYY-MM-DDTHH:mm:ss.sssZ. The host starts the room; the time does not."
+                  placeholder="2026-11-06T15:00:00.000Z"
+                  value={scheduledStartAt}
+                  onChange={(event) => setScheduledStartAt(event.target.value)}
+                />
+                <label className="mt-4 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={requireAdmission}
+                    onChange={(event) => setRequireAdmission(event.target.checked)}
+                  />
+                  Require host admission (meeting only)
+                </label>
+                <div className="mt-4 grid gap-2 min-[380px]:grid-cols-2">
+                  <Button type="button" onClick={() => submit.mutate('schedule-meeting')}>
+                    Schedule meeting
+                  </Button>
+                  <Button type="button" onClick={() => submit.mutate('schedule-webinar')}>
+                    Schedule webinar
+                  </Button>
+                </div>
+              </div>
+            )}
           </form>
           <form
             className="min-w-0 border-t border-line px-6 py-6 layout:border-t-0 layout:border-l layout:p-7.5"

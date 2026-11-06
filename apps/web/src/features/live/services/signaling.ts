@@ -40,6 +40,10 @@ export type RoomConnection = ChatTransport & {
   promote: (targetParticipantId: string) => Promise<CommandAck>;
   demote: (targetParticipantId: string) => Promise<CommandAck>;
   setLock: (request: StageLockRequest) => Promise<CommandAck>;
+  startRoom: () => Promise<CommandAck>;
+  cancelRoom: () => Promise<CommandAck>;
+  admit: (targetParticipantId: string) => Promise<CommandAck>;
+  removeWaiter: (targetParticipantId: string) => Promise<CommandAck>;
   startBroadcast: () => Promise<CommandAck>;
   stopBroadcast: () => Promise<CommandAck>;
   leave: () => Promise<CommandAck>;
@@ -48,6 +52,11 @@ export type RoomConnection = ChatTransport & {
 let current: RoomConnection | null = null;
 
 type SignalingCallbacks = {
+  onResumeCredential?: (payload: {
+    roomId: string;
+    participantId: string;
+    resumeCredential: string;
+  }) => void;
   onChatMessage?: (message: ChatMessage) => void;
   onChatPaused?: (paused: boolean) => void;
   onResumed?: (result: Extract<ResumeAck, { ok: true }>) => void;
@@ -279,6 +288,14 @@ export function openIndependentSignaling(
       command(() => socket.timeout(8000).emitWithAck('stage:demote', { targetParticipantId })),
     setLock: (request) =>
       command(() => socket.timeout(8000).emitWithAck('stage:set-lock', request)),
+    startRoom: () => command(() => socket.timeout(8000).emitWithAck('room:start')),
+    cancelRoom: () => command(() => socket.timeout(8000).emitWithAck('room:cancel')),
+    admit: (targetParticipantId) =>
+      command(() => socket.timeout(8000).emitWithAck('stage:admit', { targetParticipantId })),
+    removeWaiter: (targetParticipantId) =>
+      command(() =>
+        socket.timeout(8000).emitWithAck('stage:remove-waiter', { targetParticipantId }),
+      ),
     startBroadcast: () => command(() => socket.timeout(8000).emitWithAck('broadcast:start')),
     async stopBroadcast() {
       if (closed || !joined || !transportConnected) return unavailable();
@@ -377,6 +394,11 @@ export function openIndependentSignaling(
         )
           callbacks.onCandidate(payload);
       });
+  });
+  socket.on('room:resume-credential', (payload) => {
+    if (closed || payload.roomId !== roomId) return;
+    if (joined) callbacks.onResumeCredential?.(payload);
+    else queuePending(payload, () => callbacks.onResumeCredential?.(payload));
   });
   socket.on('chat:message', (message) => {
     // The history read after membership covers early chat. Chat never fills the stage queue.

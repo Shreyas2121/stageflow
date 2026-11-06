@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { GuestSessionResponse, RoomResponse } from '@stageflow/shared';
 import { roomQueryOptions } from '../features/rooms/query-options';
+import { useRoomStore } from '../features/live/stores/room-store';
 import { LiveRoom } from '../features/live/components/live-room';
 import { useSessionStore } from '../features/session/session-store';
 
@@ -65,6 +66,11 @@ export function RoomPage() {
 
 function RoomContents({ room, session }: { room: RoomResponse; session: GuestSessionResponse }) {
   const [openedLive] = useState(room.status !== 'ENDED');
+  const snapshotStatus = useRoomStore((state) =>
+    state.roomId === room.id ? state.snapshot?.status : undefined,
+  );
+  const [lastStatus, setLastStatus] = useState(room.status);
+  if (snapshotStatus && snapshotStatus !== lastStatus) setLastStatus(snapshotStatus);
   const [ended, setEnded] = useState(room.status === 'ENDED');
   const isEnded = ended || room.status === 'ENDED';
   return (
@@ -88,7 +94,7 @@ function RoomContents({ room, session }: { room: RoomResponse; session: GuestSes
           className={`inline-flex shrink-0 items-center gap-2 rounded border px-3 py-2 text-[11px] font-semibold tracking-widest ${isEnded ? 'border-input-line bg-ended-surface text-ended' : 'border-live-line bg-live text-accent'}`}
         >
           <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-          {isEnded ? 'ENDED' : room.status}
+          {isEnded ? 'ENDED' : lastStatus}
         </span>
       </div>
       <dl className="mt-9 grid gap-6 rounded-[10px] border border-line bg-surface p-6 layout:grid-cols-[0.85fr_1.2fr_1fr] layout:gap-0 layout:p-7 [&>div]:min-w-0 layout:[&>div]:border-l layout:[&>div]:border-line layout:[&>div]:px-6 layout:[&>div:first-child]:border-0 layout:[&>div:first-child]:pl-0">

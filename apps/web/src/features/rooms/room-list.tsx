@@ -84,6 +84,12 @@ function RoomRow({
       <p className="mt-2 mb-0 text-sm">
         <time dateTime={room.createdAt}>{catalogTimeLabel(room.createdAt)}</time>
       </p>
+      {room.scheduledStartAt && (
+        <p className="mt-2 mb-0 text-sm">
+          Scheduled start:{' '}
+          <time dateTime={room.scheduledStartAt}>{room.scheduledStartAt} (UTC)</time>
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Link
           to={`/r/${room.slug}`}

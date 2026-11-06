@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** in progress. C01 through C04 are implemented and verified; C05 and C06 remain planned.\
+**Status:** in progress. C01 through C05 are implemented and verified; C06 remains planned.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -178,9 +178,9 @@ pnpm lint
 
 ## 5. V3P4-C04 — Start, admit, and cancel
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `feat(api-live): start, admit, and cancel a scheduled room`\
-**Actual commit:**
+**Actual commit:** `9e7b44eeb307e1c7cec892c8bc9c6e4aa6336c2d`
 
 **Why:** The host needs one atomic way to open the stage, admit a chosen waiter, or end the scheduled room. Covers SCH-03, SCH-04, and the server half of SCH-05.
 
@@ -228,7 +228,7 @@ pnpm lint
 
 ## 6. V3P4-C05 — Schedule form and waiting panel
 
-**Status:** planned\
+**Status:** verified; commit pending\
 **Proposed commit message:** `feat(web-room): schedule a room and wait without media`\
 **Actual commit:**
 
@@ -243,14 +243,16 @@ pnpm lint
 - `apps/web/src/pages/RoomPage.tsx`
 - `apps/web/src/features/live/components/live-room.tsx`
 - `apps/web/src/features/live/components/waiting-room.tsx`
-- `apps/web/src/features/live/hooks/use-live-room.ts`
+- `apps/web/src/features/live/hooks/use-live-room.ts` (existing React subscription)
+- `apps/web/src/features/live/services/room-session.ts`, `signaling.ts`, and their regressions
+- `apps/web/src/features/live/services/lazy-room-media.ts` and its regression
 - `apps/web/src/app/entry-graph.test.ts`
 
 **Implementation:**
 
 1. For a registered host, add **Schedule meeting**, **Schedule webinar**, a UTC start field, and **Require host admission** on a meeting. Guest home keeps **Create meeting** and **Create webinar** only. Submit the C02 body. Show `SCHEDULED` and the UTC instant on the library row. Keep the invitation control.
 2. Add a waiting panel. A `SCHEDULED` room, and a participant whose role is `WAITING`, render that panel instead of `GreenRoom`. Its join sends the socket join and does not construct local media or a peer connection. Show the waiting ids in snapshot order and the names beside them.
-3. The host sees **Start**, **Remove**, and **Cancel room**. The first cancel click reveals **Cancel this room** and **Keep waiting**. **Admit** is shown only when the room is a `LIVE` meeting and `requireAdmission` is true. Handle the targeted `room:resume-credential` event in `use-live-room.ts` for the current room and membership. When the snapshot places this participant on stage, the existing green room asks for consent before capture. A webinar attendee keeps the current attendee path.
+3. The host sees **Start**, **Remove**, and **Cancel room**. The first cancel click reveals **Cancel this room** and **Keep waiting**. **Admit** is shown only when the room is a `LIVE` meeting and `requireAdmission` is true. Handle the targeted `room:resume-credential` event through the RoomSession signaling owner used by `use-live-room.ts`, for the current connection, room, and membership. When the snapshot places this participant on stage, the existing green room asks for consent before capture. A webinar attendee keeps the current attendee path.
 4. Render **Spawn demo peer** only when the host is on stage. Keep `hls`, `LiveRoom`, and chat out of the home page. The entry-graph test still forbids `hls` on home. A source test for the waiting panel forbids `getUserMedia` and `RTCPeerConnection`.
 5. In the browser, as a registered host, schedule a meeting with a past UTC time and confirm it stays scheduled. Join from a second window and confirm the waiting copy, no camera prompt, and no peer connection. Start and confirm the host is first. Cover admission on with Admit, a scheduled webinar attendee, Cancel before start, and a guest immediate create. Record the browser. If no browser is available, leave that half unverified and named. Do not mark a physical-device observation verified.
 
@@ -265,6 +267,10 @@ pnpm lint
 Then check the home form, the waiting panel, and Start in the browser.
 
 **Done when:** A guest still creates a live room, an early joiner waits without media, and the host can start or cancel from the room.
+
+**C05 verification (2026-11-06):** All 499 web tests passed. Workspace `pnpm typecheck` and `pnpm lint` passed. The affected-check plan selected web-only checks; final formatting, shared preparation, web typecheck/lint/tests/build, and `pnpm check:artifacts --web` passed. Home still excludes the live room, chat, and playback imports; room/replay remain lazy and playback remains deferred. The waiting-panel source regression forbids capture and peer construction. A lazy media adapter does not construct LocalMedia during membership/waiting; explicit preparation creates the owner. Coordinator regressions cover scheduled host/waiter joins, live admission, webinar release, consent after a granted seat, identity-scoped resume grants, bounded early credential delivery, and Start retry after a live snapshot precedes a failed acknowledgement. Existing immediate join, promotion, device, recovery, demo, broadcast, and chat regressions remain passing. The React hook keeps its existing single RoomSession subscription; targeted credentials are handled by that coordinator's current-connection signaling callbacks rather than a second hook workflow.
+
+**C05 browser evidence (2026-11-06):** Chrome `156.0.8078.80` headless on Windows, viewport `1280 by 800`, locale `en-GB`, time zone `UTC`, used the real compiled API and ephemeral Vite web server with an owned disposable PostgreSQL database and Redis namespace. Camera/microphone input and permission UI were synthetic. The host created a meeting with `2000-01-01T00:00:00.000Z` through the schedule form; its HTTP status stayed `SCHEDULED`. A second window joined, and the host saw its waiting name/id. Instrumented host and guest each made zero capture calls and zero peer constructions while waiting, with no green-room enable control or demo control. The library displayed the exact UTC instant and retained the invitation control. Start produced `LIVE` with the host and guest seated, both still at zero capture/peer calls until consent. Each explicit camera/microphone action then made two capture calls and one native peer connection, and both connections reached `connected`. With admission on, Start seated only the host; the guest stayed off stage, Remove returned it to waiting entry, rejoin allocated a new id, and Admit displayed consent without capturing. Scheduled webinar Start released the waiter as an attendee with zero capture calls and zero peer connections. Cancel's **Keep waiting** path kept the room scheduled; **Cancel this room** ended both windows, cleared the waiting key, and left no broadcast row. Guest create stayed `LIVE` with schedule controls absent. Waiting, host form/library, and stage layouts had no horizontal overflow at `390 by 844`; no page errors occurred. Temporary local evidence is `sf-v3p4-c05-20261106` (`result.json`, `waiting.png`, `start-consent.png`); owned browser/process/database/Redis fixtures were cleaned up. These observations complete the browser halves of SCH-01, SCH-02, SCH-04, and SCH-05. SCH-03 retains C04's concurrent Redis evidence. No physical capture device, audible output, camera indicator, or native-picker observation is closed. C06 remains planned; no README implementation was included.
 
 ## 7. V3P4-C06 — README
 

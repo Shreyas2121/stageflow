@@ -20,7 +20,8 @@ import {
 import { ActiveSpeaker } from './active-speaker';
 import { DemoPeer } from './demo-peer';
 import { DemoRegistry, type DemoAudio, type DemoFactory } from './demo-registry';
-import { LocalMedia, type DeviceChoices, type InputKind } from './local-media';
+import type { DeviceChoices, InputKind } from './local-media';
+import { lazyRoomMedia } from './lazy-room-media';
 import { InCallDeviceController, deviceSwitchError } from './in-call-devices';
 import type { OutputRouteResult } from './output-route';
 import { PeerManager, type RemoteStreams, type TrackSource } from './peer-manager';
@@ -102,6 +103,7 @@ export class RoomSession {
   readonly chat = new ChatSession();
 
   private readonly room: RoomResponse;
+  private status: RoomResponse['status'];
   private readonly userId: string;
   private readonly token: string;
   private readonly onEnded: () => void;
@@ -143,6 +145,7 @@ export class RoomSession {
     sharing: boolean;
     role: ParticipantRole | null;
     onStage: boolean;
+    startUnconfirmed: boolean;
   } = {
     phase: 'lobby',
     preparing: false,
@@ -159,14 +162,16 @@ export class RoomSession {
     sharing: false,
     role: null,
     onStage: false,
+    startUnconfirmed: false,
   };
 
   constructor(options: RoomSessionOptions) {
     this.room = options.room;
+    this.status = options.room.status;
     this.userId = options.userId;
     this.token = options.token;
     this.onEnded = options.onEnded;
-    this.media = options.media ?? new LocalMedia();
+    this.media = options.media ?? lazyRoomMedia();
     this.open = options.openSignaling ?? openSignaling;
     this.createPeers =
       options.createPeers ??
@@ -385,6 +390,25 @@ export class RoomSession {
   get demoStarting(): boolean {
     return this.demos.starting;
   }
+  get roomStatus(): RoomResponse['status'] {
+    return this.status;
+  }
+
+  get startUnconfirmed(): boolean {
+    return this.state.startUnconfirmed;
+  }
+
+  get waiting(): boolean {
+    if (this.state.phase === 'joined')
+      return this.state.role === 'WAITING' || (this.state.role === 'HOST' && !this.state.onStage);
+    return (
+      this.status === 'SCHEDULED' ||
+      (this.room.mode === 'MEETING' &&
+        this.room.requireAdmission &&
+        this.userId !== this.room.hostId)
+    );
+  }
+
   get audience(): 'attendee' | 'stage' {
     return audienceFor(this.state.role, this.catalogAttendee);
   }
@@ -437,7 +461,7 @@ export class RoomSession {
     video: HTMLVideoElement,
     nextChoices = this.deviceController.getSnapshot().choices,
   ): Promise<void> {
-    if (this.pageHidden || this.state.phase === 'recovering') return;
+    if (this.pageHidden || this.state.phase === 'recovering' || this.waiting) return;
     if (this.catalogAttendee && !this.state.needsCaptureConsent) return;
     if (this.state.needsCaptureConsent && this.consentSignalingFailed) return;
     this.locallyTornDown = false;
@@ -525,7 +549,7 @@ export class RoomSession {
   async join(): Promise<void> {
     if (this.pageHidden) return;
     if (this.state.phase !== 'lobby' || this.state.preparing) return;
-    if (!this.catalogAttendee && !this.media.ready) {
+    if (!this.waiting && !this.catalogAttendee && !this.media.ready) {
       this.state.ready = false;
       this.state.error = 'Enable your camera and microphone before joining.';
       this.emit();
@@ -546,8 +570,8 @@ export class RoomSession {
       this.connection = active;
       const result = await active.join({
         roomId: this.room.id,
-        isAudioMuted: this.catalogAttendee || this.state.isAudioMuted,
-        isVideoOff: this.catalogAttendee || this.state.isVideoOff,
+        isAudioMuted: this.waiting || this.catalogAttendee || this.state.isAudioMuted,
+        isVideoOff: this.waiting || this.catalogAttendee || this.state.isVideoOff,
         isSyntheticBot: false,
       });
       if (generation !== this.generation || this.connection !== active) return;
@@ -563,12 +587,13 @@ export class RoomSession {
         }
         return;
       }
-      this.recovery.remember(result.participantId, result.resumeCredential);
+      if (result.resumeCredential)
+        this.recovery.remember(result.participantId, result.resumeCredential);
       this.state.phase = 'joined';
       this.chat.connect(active);
       this.media.releaseLobby();
       this.syncFromStore();
-      void this.deviceController.refresh();
+      if (!this.waiting) void this.deviceController.refresh();
     } catch (failure) {
       if (generation !== this.generation || (active && this.connection !== active)) return;
       active?.close();
@@ -584,6 +609,7 @@ export class RoomSession {
     if (this.state.phase === 'leaving') return;
     const active = this.connection;
     this.recovery.cancel();
+    this.state.startUnconfirmed = false;
     this.state.phase = 'leaving';
     if (this.room.hostId === this.userId) this.chat.end();
     else this.chat.suspend(false);
@@ -729,6 +755,43 @@ export class RoomSession {
     this.emit();
   }
 
+  startRoom(): Promise<void> {
+    return this.moderate(async (active) => {
+      this.state.startUnconfirmed = true;
+      const result = await active.startRoom();
+      if (result.ok || result.error === 'already_started') {
+        this.state.startUnconfirmed = false;
+        return { ok: true };
+      }
+      return result;
+    });
+  }
+  cancelRoom(): Promise<void> {
+    return this.moderate((active) => active.cancelRoom());
+  }
+  admit(participantId: string): Promise<void> {
+    return this.moderate((active) => active.admit(participantId));
+  }
+  removeWaiter(participantId: string): Promise<void> {
+    return this.moderate((active) => active.removeWaiter(participantId));
+  }
+
+  rememberResumeCredential(payload: {
+    roomId: string;
+    participantId: string;
+    resumeCredential: string;
+  }): void {
+    if (
+      payload.roomId !== this.room.id ||
+      payload.participantId !== useRoomStore.getState().selfParticipantId ||
+      !this.connection ||
+      this.pageHidden ||
+      !['joining', 'joined'].includes(this.state.phase)
+    )
+      return;
+    this.recovery.remember(payload.participantId, payload.resumeCredential);
+  }
+
   private async send(action: (active: RoomConnection) => Promise<CommandAck>): Promise<void> {
     const active = this.connection;
     if (!active || this.state.phase !== 'joined') return;
@@ -750,6 +813,7 @@ export class RoomSession {
     if (this.connection !== active) return;
     this.connection = null;
     this.chat.end();
+    this.state.startUnconfirmed = false;
     this.recovery.cancel();
     this.teardownLocal();
     this.state.phase = 'lobby';
@@ -800,6 +864,9 @@ export class RoomSession {
     const current = () =>
       opened.current !== null && this.connection === opened.current && !this.pageHidden;
     return {
+      onResumeCredential: (payload) => {
+        if (current()) this.rememberResumeCredential(payload);
+      },
       onChatMessage: (message) => {
         if (current()) this.chat.receive(message);
       },
@@ -929,12 +996,27 @@ export class RoomSession {
   private syncFromStore(): void {
     if (this.pageHidden || !this.connection || this.state.phase === 'recovering') return;
     const { selfParticipantId, snapshot, iceServers } = useRoomStore.getState();
+    if (snapshot?.roomId === this.room.id) this.status = snapshot.status;
     if (snapshot && snapshot.revision > this.forceRevision) {
       this.forcedAudio = this.forcedVideo = false;
     }
     const self = snapshot?.participants.find(
       (participant) => participant.participantId === selfParticipantId,
     );
+    if (
+      !self &&
+      selfParticipantId &&
+      snapshot &&
+      snapshot.status !== 'ENDED' &&
+      this.state.phase === 'joined'
+    ) {
+      const active = this.connection;
+      active.close();
+      this.finishDisconnect(active);
+      this.state.error = 'You were removed from the waiting room. Join again to wait.';
+      this.emit();
+      return;
+    }
     if (self && selfParticipantId && snapshot) {
       this.observeRole(self.role, snapshot.stageParticipantIds.includes(selfParticipantId));
     }
@@ -967,7 +1049,8 @@ export class RoomSession {
     this.settled = next;
     this.state.role = role;
     this.state.onStage = onStage;
-    if (change === 'initial') this.state.needsCaptureConsent = false;
+    if (change === 'initial')
+      this.state.needsCaptureConsent = onStage && !this.media.ready && !this.resumedWithoutCapture;
     if (change === 'promoted') this.onPromoted();
     if (change === 'demoted') this.onDemoted();
   }

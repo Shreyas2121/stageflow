@@ -208,6 +208,10 @@ function fakeConnection() {
     promote: vi.fn<RoomConnection['promote']>(async () => ({ ok: true })),
     demote: vi.fn<RoomConnection['demote']>(async () => ({ ok: true })),
     setLock: vi.fn<RoomConnection['setLock']>(async () => ({ ok: true })),
+    startRoom: vi.fn<RoomConnection['startRoom']>(async () => ({ ok: true })),
+    cancelRoom: vi.fn<RoomConnection['cancelRoom']>(async () => ({ ok: true })),
+    admit: vi.fn<RoomConnection['admit']>(async () => ({ ok: true })),
+    removeWaiter: vi.fn<RoomConnection['removeWaiter']>(async () => ({ ok: true })),
     startBroadcast: vi.fn<RoomConnection['startBroadcast']>(async () => ({ ok: true })),
     stopBroadcast: vi.fn<RoomConnection['stopBroadcast']>(async () => ({ ok: true })),
     leave: vi.fn(() => Promise.resolve({ ok: true as const })),
@@ -2558,4 +2562,185 @@ describe('RoomSession', () => {
     expect(h.session.phase).toBe('joined');
     expect(h.connection.leave).not.toHaveBeenCalled();
   });
+});
+
+describe('scheduled and admission membership', () => {
+  it.each(['HOST', 'WAITING'] as const)(
+    'joins a scheduled %s without capture or peers, then requests stage consent',
+    async (role) => {
+      const h = harness({
+        room: { ...room, status: 'SCHEDULED' },
+        userId: role === 'HOST' ? room.hostId : 'guest',
+      });
+      h.connection.join.mockImplementation(async () => {
+        useRoomStore.getState().joined('self', []);
+        useRoomStore.getState().receive({
+          ...snapshot('self', role, false, 1),
+          status: 'SCHEDULED',
+          waitingParticipantIds: role === 'WAITING' ? ['self'] : [],
+        });
+        return { ok: true, participantId: 'self', iceServers: [] };
+      });
+      try {
+        await h.session.prepare({} as HTMLVideoElement);
+        expect(h.media.prepareCalls).toBe(0);
+        await h.session.join();
+        expect(h.connection.join).toHaveBeenCalledWith({
+          roomId: room.id,
+          isAudioMuted: true,
+          isVideoOff: true,
+          isSyntheticBot: false,
+        });
+        expect(h.session.waiting).toBe(true);
+        expect(h.media.prepareCalls).toBe(0);
+        expect(h.session.peerManager).toBeNull();
+        useRoomStore
+          .getState()
+          .receive(snapshot('self', role === 'HOST' ? 'HOST' : 'SPEAKER', true, 2));
+        expect(h.session.waiting).toBe(false);
+        expect(h.session.needsCaptureConsent).toBe(true);
+        expect(h.session.peerManager).toBeNull();
+        await h.session.prepare({} as HTMLVideoElement);
+        expect(h.media.prepareCalls).toBe(1);
+        expect(h.connection.media).toHaveBeenCalledOnce();
+      } finally {
+        h.session.dispose();
+      }
+    },
+  );
+
+  it('joins a live admission meeting without capture and drops without a resume attempt', async () => {
+    const h = harness({ room: { ...room, requireAdmission: true }, userId: 'guest' });
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'WAITING', false, 1), waitingParticipantIds: ['self'] });
+      return { ok: true, participantId: 'self', iceServers: [] };
+    });
+    try {
+      await h.session.join();
+      expect(h.session.waiting).toBe(true);
+      expect(h.media.prepareCalls).toBe(0);
+      h.callbacks()!.onDisconnect();
+      expect(h.session.phase).toBe('lobby');
+      expect(h.opens).toHaveBeenCalledOnce();
+      expect(h.connection.resume).not.toHaveBeenCalled();
+    } finally {
+      h.session.dispose();
+    }
+  });
+
+  it('releases a scheduled webinar waiter as an attendee without capture or peers', async () => {
+    const h = harness({ room: { ...webinar, status: 'SCHEDULED' }, userId: 'guest' });
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'WAITING', false, 1), status: 'SCHEDULED' });
+      return { ok: true, participantId: 'self', iceServers: [] };
+    });
+    try {
+      await h.session.join();
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'ATTENDEE', false, 2), mode: 'WEBINAR' });
+      expect(h.session.waiting).toBe(false);
+      expect(h.session.audience).toBe('attendee');
+      expect(h.session.needsCaptureConsent).toBe(false);
+      expect(h.media.prepareCalls).toBe(0);
+      expect(h.session.peerManager).toBeNull();
+    } finally {
+      h.session.dispose();
+    }
+  });
+
+  it('remembers only the current room and participant credential and resumes without capture', async () => {
+    const h = harness({ room: { ...room, status: 'SCHEDULED' }, freshConnections: true });
+    h.connection.join.mockImplementation(async () => {
+      useRoomStore.getState().joined('self', []);
+      useRoomStore
+        .getState()
+        .receive({ ...snapshot('self', 'HOST', false, 1), status: 'SCHEDULED' });
+      return { ok: true, participantId: 'self', iceServers: [] };
+    });
+    try {
+      await h.session.join();
+      h.callbacks()!.onResumeCredential?.({
+        roomId: 'other',
+        participantId: 'self',
+        resumeCredential: 'wrong',
+      });
+      h.callbacks()!.onResumeCredential?.({
+        roomId: room.id,
+        participantId: 'other',
+        resumeCredential: 'wrong',
+      });
+      h.callbacks()!.onResumeCredential?.({
+        roomId: room.id,
+        participantId: 'self',
+        resumeCredential: 'granted',
+      });
+      useRoomStore.getState().receive(snapshot('self', 'HOST', true, 2));
+      h.callbacks()!.onDisconnect();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(h.opened[1]!.connection.resume).toHaveBeenCalledWith({
+        roomId: room.id,
+        participantId: 'self',
+        resumeCredential: 'granted',
+      });
+      expect(h.media.prepareCalls).toBe(0);
+    } finally {
+      h.session.dispose();
+    }
+  });
+});
+
+it.each([
+  { roomId: 'other', participantId: 'self' },
+  { roomId: room.id, participantId: 'other' },
+])('rejects a resume grant for a different identity %j', async (identity) => {
+  const h = harness({ room: { ...room, status: 'SCHEDULED' } });
+  h.connection.join.mockImplementation(async () => {
+    useRoomStore.getState().joined('self', []);
+    useRoomStore.getState().receive({ ...snapshot('self', 'HOST', false, 1), status: 'SCHEDULED' });
+    return { ok: true, participantId: 'self', iceServers: [] };
+  });
+  try {
+    await h.session.join();
+    h.callbacks()!.onResumeCredential?.({ ...identity, resumeCredential: 'wrong' });
+    h.callbacks()!.onDisconnect();
+    expect(h.session.phase).toBe('lobby');
+    expect(h.opens).toHaveBeenCalledOnce();
+  } finally {
+    h.session.dispose();
+  }
+});
+
+it('keeps Start retry available when the live snapshot precedes a failed catalog acknowledgement', async () => {
+  const h = harness({ room: { ...room, status: 'SCHEDULED' } });
+  h.connection.join.mockImplementation(async () => {
+    useRoomStore.getState().joined('self', []);
+    useRoomStore.getState().receive({ ...snapshot('self', 'HOST', false, 1), status: 'SCHEDULED' });
+    return { ok: true, participantId: 'self', iceServers: [] };
+  });
+  h.connection.startRoom.mockImplementationOnce(async () => {
+    useRoomStore.getState().receive(snapshot('self', 'HOST', true, 2));
+    return { ok: false, error: 'server_error', message: 'Start is not confirmed.' } as const;
+  });
+  try {
+    await h.session.join();
+    await h.session.startRoom();
+    expect(h.session.waiting).toBe(false);
+    expect(h.session.startUnconfirmed).toBe(true);
+    expect(h.session.needsCaptureConsent).toBe(true);
+    await h.session.startRoom();
+    expect(h.session.startUnconfirmed).toBe(false);
+    expect(h.media.prepareCalls).toBe(0);
+    expect(h.connection.startRoom).toHaveBeenCalledTimes(2);
+  } finally {
+    h.session.dispose();
+  }
 });

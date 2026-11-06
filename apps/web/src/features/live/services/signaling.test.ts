@@ -603,3 +603,47 @@ describe('signaling connection ownership', () => {
     expect(own.onDescription).not.toHaveBeenCalled();
   });
 });
+
+it('sends scheduled host commands through the joined socket and bounds early credential delivery', async () => {
+  const credential = vi.fn();
+  const connection = openIndependentSignaling('token', 'room', {
+    ...callbacks(),
+    onResumeCredential: credential,
+  });
+  connections.push(connection);
+  expect(await connection.startRoom()).toMatchObject({ error: 'not_joined' });
+  const socket = sockets.at(-1)!;
+  socket.beforeAck = () => {
+    socket.emit('room:resume-credential', {
+      roomId: 'room',
+      participantId: socket.id,
+      resumeCredential: 'granted',
+    });
+    expect(credential).not.toHaveBeenCalled();
+  };
+  await connection.join(joinRequest);
+  expect(credential).toHaveBeenCalledOnce();
+  socket.emit('room:resume-credential', {
+    roomId: 'different',
+    participantId: socket.id,
+    resumeCredential: 'wrong',
+  });
+  expect(credential).toHaveBeenCalledOnce();
+  await connection.startRoom();
+  await connection.admit('waiter');
+  await connection.removeWaiter('waiter');
+  await connection.cancelRoom();
+  expect(socket.emitWithAck.mock.calls.slice(-4)).toEqual([
+    ['room:start'],
+    ['stage:admit', { targetParticipantId: 'waiter' }],
+    ['stage:remove-waiter', { targetParticipantId: 'waiter' }],
+    ['room:cancel'],
+  ]);
+  connection.close();
+  socket.emit('room:resume-credential', {
+    roomId: 'room',
+    participantId: socket.id,
+    resumeCredential: 'obsolete',
+  });
+  expect(credential).toHaveBeenCalledOnce();
+});

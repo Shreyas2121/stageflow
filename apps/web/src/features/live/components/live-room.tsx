@@ -9,6 +9,7 @@ import { useLiveRoom } from '../hooks/use-live-room';
 import { useScreenShare } from '../hooks/use-screen-share';
 import { DemoControls } from './demo-controls';
 import { DevicePanel } from './device-panel';
+import { WaitingRoom } from './waiting-room';
 import { GreenRoom } from './green-room';
 import { ParticipantList } from './participant-list';
 import { RoomControls } from './room-controls';
@@ -27,8 +28,10 @@ export function LiveRoom({
   const live = useLiveRoom(room, session, onEnded);
   const share = useScreenShare(live);
   const demos = useDemoPeers(live);
-  const snapshot = useRoomStore((state) => state.snapshot);
-  const selfParticipantId = useRoomStore((state) => state.selfParticipantId);
+  const snapshot = useRoomStore((state) => (state.roomId === room.id ? state.snapshot : null));
+  const selfParticipantId = useRoomStore((state) =>
+    state.roomId === room.id ? state.selfParticipantId : null,
+  );
   const self = snapshot?.participants.find(
     (participant) => participant.participantId === selfParticipantId,
   );
@@ -38,6 +41,7 @@ export function LiveRoom({
   const onStage = Boolean(
     selfParticipantId && snapshot?.stageParticipantIds.includes(selfParticipantId),
   );
+  const waiting = live.waiting && !ended;
   const showLobby = !inRoom || live.needsCaptureConsent;
   const showPreview = showLobby && live.audience === 'stage';
   const audioMuted = self?.isAudioMuted ?? live.isAudioMuted;
@@ -69,7 +73,9 @@ export function LiveRoom({
                 ? 'This room has ended.'
                 : inRoom
                   ? `Welcome, ${session.displayName}`
-                  : 'Your green room'}
+                  : waiting
+                    ? 'Your waiting room'
+                    : 'Your green room'}
             </h2>
           </div>
           <span className="max-w-[110px] shrink-0 text-right text-xs text-muted layout:max-w-none">
@@ -90,13 +96,39 @@ export function LiveRoom({
         {self?.role === 'HOST' && onStage && snapshot && live.peerManager && (
           <StatsDrawer manager={live.peerManager} snapshot={snapshot} />
         )}
-        {self?.role === 'HOST' && live.phase === 'joined' && (
+        {self?.role === 'HOST' && onStage && live.phase === 'joined' && (
           <DemoControls
             count={demos.count}
             starting={demos.starting}
             spawnDisabled={demos.starting || demos.count >= 3}
             onSpawn={demos.spawn}
             onRemove={demos.remove}
+          />
+        )}
+        {(waiting ||
+          (self?.role === 'HOST' &&
+            !ended &&
+            snapshot?.status === 'LIVE' &&
+            (snapshot.waitingParticipantIds.length > 0 || live.startUnconfirmed))) && (
+          <WaitingRoom
+            snapshot={snapshot}
+            host={room.hostId === session.userId}
+            joined={inRoom}
+            scheduled={live.roomStatus === 'SCHEDULED'}
+            requireAdmission={room.requireAdmission}
+            retryStart={live.startUnconfirmed}
+            busy={
+              live.phase === 'joining' ||
+              live.phase === 'leaving' ||
+              recovering ||
+              live.mediaPending
+            }
+            onJoin={() => void live.join()}
+            onLeave={() => void live.leave()}
+            onStart={() => void live.startRoom()}
+            onCancel={() => void live.cancelRoom()}
+            onAdmit={(id) => void live.admit(id)}
+            onRemove={(id) => void live.removeWaiter(id)}
           />
         )}
         <div
@@ -106,7 +138,7 @@ export function LiveRoom({
               : ''
           }
         >
-          {showLobby && !ended && (
+          {showLobby && !ended && !waiting && (
             <GreenRoom
               attendee={!showPreview}
               media={live.media}
@@ -154,7 +186,7 @@ export function LiveRoom({
         {live.phase === 'joined' && self?.role === 'ATTENDEE' && (
           <AttendeeBroadcast broadcast={snapshot?.broadcast ?? null} token={session.token} />
         )}
-        {(selects.camera || selects.microphone || selects.speaker) && (
+        {!waiting && (selects.camera || selects.microphone || selects.speaker) && (
           <DevicePanel
             selects={selects}
             devices={live.devices}
@@ -191,7 +223,7 @@ export function LiveRoom({
             Error: {live.error}
           </p>
         )}
-        {!ended && (
+        {!ended && !waiting && (
           <RoomControls
             attendee={live.audience === 'attendee'}
             inRoom={inRoom}
@@ -212,7 +244,7 @@ export function LiveRoom({
             showHand={self?.role === 'ATTENDEE'}
             showShare={Boolean(inRoom && onStage && live.peerManager)}
             showBroadcast={
-              live.phase === 'joined' && room.mode === 'WEBINAR' && self?.role === 'HOST'
+              onStage && live.phase === 'joined' && room.mode === 'WEBINAR' && self?.role === 'HOST'
             }
             broadcasting={live.broadcastActive}
             onStartBroadcast={() => void live.startBroadcast()}

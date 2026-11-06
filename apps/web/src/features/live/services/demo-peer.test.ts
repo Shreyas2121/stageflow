@@ -86,6 +86,10 @@ beforeEach(() => {
     promote: vi.fn(async () => ({ ok: true as const })),
     demote: vi.fn(async () => ({ ok: true as const })),
     setLock: vi.fn(async () => ({ ok: true as const })),
+    startRoom: vi.fn(async () => ({ ok: true as const })),
+    cancelRoom: vi.fn(async () => ({ ok: true as const })),
+    admit: vi.fn(async () => ({ ok: true as const })),
+    removeWaiter: vi.fn(async () => ({ ok: true as const })),
     startBroadcast: vi.fn(async () => ({ ok: true as const })),
     stopBroadcast: vi.fn(async () => ({ ok: true as const })),
   };

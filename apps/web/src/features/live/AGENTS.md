@@ -20,6 +20,7 @@ The named tests are in `services/`. Search their test titles before reading the 
 
 ## Lifecycle constraints
 
+- Scheduled hosts and waiters join through RoomSession without media. [waiting-room.tsx](components/waiting-room.tsx) renders the queue; [lazy-room-media.ts](services/lazy-room-media.ts) defers capture-owner construction until an explicit device action. Start/Admit require capture consent after the server grants a seat. Targeted resume credentials belong only to the active connection, room, and membership; keep this handling in the coordinator used by the hook.
 - A fresh transport must earn server authority; discard obsolete callbacks and stage events. Resume keeps the selected bounded schedule, captures nothing, and leaves media off until an explicit action. Leave/pagehide/disposal cancel recovery; pageshow does not rejoin.
 - Device work belongs to the generation that accepted it, including queued requests. Release late tracks and suppress stale rollback errors. LocalMedia owns capture; PeerManager owns senders; the device controller coordinates them through room capabilities.
 - Keep one negotiated audio/video transceiver per peer. The initial impolite endpoint offers; missing polite-side kinds are adopted from that offer. Compatible replacement uses owned senders, not an arbitrary first-by-kind lookup. Preserve the shared negotiation reducer and bounded ICE handling.
