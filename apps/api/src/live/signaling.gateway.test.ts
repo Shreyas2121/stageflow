@@ -275,7 +275,7 @@ it('gives synthetic joins no resume credential and rejects an expired JWT before
   const resume = vi.fn();
   const verifyToken = vi.fn().mockRejectedValue(new Error('expired'));
   const gateway = new SignalingGateway(
-    { verifyToken } as unknown as SessionsService,
+    { verifyToken, onSessionChange: () => () => {} } as unknown as SessionsService,
     { join, resume } as unknown as LiveService,
     {} as LiveConnection,
     {} as ChatService,
@@ -355,7 +355,7 @@ it('drops sockets on Redis loss without trying to end catalog rooms', async () =
     await connection.open();
     const leave = vi.fn();
     const gateway = new SignalingGateway(
-      { verifyToken: vi.fn() } as unknown as SessionsService,
+      { verifyToken: vi.fn(), onSessionChange: () => () => {} } as unknown as SessionsService,
       { leave } as unknown as LiveService,
       connection,
       {} as ChatService,
@@ -385,7 +385,7 @@ it('bounds concurrent authentication before starting additional user lookups', a
   });
   const verifyToken = vi.fn(() => gate);
   const gateway = new SignalingGateway(
-    { verifyToken } as unknown as SessionsService,
+    { verifyToken, onSessionChange: () => () => {} } as unknown as SessionsService,
     {} as LiveService,
     { whenLost: () => {} } as unknown as LiveConnection,
     {} as ChatService,
@@ -500,7 +500,7 @@ it('strictly parses chat payloads and uses only the socket-bound membership and 
 
 it('charges chat and Q&A events to the socket event budget and preserves the leave bypass', () => {
   const gateway = new SignalingGateway(
-    {} as SessionsService,
+    { tokenDeadline: () => Date.now() + 60000 } as unknown as SessionsService,
     {} as LiveService,
     {} as LiveConnection,
     {} as ChatService,
@@ -509,6 +509,8 @@ it('charges chat and Q&A events to the socket event budget and preserves the lea
   let middleware!: (packet: unknown[], next: () => void) => void;
   gateway.handleConnection({
     data: { user: { id: 'budget-user' } },
+    connected: true,
+    handshake: { auth: { token: 'token' } },
     use: (handler: typeof middleware) => {
       middleware = handler;
     },

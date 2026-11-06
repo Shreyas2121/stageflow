@@ -203,3 +203,19 @@ All six slices are committed. The next requested phase may rely on these:
 V3 phase 2 is specified in [phase2.md](phase2.md). It adds optional Google on top of this account row and must not treat a Google email as a merge key. That file does not authorize implementation.
 
 This phase does not make V2 acceptance complete. Leave the open ids open.
+
+## Maintenance: V3-R01 / V3M-C02 (2026-11-06)
+
+Status: verified. Proposed commit: `fix(auth): revoke established socket sessions`.
+Actual commit:
+
+Established sockets now enforce the verified JWT deadline, including idle connections. Every protected packet passes the same authorization lease; explicit leave retains its bypass. Password changes and guest promotion invalidate this process's sockets immediately after transaction commit. The namespace has one API writer under LiveConnection's existing owner guard. External account changes have a five-second freshness bound during activity, with one coalesced lookup per socket per interval rather than a lookup per ICE candidate. Failed revalidation disconnects through the existing suspension, resume-generation, and bounded host-expiry lifecycle. Timers and the session-change subscription are disposed on disconnect/shutdown.
+
+Evidence:
+
+- Focused session/gateway/lease tests: 95 passed. Controlled clock tests cover idle expiry, rejected authorization, coalesced 100-packet bursts, and revocation during an outstanding freshness lookup.
+- API package tests: 522 passed across 36 files, including owned Redis and disposable PostgreSQL fixtures. API typecheck, lint, build, and artifact checks passed.
+- The maintained compiled live smoke uses two actual sockets for one registered account and the real password-change service with a controlled user repository. Both old transports disconnect, the HTTP guard's token verifier rejects the old token, a new old-token handshake fails, and the replacement token resumes exactly one host seat. A second password change during suspension rejects the intermediate token and host expiry ends the room. Existing media, chat, Q&A, recovery, and cleanup checks pass. This is not a separate HTTP network probe.
+- `pnpm check:affected --plan --files apps/api/src/live/signaling.gateway.ts apps/api/src/sessions/sessions.service.ts scripts/smoke-live.mjs` selected the full release gate. `pnpm check:release` passed: 49 tooling, 454 shared, 525 web, and 522 API tests; workspace typecheck/lint; builds; formatting; artifacts; and both smokes. FFmpeg came from the existing temporary `stageflow-ffmpeg-b6.0/ffmpeg.exe` through process-local `FFMPEG_PATH`; no environment file changed. The broadcast smoke applied all seven migrations, decoded video/audio, and preserved READY media across restart.
+
+No physical-device acceptance, Google provider round trip, VPS capacity, or production launch approval is claimed. The untracked review report remains outside the commit.

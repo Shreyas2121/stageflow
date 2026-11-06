@@ -52,6 +52,7 @@ import { WindowBudget } from '../admission/window-budget';
 import { networkIdentity } from '../admission/network-identity';
 import { ChatService, type ChatTransport } from '../chat/chat.service';
 import { QaService, type QaTransport } from '../qa/qa.service';
+import { SocketAuthorization } from './socket-authorization';
 
 function isEmptyPayload(payload: unknown): boolean {
   return (
@@ -65,6 +66,7 @@ function isEmptyPayload(payload: unknown): boolean {
 
 type SocketData = {
   user: User;
+  authorization?: SocketAuthorization;
   room?: LiveRoom;
   participantId?: string;
   generation?: number;
@@ -91,6 +93,7 @@ export class SignalingGateway
   @WebSocketServer() server: RoomServer;
   private shuttingDown = false;
   private pendingAuth = 0;
+  private unsubscribeSessions?: () => void;
   private readonly connections = new WindowBudget(
     env.SOCKET_CONNECT_RATE_LIMIT,
     env.RATE_WINDOW_MS,
@@ -211,6 +214,11 @@ export class SignalingGateway
     },
   };
   afterInit(server: RoomServer): void {
+    this.unsubscribeSessions = this.sessions.onSessionChange((userId) => {
+      for (const socket of server.sockets.sockets.values()) {
+        if (socket.data.user.id === userId) socket.data.authorization?.revoke();
+      }
+    });
     this.connection.whenLost(() => {
       // Leave cannot finish while Redis is down, and catalog rows stay LIVE until a later restart.
       this.shuttingDown = true;
@@ -239,13 +247,30 @@ export class SignalingGateway
   }
 
   handleConnection(client: GuestSocket): void {
+    client.data.authorization = new SocketAuthorization(
+      this.sessions,
+      client.handshake.auth.token as string,
+      client.data.user,
+      this.sessions.tokenDeadline(client.handshake.auth.token as string),
+      () => client.disconnect(true),
+    );
     client.use((packet, next) => {
-      if (packet[0] === 'room:leave' || this.events.consume(client.data.user.id)) {
+      if (packet[0] === 'room:leave') {
         next();
         return;
       }
       const ack: unknown = packet.at(-1);
-      if (typeof ack === 'function') ack(failure('rate_limited'));
+      if (!this.events.consume(client.data.user.id)) {
+        if (typeof ack === 'function') ack(failure('rate_limited'));
+        return;
+      }
+      const proceed = (valid: boolean) => {
+        if (valid && client.connected) next();
+        else if (typeof ack === 'function') ack(failure('not_connected'));
+      };
+      const valid = client.data.authorization!.valid();
+      if (typeof valid === 'boolean') proceed(valid);
+      else void valid.then(proceed);
     });
   }
 
@@ -596,11 +621,15 @@ export class SignalingGateway
   }
 
   handleDisconnect(client: GuestSocket): void {
+    client.data?.authorization?.dispose();
     delete client.data?.joinCredential;
     if (!this.shuttingDown) void this.live.disconnect(this.session(client), this.transport);
   }
 
   onModuleDestroy(): void {
     this.shuttingDown = true;
+    this.unsubscribeSessions?.();
+    for (const socket of this.server?.sockets.sockets.values() ?? [])
+      socket.data.authorization?.dispose();
   }
 }

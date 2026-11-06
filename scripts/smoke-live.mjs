@@ -78,7 +78,28 @@ try {
     secret: process.env.JWT_SECRET,
     signOptions: { algorithm: 'HS256', expiresIn: '5m' },
   });
-  const sessions = new SessionsService({ findOneBy: async ({ id }) => users.get(id) ?? null }, jwt);
+  const userRepository = {
+    findOneBy: async ({ id }) => users.get(id) ?? null,
+    createQueryBuilder: () => {
+      let userId;
+      const query = {
+        addSelect: () => query,
+        where: (_sql, values) => {
+          userId = values.id;
+          return query;
+        },
+        setLock: () => query,
+        getOne: async () => users.get(userId) ?? null,
+      };
+      return query;
+    },
+    save: async (user) => {
+      users.set(user.id, user);
+      return user;
+    },
+    manager: { transaction: async (work) => work({ getRepository: () => userRepository }) },
+  };
+  const sessions = new SessionsService(userRepository, jwt);
   const host = { id: randomUUID(), displayName: 'Smoke host', isGuest: true, sessionVersion: 0 };
   const guest = { id: randomUUID(), displayName: 'Smoke guest', isGuest: true, sessionVersion: 0 };
   users.set(host.id, host);
@@ -482,6 +503,72 @@ try {
   );
   assert.equal((await command(samSocket, 'chat:history')).error, 'not_joined');
   assert.equal((await command(samSocket, 'qa:state')).error, 'not_joined');
+
+  // Real password service and two real transports; only the user repository is controlled.
+  const { hashPassword } = require(`${dist}sessions/password.js`);
+  const account = {
+    id: randomUUID(),
+    displayName: 'Registered host',
+    isGuest: false,
+    sessionVersion: 0,
+    passwordHash: await hashPassword('original-password'),
+  };
+  users.set(account.id, account);
+  const oldToken = await jwt.signAsync({ sub: account.id, sv: 0, guest: false });
+  const openToken = async (token) => {
+    const socket = client(token);
+    const connected = once(socket, 'connect');
+    socket.connect();
+    await connected;
+    return socket;
+  };
+  const oldA = await openToken(oldToken),
+    oldB = await openToken(oldToken);
+  const authRoom = room('MEETING');
+  authRoom.hostId = account.id;
+  const authJoin = await join(oldA, authRoom);
+  assert.equal(authJoin.ok, true);
+  const disconnectedA = once(oldA, 'disconnect'),
+    disconnectedB = once(oldB, 'disconnect');
+  const refreshedSession = await sessions.changePassword(
+    account,
+    'original-password',
+    'replacement-password',
+  );
+  await Promise.all([disconnectedA, disconnectedB]);
+  assert.equal(oldA.connected, false);
+  assert.equal(oldB.connected, false);
+  await assert.rejects(sessions.verifyToken(oldToken)); // Same verifier as the HTTP guard.
+  const stale = client(oldToken),
+    staleDenied = once(stale, 'connect_error');
+  stale.connect();
+  await staleDenied;
+  const fresh = await openToken(refreshedSession.token);
+  await eventually(async () => {
+    const state = await redis.hget(
+      `${roomPrefix(authRoom.id, namespace)}:participants`,
+      authJoin.participantId,
+    );
+    return state && JSON.parse(state).presence === 'suspended';
+  });
+  const recovered = await command(fresh, 'room:resume', {
+    roomId: authRoom.id,
+    participantId: authJoin.participantId,
+    resumeCredential: authJoin.resumeCredential,
+  });
+  assert.equal(recovered.ok, true);
+  assert.equal(await redis.scard(`${roomPrefix(authRoom.id, namespace)}:stage`), 1);
+  assert.equal((await command(fresh, 'media:state', { isAudioMuted: true })).ok, true);
+  // A second password change while suspended must not make old credentials resumable.
+  fresh.disconnect();
+  await sessions.changePassword(
+    await sessions.verifyToken(refreshedSession.token),
+    'replacement-password',
+    'third-password',
+  );
+  await assert.rejects(sessions.verifyToken(refreshedSession.token));
+  await live.expire(authRoom.id, Date.now() + 21_000);
+  await eventually(async () => authRoom.status === 'ENDED');
   console.log(
     'Live smoke passed: JWT/origin rejection, normalized attendee flags and no-op revisions, rejected off-stage activation/relay, ordinary stage media/ICE, suspend/resume/expiry, reserved join rejection, host grace, shutdown retry, event budgets, ordered room chat/history/dedup/pause, Q&A submit/one-vote/private acknowledgements/host moderation, and cleanup.',
   );

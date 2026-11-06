@@ -10,9 +10,25 @@ import { env } from '../config/env';
 import { hashPassword, verifyPassword } from './password';
 import type { GoogleProfile, GoogleCodeExchange } from './google-identity';
 import { googleRejected, googleUnavailable } from './google-exchange';
+import { EventEmitter } from 'node:events';
 
 @Injectable()
 export class SessionsService {
+  private readonly changes = new EventEmitter();
+
+  onSessionChange(listener: (userId: string) => void): () => void {
+    this.changes.on('change', listener);
+    return () => {
+      this.changes.off('change', listener);
+    };
+  }
+
+  tokenDeadline(token: string): number {
+    const payload = this.jwt.decode<{ exp?: number }>(token);
+    return typeof payload?.exp === 'number' && Number.isFinite(payload.exp)
+      ? payload.exp * 1000
+      : 0;
+  }
   private pendingGuests = 0;
   private pendingPasswords = 0;
   private dummyPasswordHash: Promise<string> | undefined;
@@ -175,6 +191,7 @@ export class SessionsService {
           sessionVersion: current.sessionVersion + 1,
         });
       });
+      this.changes.emit('change', user.id);
       return this.hostSession(user);
     });
   }
@@ -248,6 +265,7 @@ export class SessionsService {
         }
         throw error;
       }
+      this.changes.emit('change', user.id);
       return this.hostSession(user);
     });
   }
