@@ -1,6 +1,6 @@
 # V3 Phase 4 — Scheduled rooms and waiting admission
 
-**Status:** complete. C01 through C06 are implemented and verified; final slice hash recording follows.\
+**Status:** complete. C01 through C06 are committed and the final slice hash is recorded.\
 **Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.5`, Sections 4, 7, and 12 (SCH-01 through SCH-05). Identity and replay lifecycle stay as shipped in `plans/phase1.md`, `plans/phase2.md`, and `plans/phase3.md`.\
 **Execution guide:** [phase4/guide.md](phase4/guide.md). That guide owns V3P4-C01 through V3P4-C06. Those ids are not the V1 commits in [V1/phase4/guide.md](V1/phase4/guide.md) or the V2 commits in [V2/phase4/guide.md](V2/phase4/guide.md).\

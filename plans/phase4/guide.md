@@ -1,6 +1,6 @@
 # Guide — V3 Phase 4, commit by commit
 
-**Status:** complete. C01 through C06 are implemented and verified; final slice hash recording follows.\
+**Status:** complete. C01 through C06 are committed and the final slice hash is recorded.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase4.md](../phase4.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.5`. Identity and replay lifecycle stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), and [../phase3.md](../phase3.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -274,9 +274,9 @@ Then check the home form, the waiting panel, and Start in the browser.
 
 ## 7. V3P4-C06 — README
 
-**Status:** verified; commit pending\
+**Status:** committed\
 **Proposed commit message:** `docs(readme): describe scheduled rooms and admission`\
-**Actual commit:**
+**Actual commit:** `bfad84b24a2a1189d78483df5ddfd0c8201e7e88`
 
 **Why:** The README has to say that the advertised time does not start the room and that waiting is off stage.
 
