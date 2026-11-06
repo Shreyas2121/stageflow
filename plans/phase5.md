@@ -1,6 +1,6 @@
 # V3 Phase 5 — Moderated Q&A and the canvas lower-third
 
-**Status:** in progress. V3P5-C01 through C04 are committed; C05 canvas and played-HLS behavior is verified using the existing temporary FFmpeg 6.0 binary. C06 remains planned.\
+**Status:** all six slices verified; C01 through C05 are committed and C06 documentation is ready for commit. QA3-01 through QA3-04 have their required evidence. C05 passed the release check and observed played live HLS/replay with the temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-06.\
 **Master plan:** `MASTER_PLAN_V3.md` version `3.0.0-draft.6`, Sections 4, 9, 10, and 12 (QA3-01 through QA3-04). Identity, Google, replay lifecycle, and scheduling stay as shipped in `plans/phase1.md`, `plans/phase2.md`, `plans/phase3.md`, and `plans/phase4.md`.\
 **Execution guide:** [phase5/guide.md](phase5/guide.md). That guide owns V3P5-C01 through V3P5-C06. Those ids are not the V1 commits in [V1/phase5/guide.md](V1/phase5/guide.md) or the V2 commits in [V2/phase5/guide.md](V2/phase5/guide.md).\
@@ -187,7 +187,7 @@ Host controls, shown only when the connected role is `HOST`, are Dismiss, Featur
 | ID     | Observable result                                                                                                                                                                     | Method                                                                        | Status                            |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------- |
 | QA3-01 | Two members submit and upvote. A forged name is stored as the membership name. Over-long text, controls, question 101, and the rate caps fail with the codes in Section 5.1           | Shared parser tests, real Redis scripts, and a two-window room                | parser/server/browser verified    |
-| QA3-02 | The host dismisses, closes, features, and clears. A non-host is refused. Dismiss of the featured question clears it. A repeat vote does not raise the count                           | Real Redis authorization tests                                                | server/browser verified           |
+| QA3-02 | The host dismisses, closes, features, and clears. A non-host is refused. Dismiss of the featured question clears it. A repeat vote does not raise the count                           | Real Redis authorization tests and browser controls                           | server/browser verified           |
 | QA3-03 | A webinar frame that is already drawing shows the question and author in the played HLS. Tile rectangles are unchanged. A meeting feature leaves broadcast start rejected             | Canvas unit test plus an FFmpeg replay observation when `ffmpeg` is on `PATH` | server/canvas/played-HLS verified |
 | QA3-04 | Existing chat pause, history, and limit checks stay green. A thrown Q&A repository does not change the stage revision or stop the broadcast. A paint throw does not stop the recorder | Existing chat tests plus the isolation tests                                  | chat/server/paint verified        |
 

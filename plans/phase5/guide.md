@@ -1,6 +1,6 @@
 # Guide — V3 Phase 5, commit by commit
 
-**Status:** in progress. V3P5-C01 through C04 are committed; C05 is verified. The C05 release check uses the existing temporary FFmpeg 6.0 binary. C06 remains planned.\
+**Status:** in progress. V3P5-C01 through C05 are committed; C06 documentation is verified and ready for commit. C05 passed the release check and observed the featured author/question in played live HLS and replay using the existing temporary FFmpeg 6.0 binary. Existing V1/V2 gaps remain open.\
 **Last updated:** 2026-11-06.\
 **Phase contract:** [../phase5.md](../phase5.md).\
 **Product authority:** [MASTER_PLAN_V3.md](../../MASTER_PLAN_V3.md) version `3.0.0-draft.6`. Identity, Google, replay lifecycle, and scheduling stay as shipped in [../phase1.md](../phase1.md), [../phase2.md](../phase2.md), [../phase3.md](../phase3.md), and [../phase4.md](../phase4.md). Unchanged V2 rules stay in [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md). Unchanged V1 rules stay in [MASTER_PLAN.md](../../MASTER_PLAN.md) version `1.0.9`.\
@@ -261,9 +261,9 @@ Then typecheck, lint, and the affected-check selection. Browser verification cli
 
 ## 6. V3P5-C05 — Canvas lower-third
 
-**Status:** verified; ready for slice commit\
+**Status:** committed\
 **Proposed commit message:** `feat(web-broadcast): paint the featured question on the canvas`\
-**Actual commit:**
+**Actual commit:** `8832fad`
 
 **Why:** The replay has to contain the question. The sidebar is live and the HLS is behind it. Covers QA3-03 and the paint half of QA3-04.
 
@@ -309,7 +309,7 @@ Then typecheck, lint, and the affected-check selection. Browser or FFmpeg eviden
 
 ## 7. V3P5-C06 — README
 
-**Status:** planned\
+**Status:** verified; ready for slice commit\
 **Proposed commit message:** `docs(readme): describe moderated questions`\
 **Actual commit:**
 
@@ -340,5 +340,12 @@ pnpm exec prettier --check README.md plans/phase5.md plans/phase5/guide.md plans
 Read the edited README against phase Sections 5 and 6.
 
 **Done when:** The README matches the Q&A limits and this guide records C01 through C05. C06's hash is recorded in the follow-up `docs(v3-phase5): record the final slice hash`.
+
+**Verification record (2026-11-06):**
+
+- Updated the README with eligible connected roles, waiting/demo refusal, guest-host moderation, one vote per question, close/open/dismiss/feature/clear behavior, and the exact room-end and mode sentences. The limits table records text/bytes, the retained board, separate submit/vote rates, rate-hash capacity, the Q&A queue, and idle TTL. Draft/uncertain-ack behavior, private vote refresh on resume, Redis-only retention/deletion, and independence from chat/stage/broadcast are explicit.
+- Described the local host banner, webinar canvas text, unchanged tile rectangles, ellipsis truncation, existing WebM/FFmpeg/HLS/replay path, live sidebar versus delayed video, sidebar-only counts, and a meeting's continued lack of broadcast. Added phase/guide links while preserving the identity, Google, replay, schedule, and older contract links.
+- The README and phase acceptance matrix were reviewed against phase Sections 5 and 6. C04's two-window controls and waiting omission and C05's actual played live-HLS/READY-replay observations are recorded, with Chrome/FFmpeg versions, synthetic input/permissions, and the earlier missing-binary release gap distinguished from C05's successful release run. C01 through C05 hashes and evidence remain in this guide. No open V1/V2 acceptance id, MEDIA-04, REC-05, or physical/audible/native-picker observation was marked passed.
+- `pnpm exec prettier --check README.md plans/phase5.md plans/phase5/guide.md plans/README.md` passed. The affected-check plan selected only `format:check`, which passed across the repository. Mechanical validation resolved all 87 local Markdown references and all 8 heading anchors in the four changed files; `git diff --check` passed. This slice changes documentation only; application suites and browser probes were not rerun. C06's real hash and committed status are recorded after its commit in the required final-hash follow-up.
 
 **Handoff:** V3 phase 6 is local acceptance. Do not write `plans/phase6.md` until that phase is requested.
