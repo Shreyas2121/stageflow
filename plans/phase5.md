@@ -242,8 +242,8 @@ The first focused run could not connect to the stopped local Redis. Verification
 
 ## Maintenance: V3M-C11 � Explicit production artifacts (2026-11-07)
 
-Status: verified; ready to commit. Proposed commit: `build: produce and verify explicit production artifacts`.
-Actual commit:
+Status: committed. Proposed commit: `build: produce and verify explicit production artifacts`.
+Actual commit: `337df12`.
 
 R10 and the artifact-packaging portion of R05 are addressed by `pnpm build:production`, which builds shared/API/web and runs artifact verification. Package web builds use a narrow Vite API wrapper that sets production NODE_ENV before imports, selects production mode, validates the resolved public endpoints, and emits mode/endpoint metadata. The checker rejects non-production metadata, development React, invalid or missing compiled endpoint values, or differences from explicitly supplied endpoint inputs, while retaining lazy route/player checks. API/shared checks include compiled migration modules/data source (no connection or automatic migrations), all 31 Lua assets, the password worker, and absence of test/TypeScript-runtime imports. Compiled production start/migration commands do not load the developer environment. README documents frozen installation, build-time endpoint precedence, workspace/runtime layout, external service environment, serialized migrations, and the C12 operating-profile boundary.
 

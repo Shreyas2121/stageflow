@@ -359,7 +359,7 @@ Extract the Q&A-specific authorization, projections, ordering, TTL and rate help
 
 ## Maintenance: V3M-C11 � Explicit production artifacts (2026-11-07)
 
-Status: verified; ready to commit. Proposed commit: `build: produce and verify explicit production artifacts`.
-Actual commit:
+Status: committed. Proposed commit: `build: produce and verify explicit production artifacts`.
+Actual commit: `337df12`.
 
 Add explicit production builds and resolved mode/public-endpoint evidence, verify compiled runtime/migration assets, and document build-time URLs plus compiled production commands. Four focused tooling regressions and clean frozen-install production builds passed with the example development environment. A production-only dependency installation passed artifact verification, compiled CLI migration/repeat, and real compiled production API bootstrap without source or ts-node. The full release gate passed: 53 tooling, 456 shared, 527 web, 588 API tests, workspace typecheck/lint, both builds, formatting/artifacts, and live/broadcast smokes. Audit also passed. Detailed commands, clean-runtime evidence, and C12/acceptance limits are recorded in [phase5.md](../phase5.md).
