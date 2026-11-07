@@ -30,6 +30,7 @@ Tests are adjacent to these modules. The broadcast test names above are in `src/
 - Identity comes from verified authentication, not request-supplied host/user ids. Preserve slug-capability access separately from the host-filtered room list.
 - Keyset ordering uses exact PostgreSQL timestamp text and UUID comparison. Keep human-facing Date serialization separate from cursor precision; retain the shared cursor compatibility contract.
 - Add a new migration for schema changes; do not edit applied migrations or enable automatic synchronization. Update data-source registration and explicit migration-list assertions in integration/smoke fixtures together.
+- `DATABASE_POOL_MAX` is optional. Unset keeps the driver default of 10. The shared-host profile sets 4 so one project cannot take the whole connection budget.
 - An ambiguous reservation failure can leave a committed claim. Retain cleanup evidence and conditionally clear only the known attempt; stale cleanup must preserve a newer claim. Keep cleanup idempotent and bounded.
 - Room broadcast projections are a reloadable LRU capped at 256 entries, including missing results and unfinished loads. Eviction must not discard running/abandoned cleanup state or encoder reservations. An older read cannot repopulate an invalidated entry or overwrite a newer lifecycle projection.
 - Preserve admission/media budgets and media-path confinement. Missing FFmpeg must not prevent ordinary API/stage use. Keep chat work independent from the stage operation queue.

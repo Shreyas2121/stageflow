@@ -8,6 +8,16 @@ import { gzipSync } from 'node:zlib';
 import { verifyProductionWeb } from './production-artifacts.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+
+function artifactDatabaseEnv() {
+  const env = {
+    ...process.env,
+    DATABASE_URL: 'postgresql://artifact:artifact@127.0.0.1:1/artifact',
+  };
+  // An inherited pool cap must not change this compile-time load check.
+  delete env.DATABASE_POOL_MAX;
+  return env;
+}
 const args = process.argv.slice(2);
 assert(
   args.every((arg) => ['--api', '--web'].includes(arg)),
@@ -134,7 +144,7 @@ if (!args.length || args.includes('--api')) {
     {
       encoding: 'utf8',
       windowsHide: true,
-      env: { ...process.env, DATABASE_URL: 'postgresql://artifact:artifact@127.0.0.1:1/artifact' },
+      env: artifactDatabaseEnv(),
     },
   );
   assert.equal(

@@ -184,6 +184,10 @@ describe('invalid configuration', () => {
     ['LIVE_PENDING_LIMIT', 'Infinity'],
     ['STUN_URL', 'https://example.org'],
     ['TURN_URL', 'turn:example.org:99999'],
+    ['DATABASE_POOL_MAX', '0'],
+    ['DATABASE_POOL_MAX', '21'],
+    ['DATABASE_POOL_MAX', '4.5'],
+    ['DATABASE_POOL_MAX', ''],
   ])('rejects %s=%s with a field-specific diagnostic', (key, value) => {
     expect(() => parseConfig({ ...valid, [key]: value })).toThrow(key);
   });
@@ -224,6 +228,11 @@ it('keeps migrations database-only and never includes secret values in diagnosti
   expect(parseDatabaseConfig({ DATABASE_URL: valid.DATABASE_URL, JWT_SECRET: 'invalid' })).toEqual({
     DATABASE_URL: valid.DATABASE_URL,
   });
+  expect(parseConfig(valid).DATABASE_POOL_MAX).toBeUndefined();
+  expect(
+    parseDatabaseConfig({ DATABASE_URL: valid.DATABASE_URL, DATABASE_POOL_MAX: '4' })
+      .DATABASE_POOL_MAX,
+  ).toBe(4);
   const secretUrl = 'http://private-user:private-password@localhost/db';
   try {
     parseDatabaseConfig({ DATABASE_URL: secretUrl });

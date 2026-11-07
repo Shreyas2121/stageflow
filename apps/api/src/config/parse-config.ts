@@ -75,7 +75,19 @@ export function normalizeAddress(address: string): string {
   return value;
 }
 
-export const databaseSchema = z.object({ DATABASE_URL: serviceUrl(/^postgres(?:ql)?$/) });
+// Unset keeps the PostgreSQL driver's default of 10. Shared-host production sets 4.
+const optionalPoolMax = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, 'Must be an integer string.')
+  .transform(Number)
+  .pipe(z.number().int().min(1).max(20))
+  .optional();
+
+export const databaseSchema = z.object({
+  DATABASE_URL: serviceUrl(/^postgres(?:ql)?$/),
+  DATABASE_POOL_MAX: optionalPoolMax,
+});
 export const apiConfigSchema = databaseSchema
   .extend({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

@@ -15,9 +15,15 @@ import { AddBroadcastVisibility1794096000000 } from '../migrations/1794096000000
 
 import { AddRoomSchedule1794182400000 } from '../migrations/1794182400000-AddRoomSchedule';
 
+const databaseConfig = parseDatabaseConfig(process.env);
+
 export const databaseOptions: DataSourceOptions = {
   type: 'postgres',
-  url: parseDatabaseConfig(process.env).DATABASE_URL,
+  url: databaseConfig.DATABASE_URL,
+  // Omit poolSize when unset so node-postgres keeps its default of 10.
+  ...(databaseConfig.DATABASE_POOL_MAX === undefined
+    ? {}
+    : { poolSize: databaseConfig.DATABASE_POOL_MAX }),
   uuidExtension: 'pgcrypto',
   installExtensions: false,
   entities: [User, Room, Broadcast],
