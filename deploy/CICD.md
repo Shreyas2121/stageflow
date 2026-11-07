@@ -57,6 +57,28 @@ acceptance. Nginx and TLS are never changed by this pipeline.
    `/opt/stageflow/current/apps/web/dist`. Install Python 3.12+ and sudo if absent.
    Validate installed units with `systemd-analyze verify`; do not replace units
    from CI. No application secret leaves `/etc/stageflow/stageflow.env`.
+
+   The unprivileged API startup check reads the deployment marker only from
+   `$CREDENTIALS_DIRECTORY/external-services`. The canonical API unit uses
+   `LoadCredential=external-services:/etc/stageflow/external-services`, so systemd
+   supplies a service-readable copy while `/etc/stageflow` stays inaccessible and
+   the source stays root-only. The exact `sf-external-shared-services` token is
+   required (an optional final line ending is allowed). Missing, unreadable,
+   malformed or conflicting credentials fail closed; production never falls back
+   to dedicated Compose mode. Root infrastructure/backup checks still read the
+   protected source markers directly. See [systemd credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#Credentials).
+
+   For an existing host, the prepared root-owned
+   `/etc/systemd/system/stageflow.service.d/10-external-credential.conf` containing
+   that `LoadCredential=` directive is sufficient with the fixed application;
+   no permission or sandbox relaxation is needed. Installing/reloading units is
+   a separate authorized operator action, never performed by this release code.
+   The failed immutable `0433341` release must remain untouched. Build the fix
+   under a new commit, retain the pre-migration snapshot, and inspect the actual
+   migration state before a later approved deployment. A reported successful
+   migration does not authorize an automatic application rollback or restore.
+   Pushing the fix branch alone does not invoke the main-branch release workflow.
+
 2. Review `ci-deploy.py` before installing it. Create a dedicated account, with
    no Docker, stageflow or administrator group memberships. Its shell is needed
    by OpenSSH to launch the forced command, but the key cannot invoke a shell.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, copyFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, copyFileSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -23,7 +23,106 @@ import {
   interpretInspect,
   interpretRedisPing,
   redisPingArgs,
+  serviceDeploymentMode,
 } from '../deploy/external.mjs';
+
+test('the service reads the external credential without accessing protected /etc markers', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'sf-credential-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(join(directory, 'external-services'), `${EXTERNAL_TOKEN}\n`);
+  assert.equal(await serviceDeploymentMode({ CREDENTIALS_DIRECTORY: directory }), 'external');
+  const unit = readFileSync(new URL('../deploy/stageflow.service', import.meta.url), 'utf8');
+  assert.match(unit, /^LoadCredential=external-services:\/etc\/stageflow\/external-services$/m);
+  assert.match(unit, /^User=stageflow$/m);
+  assert.match(unit, /^InaccessiblePaths=.*\/etc\/stageflow$/m);
+  assert.doesNotMatch(unit, /^ExecStartPre=\+/m);
+});
+
+test('external startup fails closed for absent, unreadable and malformed credentials', async () => {
+  const directory = join(tmpdir(), 'sf-service-credentials');
+  const env = { CREDENTIALS_DIRECTORY: directory };
+  const missing = async () => {
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  for (const directory of [undefined, '', 'relative']) {
+    await assert.rejects(serviceDeploymentMode({ CREDENTIALS_DIRECTORY: directory }, missing));
+  }
+  await assert.rejects(serviceDeploymentMode(env, missing), /credential is required/);
+  // Even a fixture credential cannot make the default production mode fall back.
+  await assert.rejects(
+    serviceDeploymentMode(env, async (path) => {
+      if (path === join(directory, 'fixture-only')) return 'sf-c12-disposable';
+      return missing();
+    }),
+    /Dedicated mode is forbidden/,
+  );
+  await assert.rejects(
+    serviceDeploymentMode(env, async () => {
+      throw Object.assign(new Error('do not log private paths'), { code: 'EACCES' });
+    }),
+    /credential could not be read/,
+  );
+  for (const text of [
+    '',
+    'sf-external-shared-service',
+    ` ${EXTERNAL_TOKEN}`,
+    `${EXTERNAL_TOKEN} `,
+    `${EXTERNAL_TOKEN}\nextra`,
+    `${EXTERNAL_TOKEN}\n\n`,
+    `${EXTERNAL_TOKEN}\0`,
+    '\ufffd',
+  ]) {
+    await assert.rejects(
+      serviceDeploymentMode(env, async (path) => {
+        if (path === join(directory, 'external-services')) return text;
+        return missing();
+      }),
+      /marker is present but invalid/,
+    );
+  }
+});
+
+test('dedicated service mode requires an explicit fixture credential and refuses conflicting authority', async () => {
+  const directory = join(tmpdir(), 'sf-service-credentials');
+  const env = { CREDENTIALS_DIRECTORY: directory, STAGEFLOW_DEPLOYMENT_MODE: 'dedicated' };
+  const reader = (files) => async (path) => {
+    if (Object.hasOwn(files, path)) return files[path];
+    throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+  };
+  const fixture = { [join(directory, 'fixture-only')]: 'sf-c12-disposable' };
+  assert.equal(await serviceDeploymentMode(env, reader(fixture)), 'dedicated');
+  await assert.rejects(serviceDeploymentMode(env, reader({})));
+  await assert.rejects(
+    serviceDeploymentMode(env, reader({ [join(directory, 'fixture-only')]: 'wrong' })),
+  );
+  const both = { ...fixture, [join(directory, 'external-services')]: EXTERNAL_TOKEN };
+  await assert.rejects(serviceDeploymentMode(env, reader(both)));
+  await assert.rejects(serviceDeploymentMode({ CREDENTIALS_DIRECTORY: directory }, reader(both)));
+  await assert.rejects(
+    serviceDeploymentMode({ ...env, STAGEFLOW_DEPLOYMENT_MODE: 'automatic' }, reader(fixture)),
+  );
+});
+
+test('the production check CLI refuses a missing credential before dependency or ownership work', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sf-missing-credential-'));
+  try {
+    const result = spawnSync(process.execPath, ['deploy/ops.mjs', 'check'], {
+      cwd: new URL('../', import.meta.url),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CREDENTIALS_DIRECTORY: directory,
+        STAGEFLOW_DEPLOYMENT_MODE: 'external',
+      },
+    });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /external-services credential is required/);
+    assert.doesNotMatch(result.stderr, /deployment marker could not be read/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 const profile = {
   NODE_ENV: 'production',

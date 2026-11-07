@@ -96,3 +96,58 @@ TURN, physical-device, audible-output and native-picker gates remain open.
 Production automation stays disabled unless `STAGEFLOW_AUTO_DEPLOY=true`; the
 initial release path is manual dispatch on main. Bootstrap, environment approval
 configuration and a verified pre-migration backup remain required before use.
+
+## Credential startup fix, 2026-11-07
+
+The operator reported that immutable release `0433341` reached a successful
+migration service run but failed the API's unprivileged startup check because
+the protected `/etc/stageflow` marker was inaccessible. This is operator-provided
+incident evidence; this fix did not contact the VPS or rerun its migrations.
+
+The startup check now reads systemd's `external-services` credential. Its exact
+token validation fails closed for a missing directory/file, permission failure,
+malformed token or conflicting fixture authority. Production is the default;
+credential absence never selects dedicated mode. The canonical API unit supplies
+`LoadCredential=external-services:/etc/stageflow/external-services`. The existing
+root-only source permissions and `InaccessiblePaths=/etc/stageflow` remain intact.
+The prepared operator drop-in is compatible with this application fix. Root
+infrastructure marker reads, migration service, release receiver, owner fencing
+and rollback rules are unchanged.
+
+Dedicated fixtures explicitly select dedicated mode and load the exact
+`sf-c12-disposable` fixture credential using the new fixture-only drop-in.
+That drop-in must never be installed on the VPS. Neither service mode reads
+`/etc/stageflow` directly or invokes Compose.
+
+Fresh local verification used an isolated Ubuntu 24.04 x86-64 builder with Node
+22.23.4, pnpm 12.9.1 and FFmpeg 6.1.1-3ubuntu5, plus disposable PostgreSQL 16.15
+and Redis 7.4.12 on a uniquely named private network with no published ports.
+The original workspace and running developer services were preserved.
+
+- `pnpm check:affected --plan --files <fix paths>` selected the full release graph.
+- Frozen dependency installation and complete `pnpm check:release` passed:
+  63 tooling, 456 shared, 527 web and 592 API tests, including all 21 PostgreSQL
+  integration tests, lint/typecheck, builds, formatting, artifact checks and both
+  live/broadcast smokes. Four added deployment tests include credential failure
+  subcases and the actual missing-credential startup CLI path.
+- Audit passed with the same three existing development exceptions due for
+  review on 2026-11-13 and no production advisories. Explicit production build,
+  shell syntax, all 10 Python deployment safeguards, production packaging,
+  checksum and receiver archive extraction also passed.
+- The real `ops.mjs check` command passed as unprivileged `nobody` from both the
+  source build and isolated production artifact using a service-readable
+  credential copy. In that disposable container the root source stayed owned by
+  root at mode 0600, with its parent mode 0700; the same unprivileged user could
+  not read the source. This check opened no database connection and started no
+  API or migration service. It simulates credential delivery and permissions;
+  it does not claim a real systemd activation or target acceptance.
+- Ubuntu 26.04 / systemd 259.9 verified production and dedicated fixture unit
+  syntax. Node/Docker dependency stubs were used for syntax only; no units were
+  started. Real credential transport and activation on the VPS remain a future
+  operator check.
+
+The packaging rehearsal used base `0433341` plus this worktree's patch and was
+not retained as a deployable release. The next approved deployment must build a
+new commit; do not replace the installed failed SHA, automatically revert code
+after its migration, or bypass an owner fence. The fix uses a dedicated branch
+rather than main so its push cannot trigger automatic production release.

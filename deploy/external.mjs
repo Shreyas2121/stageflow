@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createReadStream, createWriteStream, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXTERNAL_TOKEN = 'sf-external-shared-services';
@@ -275,6 +276,39 @@ export async function modeFromDisk() {
     external: external.present ? external.text : undefined,
     fixtureExists: fixture.present,
   });
+}
+
+// Only the unprivileged service uses credentials. Root infrastructure/backup
+// checks must continue reading the protected on-disk deployment markers above.
+export async function serviceDeploymentMode(env = process.env, read = readFile) {
+  const directory = env.CREDENTIALS_DIRECTORY;
+  if (!directory || !isAbsolute(directory)) {
+    refuse('Refusing: an absolute systemd credentials directory is required.');
+  }
+  const mode = env.STAGEFLOW_DEPLOYMENT_MODE ?? 'external';
+  if (!['external', 'dedicated'].includes(mode)) {
+    refuse('Refusing: unknown service deployment mode.');
+  }
+  const credential = async (name) => {
+    try {
+      return await read(join(directory, name), 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return undefined;
+      refuse('Refusing: deployment credential could not be read.');
+    }
+  };
+  const external = await credential('external-services');
+  const fixture = await credential('fixture-only');
+  if (mode === 'external' && external === undefined) {
+    refuse('Refusing: external-services credential is required. Dedicated mode is forbidden.');
+  }
+  if (
+    mode === 'dedicated' &&
+    (external !== undefined || markerToken(fixture) !== 'sf-c12-disposable')
+  ) {
+    refuse('Refusing: dedicated mode requires only the explicit disposable fixture credential.');
+  }
+  return deploymentMode({ external, fixtureExists: fixture !== undefined });
 }
 
 function runCaptured(args) {

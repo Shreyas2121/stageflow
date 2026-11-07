@@ -15,6 +15,7 @@ User=stageflow
 Group=stageflow
 WorkingDirectory=/opt/stageflow/current
 EnvironmentFile=/etc/stageflow/stageflow.env
+LoadCredential=external-services:/etc/stageflow/external-services
 Environment=NODE_OPTIONS=--max-old-space-size=768
 ExecStartPre=/opt/stageflow/node/bin/node deploy/ops.mjs check
 ExecStart=/opt/stageflow/node/bin/node apps/api/dist/main.js
