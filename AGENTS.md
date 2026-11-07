@@ -20,7 +20,7 @@ Use `rg --files <target-directory>` and `rg -n '<symbol>' <target-directory>` be
 ## Scope and authority
 
 - The user's request defines the work. A plan's existence does not authorize its implementation.
-- For phase work, follow the applicable master plan, phase contract, and guide. [plans/README.md](plans/README.md) routes active V3 work; [plans/V2/README.md](plans/V2/README.md) routes V2 requirements. Unchanged V1 invariants remain in [MASTER_PLAN.md](MASTER_PLAN.md).
+- For phase work, follow the applicable master plan, phase contract, and guide. [plans/README.md](plans/README.md) routes active V3 work; [plans/V2/README.md](plans/V2/README.md) routes V2 requirements. Unchanged V1 invariants remain in [MASTER_PLAN.md](MASTER_PLAN.md). [MASTER_PLAN_V4.md](MASTER_PLAN_V4.md) is the approved next scope and does not start a phase.
 - For a named review finding, read that finding and its matching maintenance slice in `review.md` if provided, then the affected contract sections. The report may be local/untracked and predate fixes: check current code, `git log`, and the maintenance evidence in `plans/V2/phase*.md` before reimplementing anything.
 - Keep the four-person stage, explicit capture consent, bounded recovery, and catalog/live-state boundaries unless the requested contract changes them. Synthetic media or decoded audio does not close physical-device, audible-output, or native-picker observations.
 

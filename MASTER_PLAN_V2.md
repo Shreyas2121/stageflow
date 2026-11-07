@@ -2,8 +2,9 @@
 
 **Direction:** A practical local meeting and webinar product.\
 **Status:** V2-P1 through V2-P5 are delivered with partial acceptance. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is the README record in `plans/V2/phase5.md`. Each chat line shows the server time. Still partial: WS-01, WS-02, WS-03, MEDIA-01, MEDIA-02, REC-01, REC-03, REC-04, and CHAT-04. Still unverified: MEDIA-03's physical unplug, MEDIA-04 playback and audible check, and REC-05 playback and FFmpeg. P3-A03, P3-A05, and P3-A06 stay open. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because `FFMPEG_PATH` is the bare name `ffmpeg` and is not on PATH. Redis and disposable Postgres were available. Accounts, scheduling, deployment, and `restartIce` remain future work.\
-**Plan version:** `2.0.0-draft.9`\
-**Date:** 2026-11-04\
+**Plan version:** `2.0.0-draft.10`\
+**Date:** 2026-11-07\
+**Revision note (2.0.0-draft.10):** Section 4's V4 row remains the historical media-depth recommendation. The approved scope that replaces it is `MASTER_PLAN_V4.md`. No V2 rule changes.\
 **Revision note (2.0.0-draft.9):** V3 Phase 1 was requested. The V2 phase contracts and guides moved from `plans/` to `plans/V2/`. Their acceptance results are unchanged. Current V2 paths below point at that directory.\
 **Revision note (2.0.0-draft.8):** The approved V3 scope now lives in `MASTER_PLAN_V3.md`. Section 4 remains the historical recommendation. V3 implementation still waits for a requested phase. V2 acceptance gaps are unchanged.\
 **Revision note (2.0.0-draft.7):** V2-P5 records combined acceptance under `plans/phase5.md`. UX-01 and QA-01 are verified, QA-02 is partial, and QA-03 is the README record. Slice hashes are in `plans/phase5/guide.md`. The server time is on each chat line. Section 4.1 names the partial and unverified ids, including P3-A03, P3-A05, and P3-A06. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because FFmpeg is missing. The phase contract rules are unchanged. V2 has no further phase file.\

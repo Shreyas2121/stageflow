@@ -2,7 +2,7 @@
 
 These are the V2 phase contracts, guides, and verification records. They were moved here from `plans/` on 2026-11-04 so the active V3 phase can occupy `plans/`.
 
-V2 product authority remains [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.9`. V1 history is in [../V1/README.md](../V1/README.md). The active V3 phase stays in the parent `plans/` directory. This directory is history.
+V2 product authority remains [MASTER_PLAN_V2.md](../../MASTER_PLAN_V2.md) version `2.0.0-draft.10`. V1 history is in [../V1/README.md](../V1/README.md). The active V3 phase stays in the parent `plans/` directory. This directory is history.
 
 V2-P1 through V2-P5 are delivered. Acceptance is partial. UX-01 and QA-01 are verified. QA-02 is partial. QA-03 is the README record in [phase5.md](phase5.md). Each chat line shows the server time. Still partial: WS-01, WS-02, WS-03, MEDIA-01, MEDIA-02, REC-01, REC-03, REC-04, and CHAT-04. Still unverified: MEDIA-03's physical unplug, MEDIA-04 playback and audible check, and REC-05 playback and FFmpeg. P3-A03, P3-A05, and P3-A06 stay open. `pnpm check:release` and `pnpm smoke:broadcast` were skipped because `FFMPEG_PATH` is the bare name `ffmpeg` and is not on PATH.
 

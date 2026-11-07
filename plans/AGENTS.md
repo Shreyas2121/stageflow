@@ -5,6 +5,7 @@ Use this directory as an index, not a reason to read every historical phase. Rea
 | Work                            | Authority and record                                                                                               |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Active V3 phase                 | [README.md](README.md), [MASTER_PLAN_V3.md](../MASTER_PLAN_V3.md), the named `phase<N>.md` and `phase<N>/guide.md` |
+| Approved V4 scope, no phase yet | [MASTER_PLAN_V4.md](../MASTER_PLAN_V4.md)                                                                          |
 | V2 workspace/catalog            | [V2/phase1.md](V2/phase1.md)                                                                                       |
 | V2 device replacement/output    | [V2/phase2.md](V2/phase2.md)                                                                                       |
 | V2 bounded recovery/membership  | [V2/phase3.md](V2/phase3.md)                                                                                       |

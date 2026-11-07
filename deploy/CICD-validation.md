@@ -149,5 +149,10 @@ The original workspace and running developer services were preserved.
 The packaging rehearsal used base `0433341` plus this worktree's patch and was
 not retained as a deployable release. The next approved deployment must build a
 new commit; do not replace the installed failed SHA, automatically revert code
-after its migration, or bypass an owner fence. The fix uses a dedicated branch
-rather than main so its push cannot trigger automatic production release.
+after its migration, or bypass an owner fence. The initial fix push used a
+dedicated branch. The user subsequently requested the fix and existing V4
+planning changes on main. Those documentation changes passed formatting and
+local-link checks; the application fix is unchanged from the complete release
+run above. The main-branch push uses `[skip ci]` to suppress push-triggered
+workflows and preserve the instruction not to deploy automatically. A later
+approved manual release must run the full gate normally.

@@ -2,8 +2,9 @@
 
 **Direction:** Persistent hosts and organized local sessions.\
 **Status:** V3 feature phases 1 through 5 are delivered. V3 Phase 6 records local acceptance and VPS release gates in `plans/phase6.md` and `plans/phase6/guide.md`. Combined browser, target-VPS and physical observations remain partial/unverified; public release is not approved.\
-**Plan version:** `3.0.0-draft.7`\
+**Plan version:** `3.0.0-draft.8`\
 **Date:** 2026-11-07\
+**Revision note (3.0.0-draft.8):** The approved V4 scope now lives in `MASTER_PLAN_V4.md`. This document stays the shipped V3 contract. That pointer does not start a V4 phase, deploy the host, or close a Phase 6 gate.\
 **Revision note (3.0.0-draft.7):** Reconcile delivered feature phases and C11/C12 production packaging/operating-profile work; add the user-requested C13 acceptance contract and explicit target release gates. Historical records and physical gaps stay intact. No public deployment or new feature family is authorized.\
 **Revision note (3.0.0-draft.6):** V3 Phase 5, moderated Q&A and the canvas lower-third, has a contract and guide. Phases 1 through 4 remain the shipped behavior. No Q&A code is included in that planning change.\
 **Revision note (3.0.0-draft.5):** V3 Phase 4, scheduled rooms and waiting-room admission, has a contract and guide. Phases 1 through 3 remain the shipped behavior. No schedule or waiting code is included in that planning change.\
