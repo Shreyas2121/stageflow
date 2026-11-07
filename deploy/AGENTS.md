@@ -1,6 +1,6 @@
 # Deployment profile
 
-This directory owns the Ubuntu 26.04 LTS single-writer profile for the shared Hostinger KVM 2. Read [README.md](README.md) before changing units, ingress, recovery, or backup commands. Operational verification history belongs in the maintenance records in `plans/phase5.md` and its guide.
+This directory owns the Ubuntu 26.04 LTS single-writer profile for the shared Hostinger KVM 2. Read [README.md](README.md) before changing units, ingress, recovery, or backup commands. The isolated fixture still starts dedicated PostgreSQL and Redis from [compose.yml](compose.yml). A real host that already runs `shared-postgres` and `stageflow-redis` installs the external-services marker and must not let StageFlow start, stop, or restore those containers. Operational verification history belongs in the maintenance records in `plans/phase5.md`, `plans/phase6.md`, and their guides.
 
 Keep API/Redis/PostgreSQL private, preserve existing applications and nginx sites, and never make owner-guard removal automatic. Recovery requires operator fencing, an empty stopped service cgroup, and an exact compare-delete. Restores require a stopped writer and empty media destination. Local fixtures must use unique Docker names/networks/volumes and loopback-only published ports. Never run these drills against developer or production state. No public deployment or launch acceptance follows from a local drill.
 

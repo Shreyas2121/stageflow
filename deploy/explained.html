@@ -1104,8 +1104,9 @@
                 ><code>/srv/stageflow/redis</code><code>/srv/stageflow/media</code
                 ><code>/srv/stageflow/backups</code>
                 <p>
-                  A dedicated 12 GiB filesystem protects the shared server from unbounded StageFlow
-                  data growth.
+                  The fixture uses a 12 GiB filesystem for its own database, Redis, media, and one
+                  backup. On the real VPS the database and Redis already have Docker volumes, so
+                  StageFlow's mount is 8 GiB and holds only private media and one local backup.
                 </p>
               </div>
             </div>
@@ -1318,10 +1319,11 @@ sudo journalctl --namespace=stageflow -u stageflow.service -n 50 --no-pager</cod
             <summary>Docker and Compose</summary>
             <p>
               A container packages a process and the files it needs. Compose describes several
-              containers together. Here, <code>compose.yml</code> defines dedicated PostgreSQL and
-              Redis containers, their private ports, persistent directories, health checks, and
-              limits. The local fixture Dockerfile is a test environment, not the production app
-              image.
+              containers together. <code>compose.yml</code> is the isolated test profile: it starts
+              a private PostgreSQL and Redis. The real VPS already runs
+              <code>shared-postgres</code> and <code>stageflow-redis</code>. StageFlow checks that
+              they are up and never stops or replaces them. The local fixture Dockerfile is a test
+              environment, not the production app image.
             </p>
           </details>
           <details>
@@ -1414,14 +1416,14 @@ sudo journalctl --namespace=stageflow -u stageflow.service -n 50 --no-pager</cod
         postgres: [
           'Durable filing cabinet',
           'PostgreSQL',
-          'Stores accounts, room records, schedules, recording status, and replay ownership/visibility. Its data persists outside code releases. It runs in a dedicated Docker container.',
-          'Private host port: 5542 · /srv/stageflow/postgres',
+          'Stores accounts, room records, schedules, recording status, and replay ownership/visibility. Its data persists outside code releases. The test profile runs a private container. The real VPS uses the existing shared PostgreSQL with a separate stageflow_db database and a non-superuser role.',
+          'Fixture port 5542 · VPS 127.0.0.1:5432 database stageflow_db',
         ],
         redis: [
           'Live noticeboard and owner key',
           'Redis',
           'Stores live memberships, chat, Q&A, and the single-writer owner lock. Redis persistence preserves fencing across restarts, but API startup intentionally clears ephemeral room presence. Live sessions are not restored from backup.',
-          'Private host port: 6381 · /srv/stageflow/redis',
+          'Private host port 6381 · existing stageflow-redis on the VPS',
         ],
         ffmpeg: [
           'Video processing worker',

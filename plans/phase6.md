@@ -104,3 +104,13 @@ Carried-forward partial/open IDs remain WS-01/02/03, MEDIA-01/02, REC-01/03/04, 
 **No unrestricted public release approval.** Feature phases are delivered and local evidence is improving, but partial browser/physical and unverified target gates remain. No supported VPS audience or mixed-load headroom has been established. The six-person C12 invited trial is a restriction rather than a performance result, and ingress remains loopback-only by default. Shared PostgreSQL requires an explicit implementation/permission/lifecycle/backup adaptation; the existing dedicated infrastructure unit must not be pointed at a shared server and stopped as if StageFlow owned it.
 
 No Phase 7 feature work or public deployment is implied by this record. Continue only with a scoped request and the missing target/browser/physical observations.
+
+## 8. Maintenance: shared services on an existing host
+
+**Status:** local profile only. The VPS was not contacted, and no acceptance gate moved.\
+**Proposed commits:** `fix(api): add an optional database pool cap`; `ops: guard shared postgres and redis on an existing host`; `docs(deploy): describe the existing Hostinger services`.\
+**Actual commits:** `bfe4332`, `1116e66`, and the documentation commit recorded after this section.
+
+The user asked to prepare StageFlow for the PostgreSQL and Redis containers already running on the Hostinger VPS, without deploying. External mode probes `shared-postgres` and `stageflow-redis` and refuses to start, stop, recreate, dump, or restore anything else. Backup and restore are pinned to database `stageflow_db` and non-superuser role `stageflow_app`; a mismatched `DATABASE_URL` refuses instead of following the URL. The isolated fixture still starts dedicated Compose services when the external marker is absent. `DATABASE_POOL_MAX` is optional. Unset keeps the driver default of 10. The external example sets 4. Media and recording limits are unchanged. The fixture mount stays 12 GiB because it still holds its own database and Redis. External mode documents an 8 GiB mount for media and one local snapshot, because those Docker volumes stay where they are. 1 GiB media + about 1 GiB backup + the 2 GiB free-space floor fits in 8 GiB.
+
+Focused checks for this maintenance: API config tests, API typecheck, `node --test scripts/deploy.test.mjs`, and `pnpm lint:config`. A full release suite was not required for the documentation half. These checks do not close target capacity, real certificate renewal, remote alerts, off-host restore timing, TURN, physical devices, audible output, or the native picker. Open Phase 6 gates stay open.

@@ -1,6 +1,6 @@
 # Plans for agents
 
-V3 feature phases 1 through 5 are delivered. Active acceptance is [phase6.md](phase6.md), with execution/evidence in [phase6/guide.md](phase6/guide.md), under [MASTER_PLAN_V3.md](../MASTER_PLAN_V3.md) version `3.0.0-draft.7`. Local release/upgrade observations and historical browser evidence are kept separate from unverified target-VPS/public-network/physical gates. Public release is not approved. The C12 operating profile is locally tested; the later shared-PostgreSQL proposal has not been implemented. Earlier feature and V1/V2 records remain below.
+V3 feature phases 1 through 5 are delivered. Active acceptance is [phase6.md](phase6.md), with execution/evidence in [phase6/guide.md](phase6/guide.md), under [MASTER_PLAN_V3.md](../MASTER_PLAN_V3.md) version `3.0.0-draft.7`. Local release/upgrade observations and historical browser evidence are kept separate from unverified target-VPS/public-network/physical gates. Public release is not approved. The C12 operating profile is locally tested. A later local maintenance slice adds external mode for an existing shared PostgreSQL and the existing StageFlow Redis. That mode is not target-VPS acceptance, and Phase 6's public, physical, and capacity gates stay open. Earlier feature and V1/V2 records remain below.
 
 V2 contracts, guides, and verification records are history in [V2/](V2/README.md). V1 records are history in [V1/](V1/README.md).
 
@@ -15,4 +15,4 @@ The phase file is the contract. The guide is the only implementation sequence, a
 | V3-P5 | [phase5.md](phase5.md) | [phase5/guide.md](phase5/guide.md) | Complete. C01 through C06 committed; final slice hash recorded. QA3-01 through QA3-04 verified, including played HLS/replay. C05 release passed with temporary FFmpeg. Existing V1/V2 gaps remain open. |
 | V3-P6 | [phase6.md](phase6.md) | [phase6/guide.md](phase6/guide.md) | Evidence recorded: ACC-01 partial, ACC-02 local upgrade verified, ACC-03 documentation verified. Target/public/physical gates remain open; no public deployment.                                        |
 
-Phase 6 was explicitly requested as V3M-C13 after the Phase 5 handoff. Its record is authoritative for current combined acceptance and pending public/target gates. Do not create another phase or implement shared-infrastructure changes without a scoped request.
+Phase 6 was explicitly requested as V3M-C13 after the Phase 5 handoff. Its record is authoritative for current combined acceptance and pending public/target gates. The requested local shared-service adaptation is the maintenance note in that phase. Do not create another phase, deploy, or treat external mode as acceptance without a scoped request.
