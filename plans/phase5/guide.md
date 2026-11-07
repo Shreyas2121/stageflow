@@ -352,7 +352,7 @@ Read the edited README against phase Sections 5 and 6.
 
 ## Maintenance: V3M-C10 � Shared Q&A Lua invariants (2026-11-07)
 
-Status: verified; ready to commit. Proposed commit: `refactor(qa): share Lua authorization and projections`.
-Actual commit:
+Status: committed. Proposed commit: `refactor(qa): share Lua authorization and projections`.
+Actual commit: `40486a9`.
 
 Extract the Q&A-specific authorization, projections, ordering, TTL and rate helpers into a prelude assembled before hashing/execution; retain independent room cleanup and atomic command bodies. Keep wire results, role/error precedence, private voted ids, bounds, and NOSCRIPT-only retry unchanged. Verify real Redis behavior, malformed/stale bindings, and copied helper assets. Focused Q&A tests passed (47), and API typecheck/lint passed. The affected planner selected the full release gate: 49 tooling, 456 shared, 527 web tests and workspace typecheck/lint passed. An unrelated API timing assertion failed initially; the complete API retry passed all 588 tests, followed by both builds, formatting, artifacts, and live/broadcast smokes. Detailed commands, the timing failure, fixture versions, and observation limits are recorded in [phase5.md](../phase5.md).
