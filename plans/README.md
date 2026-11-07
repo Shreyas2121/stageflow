@@ -1,6 +1,6 @@
 # Plans for agents
 
-V3 Phase 5 is complete: C01 through C06 are committed and the final slice hash is recorded. QA3-01 through QA3-04 have parser/server/browser/canvas evidence, including played live HLS and replay with the temporary FFmpeg 6.0 binary; the C05 release check passed. Existing V1/V2 gaps remain open. Read [MASTER_PLAN_V3.md](../MASTER_PLAN_V3.md) version `3.0.0-draft.6`, then [phase5.md](phase5.md) and [phase5/guide.md](phase5/guide.md). Phase 4 scheduling and admission is complete in [phase4.md](phase4.md) and [phase4/guide.md](phase4/guide.md). Phase 3 replay privacy is complete in [phase3.md](phase3.md) and [phase3/guide.md](phase3/guide.md). Phase 2 Google sign-in is complete in [phase2.md](phase2.md) and [phase2/guide.md](phase2/guide.md). Phase 1 identity is complete in [phase1.md](phase1.md) and [phase1/guide.md](phase1/guide.md).
+V3 feature phases 1 through 5 are delivered. Active acceptance is [phase6.md](phase6.md), with execution/evidence in [phase6/guide.md](phase6/guide.md), under [MASTER_PLAN_V3.md](../MASTER_PLAN_V3.md) version `3.0.0-draft.7`. Local release/upgrade observations and historical browser evidence are kept separate from unverified target-VPS/public-network/physical gates. Public release is not approved. The C12 operating profile is locally tested; the later shared-PostgreSQL proposal has not been implemented. Earlier feature and V1/V2 records remain below.
 
 V2 contracts, guides, and verification records are history in [V2/](V2/README.md). V1 records are history in [V1/](V1/README.md).
 
@@ -13,5 +13,6 @@ The phase file is the contract. The guide is the only implementation sequence, a
 | V3-P3 | [phase3.md](phase3.md) | [phase3/guide.md](phase3/guide.md) | Complete. C01 through C05 committed; final slice hash recorded. LIB-01 through LIB-04 verified. Existing V1/V2 gaps stay open.                                                                          |
 | V3-P4 | [phase4.md](phase4.md) | [phase4/guide.md](phase4/guide.md) | Complete. C01 through C06 committed; final slice hash recorded. SCH-01 through SCH-05 have server and controlled-browser evidence; existing physical observations remain open.                          |
 | V3-P5 | [phase5.md](phase5.md) | [phase5/guide.md](phase5/guide.md) | Complete. C01 through C06 committed; final slice hash recorded. QA3-01 through QA3-04 verified, including played HLS/replay. C05 release passed with temporary FFmpeg. Existing V1/V2 gaps remain open. |
+| V3-P6 | [phase6.md](phase6.md) | [phase6/guide.md](phase6/guide.md) | Evidence recorded: ACC-01 partial, ACC-02 local upgrade verified, ACC-03 documentation verified. Target/public/physical gates remain open; no public deployment.                                        |
 
-Do not write `plans/phase6.md` until V3-P5's handoff says the next phase may be written. Acceptance stays in a later V3 phase.
+Phase 6 was explicitly requested as V3M-C13 after the Phase 5 handoff. Its record is authoritative for current combined acceptance and pending public/target gates. Do not create another phase or implement shared-infrastructure changes without a scoped request.

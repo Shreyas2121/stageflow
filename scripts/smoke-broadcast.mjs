@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { devShutdownPath, requestDevShutdown } from './dev-shutdown.mjs';
 import { killPid, listDescendantPids } from './dev.mjs';
+import { prepareLegacyUpgrade } from './legacy-upgrade.mjs';
+import { verifyCombinedRoomFlows } from './combined-acceptance.mjs';
 
 // Real compiled main/modules, the registered migrations, PostgreSQL, Redis, HTTP, Socket.IO and FFmpeg.
 // DATABASE_URL is an administrative connection: only a newly created database is migrated/dropped.
@@ -424,6 +426,13 @@ try {
   dataSource.setOptions({
     extra: { connectionTimeoutMillis: 3000, statement_timeout: 5000, query_timeout: 6000 },
   });
+  const legacy = await prepareLegacyUpgrade({
+    options: dataSource.options,
+    mediaRoot: root,
+    ffmpeg,
+    command,
+    jwtSecret: env.JWT_SECRET,
+  });
   await dataSource.initialize();
   const migrations = await dataSource.runMigrations();
   const registered = [
@@ -435,13 +444,11 @@ try {
     'AddBroadcastVisibility1794096000000',
     'AddRoomSchedule1794182400000',
   ];
-  assert.deepEqual(
-    migrations.map((m) => m.name),
-    registered,
-  );
+  assert.deepEqual([...legacy.baselineNames, ...migrations.map((m) => m.name)], registered);
   assert.deepEqual(await dataSource.runMigrations(), []);
+  await legacy.verify(dataSource);
   console.log(
-    `Registered migrations applied: ${registered.join(', ')}; second migration run is empty.`,
+    `Registered migrations applied: ${registered.join(', ')}; three pre-V3 migrations precede seeded legacy data, four V3 upgrades preserve it, repeat run is empty.`,
   );
   await redis.connect();
   await redis.set(foreignKey, id, 'EX', 300);
@@ -473,11 +480,13 @@ try {
   ]);
   const bytes = await readFile(input);
   await startApi();
+  await legacy.verify(dataSource, request);
   const guest = await json('/sessions/guest', undefined, { displayName: 'Encode host' });
   assert.equal(
     (await dataSource.query('SELECT id FROM users WHERE id = $1', [guest.userId])).length,
     1,
   );
+  await verifyCombinedRoomFlows({ json, io, address, ack, eventually, guest });
   const { room, socket } = await hostRoom(guest.token);
   assert.equal((await ack(socket, 'broadcast:start')).ok, true);
   const livePage = await json(`/rooms/${room.slug}/broadcasts`, guest.token);
@@ -617,6 +626,10 @@ try {
     /missing-ffmpeg/,
   );
   await verifyDeletionRecovery(guest.token);
+  await legacy.verify(dataSource, request);
+  console.log(
+    'Pre-V3 upgrade acceptance passed: guest/rooms/READY catalog and timestamps unchanged, legacy token accepted, LINK default and HLS hashes preserved, audio/video decoded before and after API restarts.',
+  );
   await stopApi();
   console.log(
     'Restart fails only in-flight rows, preserves READY/media and foreign namespace; missing binary fails the attempt while stage commands remain usable; a guest past the recording allowance is refused before a row is stored.',

@@ -1,9 +1,10 @@
 # StageFlow — V3 Master Plan
 
 **Direction:** Persistent hosts and organized local sessions.\
-**Status:** V3 Phases 1 through 4 are complete. V3 Phase 5 is specified in `plans/phase5.md` and is not implemented. Partial and unverified V1 and V2 acceptance ids stay open.\
-**Plan version:** `3.0.0-draft.6`\
-**Date:** 2026-11-06\
+**Status:** V3 feature phases 1 through 5 are delivered. V3 Phase 6 records local acceptance and VPS release gates in `plans/phase6.md` and `plans/phase6/guide.md`. Combined browser, target-VPS and physical observations remain partial/unverified; public release is not approved.\
+**Plan version:** `3.0.0-draft.7`\
+**Date:** 2026-11-07\
+**Revision note (3.0.0-draft.7):** Reconcile delivered feature phases and C11/C12 production packaging/operating-profile work; add the user-requested C13 acceptance contract and explicit target release gates. Historical records and physical gaps stay intact. No public deployment or new feature family is authorized.\
 **Revision note (3.0.0-draft.6):** V3 Phase 5, moderated Q&A and the canvas lower-third, has a contract and guide. Phases 1 through 4 remain the shipped behavior. No Q&A code is included in that planning change.\
 **Revision note (3.0.0-draft.5):** V3 Phase 4, scheduled rooms and waiting-room admission, has a contract and guide. Phases 1 through 3 remain the shipped behavior. No schedule or waiting code is included in that planning change.\
 **Revision note (3.0.0-draft.4):** V3 Phase 2, optional Google sign-in, is complete. V3 Phase 3, replay visibility and deletion, has a contract and guide. No visibility or deletion code is included in that planning change.\
@@ -12,7 +13,7 @@
 **Revision note (3.0.0-draft.1):** Records the approved V3 scope. Identity, scheduling, waiting-room admission, replay privacy, replay deletion, and moderated Q&A are specified here. No application code, phase file, or guide is authorized by this document alone.\
 **Implementation note (2026-11-05):** V3 Phase 3 now includes stored LINK/HOST visibility, owner-only playback, confined deletion, and home library controls. Its seeded browser replay checks do not close prior recorder, physical-device, audible-output, or native-picker observations. Product scope and plan version are unchanged.\
 **Inputs:** [Original idea](idea.md), [V1 master plan](MASTER_PLAN.md), [V2 master plan](MASTER_PLAN_V2.md), the current repository, and the approved V3 scope.\
-**Deployment:** Excluded. Delivery and acceptance stay local.
+**Deployment:** Initial feature delivery was local-only. User-authorized C11/C12 now supply production artifacts and a single-writer operating profile; C13 records local evidence and outstanding VPS gates. No actual VPS/public service has been deployed by this work.
 
 ## 1. Product decisions and document authority
 
@@ -33,7 +34,7 @@ For V3 work, use this chain:
 
 - This document overrides V1 and V2 only for the explicit changes in Section 5. Every other engineering and media invariant continues to apply.
 - `idea.md` is the original sketch. Its R2 upload, multi-bitrate ladder, BullMQ VOD worker, and email-password-only world stay out. V3 does not revive them.
-- V1 history is under `plans/V1/`. V2 history is under `plans/V2/`. Phases 1 through 4 are complete. The active V3 phase is `plans/phase5.md` and `plans/phase5/guide.md`. Write a later phase only when that phase is requested.
+- V1 history is under `plans/V1/`. V2 history is under `plans/V2/`. Feature phases 1 through 5 are complete. The active acceptance phase is `plans/phase6.md` and `plans/phase6/guide.md`. Write a later phase only when that phase is requested.
 - Write one phase contract and one guide, after inspecting the repository. Do not pre-generate the other guides.
 - This file is not permission to implement. Implementation starts when the user requests a V3 phase.
 - Keep slices small and verified. Commit each slice before the next one, using V1's local git discipline. Planning does not require a commit. Do not push or change git config.
@@ -41,7 +42,7 @@ For V3 work, use this chain:
 
 ## 2. Where V2 leaves us
 
-V2 is delivered with partial acceptance. The product today provides:
+This section is the historical pre-V3 baseline, not the current shipped schema/status. V2 was delivered with partial acceptance. Its baseline provided:
 
 - Guest JWT sessions, immediate `LIVE` meeting and webinar creation, and join by unguessable slug.
 - A current-guest room workspace and per-room broadcast history.
@@ -99,7 +100,8 @@ V3 leaves these out:
 - A waiting-room media stage, a fifth seat, or reconnect grace for someone who holds no seat.
 - Polls, reactions, direct messages, attachments, transcription, co-host, and host transfer.
 - Q&A stored in PostgreSQL, Q&A synced as a replay transcript, and a meeting broadcast created so a question can be recorded.
-- A retention sweeper, export, a second transcode, object storage, and deployment.
+- A retention sweeper, export, a second transcode, and object storage.
+- Unrequested public deployment. The later authorized C11/C12 profile and C13 release evidence are scoped operational maintenance, with target approval still gated.
 - SFU, simulcast, multi-rendition HLS, LL-HLS, and `restartIce`.
 - Making existing replays private as part of migration or promotion.
 - Google credentials as a requirement for acceptance.
@@ -244,7 +246,7 @@ Deletion order:
 1. Claim the row so a second delete and playback both fail closed.
 2. Delete that directory only after the path check.
 3. Delete the row only after the directory is gone.
-4. If the directory delete fails, restore the previous status, keep the row visible to the owner, record the failure, and report failure. Retry is allowed.
+4. Under shipped C07/C08 maintenance, restore the previous status only when failure occurs before recursive removal begins. After removal starts, retain the durable `DELETING` claim and deny playback on every uncertain failure. The registered owner can discover the unfinished claim and explicitly retry it, including after restart; never restore `READY` when files may be missing. See [the current replay contract](plans/phase3.md).
 5. If the directory is already gone and the row remains, a retry removes the row and does not offer playback.
 
 Success means both the row and that directory are gone. The room row remains. The old replay URL then follows the normal not-found path. There is no sweeper, no age-based retention, and no export. Replays the host does not delete continue to use disk.
@@ -304,7 +306,7 @@ No recordings, credentials, tokens, password hashes, or filled `.env` files ente
 
 ## 11. Delivery phases and exit gates
 
-Do not add a later phase's feature to finish the current one. All ids below start **planned**.
+Do not add a later phase's feature to finish the current one. The table defines the original exits; feature-phase evidence is in each phase record and current cross-phase/public gate status is in [Phase 6](plans/phase6.md).
 
 | Phase                           | Outcome                                                                                    | Main boundary                                                                                 | Exit evidence         |
 | ------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | --------------------- |
@@ -313,7 +315,7 @@ Do not add a later phase's feature to finish the current one. All ids below star
 | V3-P3 Library lifecycle         | `HOST` visibility and safe delete of `READY` / `FAILED`                                    | No sweeper. In-flight attempts stay                                                           | LIB-01 through LIB-04 |
 | V3-P4 Schedule and waiting room | `SCHEDULED` rooms, Start, Cancel, waiting Lua, meeting Admit                               | Cap includes suspensions. Webinar attendees still have zero peers                             | SCH-01 through SCH-05 |
 | V3-P5 Q&A                       | Moderated questions and the canvas lower-third                                             | Chat unchanged. Meetings do not gain a broadcast                                              | QA3-01 through QA3-04 |
-| V3-P6 Acceptance                | The local script passes and the README records the limits                                  | No new feature family. Open V1/V2 physical gaps stay named                                    | ACC-01 through ACC-03 |
+| V3-P6 Acceptance                | Local regression/upgrade evidence and explicit VPS gate records                            | No new feature family. Open V1/V2 physical gaps stay named                                    | ACC-01 through ACC-03 |
 
 ## 12. Requirement register
 
@@ -363,21 +365,21 @@ Outstanding V1 and V2 physical observations stay unverified until they are actua
 
 ## 14. Risks
 
-| Risk                                                                | Control                                                                                                     |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Promotion or Google attaches somebody else's rooms                  | Mutate only the JWT user id. Unique email and unique Google subject. No match on display name or email text |
-| A host token and a guest token disagree about the same row          | `guest` and `session_version` are checked against the row on every request                                  |
-| Admit creates a fifth stage member                                  | One Lua script uses the current seat count, including suspensions                                           |
-| Waiters are given peer connections "just for the lobby"             | Off-stage policy and a client that does not capture or negotiate before seating                             |
-| Delete removes the wrong directory                                  | Confined path check before any unlink. Failure restores the row                                             |
-| A private replay stays reachable through an old playlist URL        | `HOST` is enforced on JSON, thumbnail, playlist, and segments                                               |
-| The lower-third exists only in the sidebar, so the replay misses it | Paint it in the host canvas that already feeds the WebM                                                     |
-| Q&A or waiting work delays leave and signaling                      | Separate bounded keys and queues, same as chat                                                              |
-| V3 turns into an SFU, a mailer, or a deployment                     | Section 4 exclusions. One phase at a time                                                                   |
-| Open hardware gaps disappear from the status                        | ACC-03 names them until they are observed                                                                   |
+| Risk                                                                | Control                                                                                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Promotion or Google attaches somebody else's rooms                  | Mutate only the JWT user id. Unique email and unique Google subject. No match on display name or email text                                 |
+| A host token and a guest token disagree about the same row          | `guest` and `session_version` are checked against the row on every request                                                                  |
+| Admit creates a fifth stage member                                  | One Lua script uses the current seat count, including suspensions                                                                           |
+| Waiters are given peer connections "just for the lobby"             | Off-stage policy and a client that does not capture or negotiate before seating                                                             |
+| Delete removes the wrong directory                                  | Confined paths; only pre-removal failures may restore status. Later uncertainty retains private DELETING intent and explicit owner recovery |
+| A private replay stays reachable through an old playlist URL        | `HOST` is enforced on JSON, thumbnail, playlist, and segments                                                                               |
+| The lower-third exists only in the sidebar, so the replay misses it | Paint it in the host canvas that already feeds the WebM                                                                                     |
+| Q&A or waiting work delays leave and signaling                      | Separate bounded keys and queues, same as chat                                                                                              |
+| Work exceeds the requested feature or operating scope               | Section 4 exclusions and scoped C11–C13 authorization. No public deployment or extra feature family is implied                              |
+| Open hardware gaps disappear from the status                        | ACC-03 names them until they are observed                                                                                                   |
 
 ## 15. Next execution request
 
-V3 Phase 5 is specified and not implemented. V3 Phases 1 through 4 are complete.
+V3 feature phases 1 through 5 are delivered. Phase 6 now records the requested C13 acceptance work; its target/public/physical gates remain explicit and open until observed.
 
-> Read `MASTER_PLAN_V3.md`, `plans/phase5.md`, and `plans/phase5/guide.md`. Implement V3P5-C01 through V3P5-C06 in order when implementation is requested. Keep identity, optional Google, replay privacy and deletion, scheduling and admission, the guest session, demo peers, the mesh, reconnect, chat, and the broadcast pipeline. Do not write `plans/phase6.md` in that work. Leave the open V2 acceptance ids open. Featuring a question does not start a broadcast. The stage cap stays four, including suspended reservations. Explicit capture consent stays. Chat keys and limits stay as they are.
+> Read `MASTER_PLAN_V3.md`, `plans/phase6.md`, and `plans/phase6/guide.md`. Execute the requested V3M-C13 acceptance/evidence slice using owned fixtures; record actual source hashes, final release/audit results, old-data preservation and observation limits. Preserve feature behavior, the four-seat cap, explicit capture consent, bounded recovery and private media. Do not turn protocol/synthetic/local-fixture evidence into public-network, physical-device or target-capacity acceptance. Shared-PostgreSQL adaptation is not implemented by this evidence slice. Do not deploy a public service or write a future feature phase without its own request.
