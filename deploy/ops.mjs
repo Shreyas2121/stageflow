@@ -5,9 +5,15 @@ import { createRequire } from 'node:module';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { assertExternalRuntime, modeFromDisk } from './external.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
+
+export function applyStartupChecks(env, mode) {
+  checkProfile(env);
+  if (mode === 'external') assertExternalRuntime(env);
+}
 
 export function checkProfile(env) {
   assert.equal(env.NODE_ENV, 'production', 'Production NODE_ENV required.');
@@ -84,7 +90,7 @@ async function serviceState() {
 async function main(action) {
   const env = process.env;
   if (action === 'check') {
-    checkProfile(env);
+    applyStartupChecks(env, await modeFromDisk());
     require(join(root, 'apps/api/dist/config/parse-config.js')).parseConfig(env);
     await access(env.DATA_ROOT, constants.R_OK | constants.W_OK);
     const ffmpeg = spawnSync(env.FFMPEG_PATH, ['-version'], { encoding: 'utf8', timeout: 5000 });

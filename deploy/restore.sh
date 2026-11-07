@@ -18,9 +18,17 @@ tar -tf "$snapshot/media.tar" | awk '
     END { exit bad }
 '
 tar -tvf "$snapshot/media.tar" | awk 'substr($0,1,1) != "d" && substr($0,1,1) != "-" { bad=1 } END { exit bad }'
-docker compose --project-name stageflow --env-file /etc/stageflow/infrastructure.env \
-    -f /etc/stageflow/compose.yml exec -T postgres \
-    pg_restore -U stageflow -d stageflow --clean --if-exists --no-owner --exit-on-error --single-transaction < "$snapshot/catalog.dump"
+# external-services-begin
+if [ -f /etc/stageflow/external-services ]; then
+  node=/opt/stageflow/node/bin/node
+  test -x "$node" || node=node
+  "$node" "$(dirname "$0")/external.mjs" restore-catalog "$snapshot/catalog.dump"
+# external-services-end
+else
+  docker compose --project-name stageflow --env-file /etc/stageflow/infrastructure.env \
+      -f /etc/stageflow/compose.yml exec -T postgres \
+      pg_restore -U stageflow -d stageflow --clean --if-exists --no-owner --exit-on-error --single-transaction < "$snapshot/catalog.dump"
+fi
 tar --no-same-owner --no-same-permissions -C /srv/stageflow/media -xf "$snapshot/media.tar"
 chown -R stageflow:stageflow /srv/stageflow/media
 echo 'Catalog/media restored. API remains stopped; verify release compatibility and ownership before starting one writer.'
