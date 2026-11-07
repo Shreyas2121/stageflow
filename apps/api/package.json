@@ -30,7 +30,9 @@
     "lint": "node ../../scripts/lint.mjs src *.config.ts",
     "dev": "node ../../scripts/dev.mjs api",
     "build": "node ../../scripts/shared-build.mjs ensure && nest build",
-    "migration:run": "dotenv -e ../../.env -- typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts"
+    "migration:run": "dotenv -e ../../.env -- typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "migration:run:production": "typeorm migration:run -d dist/database/data-source.js",
+    "start:production": "node dist/main.js"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",

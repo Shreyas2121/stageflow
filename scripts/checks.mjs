@@ -15,6 +15,7 @@ export function checkGraph(name) {
     'test:unit': tests.slice(0, 2),
     'test:integration': tests.slice(2),
     build: builds,
+    'build:production': [...builds, ['check:artifacts']],
     check,
     'check:release': [
       ['test:tooling'],

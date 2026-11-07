@@ -13,6 +13,7 @@
     "typecheck": "node scripts/checks.mjs typecheck",
     "lint": "pnpm lint:config && pnpm -r lint",
     "build": "node scripts/checks.mjs build",
+    "build:production": "node scripts/checks.mjs build:production",
     "dev": "node scripts/dev.mjs",
     "test": "node scripts/checks.mjs test",
     "test:unit": "node scripts/checks.mjs test:unit",

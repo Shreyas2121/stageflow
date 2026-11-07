@@ -18,7 +18,7 @@
     "typecheck": "node ../../scripts/shared-build.mjs ensure && tsc -p tsconfig.check.json",
     "lint": "node ../../scripts/lint.mjs src vite.config.ts",
     "dev": "node ../../scripts/dev.mjs web",
-    "build": "node ../../scripts/shared-build.mjs ensure && vite build"
+    "build": "node ../../scripts/shared-build.mjs ensure && node ../../scripts/build-web.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

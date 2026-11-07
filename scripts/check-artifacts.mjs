@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import { verifyProductionWeb } from './production-artifacts.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -31,8 +33,8 @@ if (!args.length || args.includes('--api')) {
   );
   for (const path of output.filter((path) => path.endsWith('.js'))) {
     assert(
-      !/require\(["']vitest["']\)/.test(await readFile(path, 'utf8')),
-      `Vitest leaked into ${path}.`,
+      !/require\(["'](?:vitest|ts-node(?:\/[^"']*)?)["']\)/.test(await readFile(path, 'utf8')),
+      `Test or TypeScript runtime leaked into ${path}.`,
     );
   }
   const source = join(root, 'apps/api/src/live/scripts');
@@ -99,6 +101,52 @@ if (!args.length || args.includes('--api')) {
   assert.equal(liveKeys(roomPrefix('probe', 'sf_ci'))[5], 'sf_ci:room:probe:broadcast');
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
+  const migrationNames = (await readdir(join(root, 'apps/api/src/migrations')))
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => name.replace(/\.ts$/, '.js'))
+    .sort();
+  assert.deepEqual(
+    (await readdir(join(dist, 'migrations'))).filter((name) => name.endsWith('.js')).sort(),
+    migrationNames,
+  );
+  for (const name of migrationNames) {
+    const migrations = Object.values(require(join(dist, 'migrations', name)));
+    assert(
+      migrations.some(
+        (value) => typeof value === 'function' && typeof value.prototype.up === 'function',
+      ),
+      `Compiled migration cannot load: ${name}`,
+    );
+  }
+  const dataSourceProbe = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `
+    const assert = require('node:assert/strict');
+    const { databaseOptions, default: dataSource } = require(${JSON.stringify(join(dist, 'database/data-source.js'))});
+    assert.equal(databaseOptions.synchronize, false);
+    assert.equal(databaseOptions.migrationsRun, false);
+    assert.equal(dataSource.isInitialized, false);
+    assert.equal(databaseOptions.migrations.length, ${migrationNames.length});
+  `,
+    ],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: { ...process.env, DATABASE_URL: 'postgresql://artifact:artifact@127.0.0.1:1/artifact' },
+    },
+  );
+  assert.equal(
+    dataSourceProbe.status,
+    0,
+    `Compiled migration data source failed: ${dataSourceProbe.stderr}`,
+  );
+  const sharedOutput = await files(join(root, 'packages/shared/dist'));
+  assert(
+    !sharedOutput.some((path) => /\.(?:test|spec)\./.test(path)),
+    'Tests leaked into shared output.',
+  );
   console.log(
     `API artifacts: production modules load, ${lua.length} live, ${chatLua.length} chat, and ${qaLua.length} Q&A Lua files match source, the password worker matches source, no emitted tests.`,
   );
@@ -106,6 +154,13 @@ if (!args.length || args.includes('--api')) {
 
 if (!args.length || args.includes('--web')) {
   const dist = join(root, 'apps/web/dist');
+  const metadata = JSON.parse(await readFile(join(dist, 'build-info.json'), 'utf8'));
+  const javascript = await Promise.all(
+    (await files(dist))
+      .filter((path) => path.endsWith('.js'))
+      .map((path) => readFile(path, 'utf8')),
+  );
+  verifyProductionWeb(metadata, javascript.join('\n'));
   const manifest = JSON.parse(await readFile(join(dist, '.vite/manifest.json'), 'utf8'));
   const entryKey = Object.keys(manifest).find((key) => manifest[key].isEntry);
   assert(entryKey, 'Missing web entry.');
@@ -203,8 +258,8 @@ if (!args.length || args.includes('--web')) {
   );
   // NODE_ENV=production on 2026-11-03, player deferred: home 328220 raw / 103199
   // gzip-estimate; room including entry 457729 / 141946; replay including entry
-  // 341894 / 108456; deferred player 579836 / 178964. Development React output is
-  // larger. These ceilings still fail if that player returns to a static graph.
+  // 341894 / 108456; deferred player 579836 / 178964. Production mode is checked
+  // independently above. These ceilings fail if that player returns to a static graph.
   // They do not hide Vite's chunk-size warning. Gzip figures estimate compressed
   // artifacts; they are not observed network transfer.
   assert(homeMeasured.raw <= 650_000, `Home static graph is ${homeMeasured.raw} raw bytes.`);
