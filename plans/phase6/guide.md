@@ -1,14 +1,14 @@
 # Guide — V3 Phase 6 acceptance
 
-**Status:** local evidence slice verified; combined/browser and target release gates remain open.\
+**Status:** local evidence slice committed; combined/browser and target release gates remain open.\
 **Contract:** [phase6.md](../phase6.md).\
 **Requested slice:** V3M-C13. This phase adds acceptance evidence, not a product feature or public deployment.
 
 ## 1. V3M-C13 — Record V3 and VPS release evidence
 
-**Status:** verified; ready to commit.\
+**Status:** committed.\
 **Proposed commit:** `docs(acceptance): record V3 and VPS release evidence`.\
-**Actual commit:**
+**Actual commit:** `31b286e`
 
 Read the master, R11/C13 review entry, Phase 5 handoff, relevant maintenance records and current smoke owners before edits. Keep historical observations in place. Do not close target, browser or physical gates without corresponding observations.
 
