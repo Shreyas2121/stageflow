@@ -1,0 +1,12 @@
+bind 0.0.0.0
+protected-mode yes
+port 6379
+requirepass CHANGE_ME_REDIS_HEX_SECRET
+dir /data
+# Preserve the non-expiring owner guard across Redis restarts. Never evict it.
+appendonly yes
+appendfsync everysec
+save ""
+maxmemory 160mb
+maxmemory-policy noeviction
+loglevel warning

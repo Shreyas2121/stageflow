@@ -21,7 +21,7 @@ const boundary = (patterns) => [
 export default defineConfig([
   { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**'] },
   {
-    files: ['*.js', 'scripts/**/*.mjs'],
+    files: ['*.js', 'scripts/**/*.mjs', 'deploy/**/*.mjs'],
     extends: [js.configs.recommended],
     languageOptions: { globals: globals.node },
   },

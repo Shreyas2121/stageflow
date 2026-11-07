@@ -1,0 +1,28 @@
+[Unit]
+Description=StageFlow explicit serialized compiled migrations
+Requires=stageflow-infra.service
+After=stageflow-infra.service
+Conflicts=stageflow.service
+RequiresMountsFor=/srv/stageflow
+AssertPathIsMountPoint=/srv/stageflow
+OnFailure=stageflow-alert@%n.service
+
+[Service]
+Type=oneshot
+User=stageflow
+Group=stageflow
+WorkingDirectory=/opt/stageflow/current
+EnvironmentFile=/etc/stageflow/stageflow.env
+StateDirectory=stageflow-control
+ExecStart=/usr/bin/flock -n /var/lib/stageflow-control/migration.lock /opt/stageflow/node/bin/node apps/api/node_modules/typeorm/cli.js migration:run -d apps/api/dist/database/data-source.js
+TimeoutStartSec=120s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+CPUQuota=25%
+MemoryMax=512M
+MemorySwapMax=0
+TasksMax=32
+UMask=0077
+LogNamespace=stageflow

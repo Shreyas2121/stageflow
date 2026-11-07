@@ -1,0 +1,16 @@
+[Unit]
+Description=StageFlow nginx log rotation
+OnFailure=stageflow-alert@%n.service
+
+[Service]
+Type=oneshot
+StateDirectory=stageflow-ops
+ExecStart=/usr/sbin/logrotate --state /var/lib/stageflow-ops/logrotate.status /etc/logrotate.d/stageflow
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log/stageflow-nginx
+PrivateTmp=yes
+CPUQuota=5%
+MemoryMax=64M
+TasksMax=16
+LogNamespace=stageflow

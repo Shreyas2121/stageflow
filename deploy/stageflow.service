@@ -1,0 +1,52 @@
+[Unit]
+Description=StageFlow single API writer
+Requires=stageflow-infra.service
+After=network-online.target stageflow-infra.service
+Wants=network-online.target
+RequiresMountsFor=/srv/stageflow
+AssertPathIsMountPoint=/srv/stageflow
+OnFailure=stageflow-alert@%n.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=stageflow
+Group=stageflow
+WorkingDirectory=/opt/stageflow/current
+EnvironmentFile=/etc/stageflow/stageflow.env
+Environment=NODE_OPTIONS=--max-old-space-size=768
+ExecStartPre=/opt/stageflow/node/bin/node deploy/ops.mjs check
+ExecStart=/opt/stageflow/node/bin/node apps/api/dist/main.js
+Restart=on-failure
+RestartSec=15s
+TimeoutStartSec=45s
+TimeoutStopSec=45s
+KillMode=mixed
+SendSIGKILL=yes
+OOMPolicy=kill
+UMask=0077
+StateDirectory=stageflow-control
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/stageflow/media
+InaccessiblePaths=/srv/stageflow/postgres /srv/stageflow/redis /srv/stageflow/backups /etc/stageflow
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+CPUQuota=75%
+MemoryHigh=1280M
+MemoryMax=1536M
+MemorySwapMax=0
+TasksMax=96
+LimitNOFILE=4096
+StandardOutput=journal
+StandardError=journal
+LogNamespace=stageflow
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=200
+
+[Install]
+WantedBy=multi-user.target

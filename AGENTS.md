@@ -12,6 +12,7 @@ Read this guide once, then the guide for the code you will change. Follow its de
 | HTTP, sockets, persistence, Redis, encoder  | [apps/api/AGENTS.md](apps/api/AGENTS.md)               |
 | DTOs, parsers, stage/negotiation rules      | [packages/shared/AGENTS.md](packages/shared/AGENTS.md) |
 | Dev runner, checks, builds, smokes, CI      | [scripts/AGENTS.md](scripts/AGENTS.md)                 |
+| VPS ingress, services, recovery, backups    | [deploy/AGENTS.md](deploy/AGENTS.md)                   |
 | Phase contracts and acceptance evidence     | [plans/AGENTS.md](plans/AGENTS.md)                     |
 
 Use `rg --files <target-directory>` and `rg -n '<symbol>' <target-directory>` before reading files. Start with the owner, its callers, and adjacent tests. Read bounded sections of large files. Treat `node_modules`, `dist`, coverage, API media data, and temporary browser probes as generated/local material, not source navigation targets.

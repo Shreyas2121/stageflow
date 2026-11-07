@@ -1,0 +1,20 @@
+[Unit]
+Description=StageFlow dedicated private PostgreSQL and Redis
+Requires=docker.service
+After=docker.service
+RequiresMountsFor=/srv/stageflow
+AssertPathIsMountPoint=/srv/stageflow
+OnFailure=stageflow-alert@%n.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/etc/stageflow
+ExecStart=/usr/bin/docker compose --project-name stageflow --env-file /etc/stageflow/infrastructure.env -f /etc/stageflow/compose.yml up -d --wait --wait-timeout 90
+ExecStop=/usr/bin/docker compose --project-name stageflow --env-file /etc/stageflow/infrastructure.env -f /etc/stageflow/compose.yml stop --timeout 45
+TimeoutStartSec=120s
+TimeoutStopSec=60s
+LogNamespace=stageflow
+
+[Install]
+WantedBy=multi-user.target

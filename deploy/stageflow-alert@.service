@@ -1,0 +1,7 @@
+[Unit]
+Description=StageFlow operator alert for %i
+
+[Service]
+Type=oneshot
+LogNamespace=stageflow
+ExecStart=/usr/bin/logger -p daemon.alert -t stageflow-alert -- StageFlow unit %i failed; inspect systemctl status and the protected journal. Operator action required.

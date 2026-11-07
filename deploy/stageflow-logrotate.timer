@@ -1,0 +1,10 @@
+[Unit]
+Description=Check StageFlow log size every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=stageflow-logrotate.service
+
+[Install]
+WantedBy=timers.target

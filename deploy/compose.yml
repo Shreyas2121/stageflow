@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16.15
+    environment:
+      POSTGRES_DB: stageflow
+      POSTGRES_USER: stageflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set the dedicated PostgreSQL password}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports: ['127.0.0.1:5542:5432']
+    volumes: ['/srv/stageflow/postgres:/var/lib/postgresql/data']
+    command:
+      [
+        'postgres',
+        '-c',
+        'max_connections=30',
+        '-c',
+        'shared_buffers=128MB',
+        '-c',
+        'work_mem=4MB',
+        '-c',
+        'statement_timeout=10000',
+        '-c',
+        'log_statement=none',
+        '-c',
+        'log_min_error_statement=panic',
+        '-c',
+        'log_parameter_max_length_on_error=0',
+      ]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U stageflow -d stageflow']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    cpus: 0.25
+    mem_limit: 768m
+    memswap_limit: 768m
+    pids_limit: 128
+    restart: unless-stopped
+    logging:
+      driver: local
+      options: { max-size: 5m, max-file: '3' }
+  redis:
+    image: redis:7.4.12
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf']
+    volumes:
+      - /srv/stageflow/redis:/data
+      - /etc/stageflow/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports: ['127.0.0.1:6381:6379']
+    healthcheck:
+      # An unauthenticated PING must be rejected, proving authentication is enabled.
+      test: ['CMD-SHELL', 'redis-cli ping 2>&1 | grep -q NOAUTH']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    cpus: 0.10
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 32
+    restart: unless-stopped
+    logging:
+      driver: local
+      options: { max-size: 5m, max-file: '3' }
