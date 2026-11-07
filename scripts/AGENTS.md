@@ -14,6 +14,7 @@ Paths below are relative to `scripts`; commands run from the repository root. Th
 | Real socket or encoder integration                     | [smoke-live.mjs](smoke-live.mjs), [smoke-broadcast.mjs](smoke-broadcast.mjs)                                                      |
 | Legacy upgrade and combined protocol acceptance        | [legacy-upgrade.mjs](legacy-upgrade.mjs), [combined-acceptance.mjs](combined-acceptance.mjs), called by the owned broadcast smoke |
 | Linux operating profile and isolated deployment drills | [deployment guide](../deploy/AGENTS.md), [deploy.test.mjs](deploy.test.mjs)                                                       |
+| Linux release packaging and restricted SSH upload      | [package-release.sh](package-release.sh), [ci-upload.sh](ci-upload.sh), [CI/CD runbook](../deploy/CICD.md)                        |
 
 Prefer adjacent `*.test.mjs` and owned helper fixtures over reproducing a failure against a running developer process. Keep Windows helpers hidden, clean up only owned processes/directories/keys, and retain namespace guard protections. Dev shutdown/restart tests must not kill the real API or take over another shared writer.
 

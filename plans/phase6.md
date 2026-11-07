@@ -114,3 +114,26 @@ No Phase 7 feature work or public deployment is implied by this record. Continue
 The user asked to prepare StageFlow for the PostgreSQL and Redis containers already running on the Hostinger VPS, without deploying. External mode probes `shared-postgres` and `stageflow-redis` and refuses to start, stop, recreate, dump, or restore anything else. Backup and restore are pinned to database `stageflow_db` and non-superuser role `stageflow_app`; a mismatched `DATABASE_URL` refuses instead of following the URL. The isolated fixture still starts dedicated Compose services when the external marker is absent. `DATABASE_POOL_MAX` is optional. Unset keeps the driver default of 10. The external example sets 4. Media and recording limits are unchanged. The fixture mount stays 12 GiB because it still holds its own database and Redis. External mode documents an 8 GiB mount for media and one local snapshot, because those Docker volumes stay where they are. 1 GiB media + about 1 GiB backup + the 2 GiB free-space floor fits in 8 GiB.
 
 Focused checks passed: 54 API config tests, API typecheck, 6 deployment tests, and `pnpm lint:config`. `pnpm check:affected --plan` then selected `pnpm check:release`. That run passed the tooling tests, 527 web tests, and 571 API unit tests, then stopped because four local PostgreSQL integration suites could not authenticate as user `stageflow` on `localhost:5432` (`password authentication failed`). Those 21 tests did not run. Builds, artifact checks, and smokes did not run. The local database was not modified. These checks do not close target capacity, real certificate renewal, remote alerts, off-host restore timing, TURN, physical devices, audible output, or the native picker. Open Phase 6 gates stay open.
+
+## 9. Maintenance: GitHub Actions release preparation
+
+On 2026-11-07 the user authorized local CI/CD implementation and completion of the
+incomplete release check, explicitly excluding VPS access, GitHub configuration,
+push and deployment. [The CI/CD runbook](../deploy/CICD.md) describes the
+manual-first main-branch pipeline, Linux production packaging, restricted SSH
+receiver, existing release lock and controlled migration service. No application
+rollback is automatic after a migration attempt. Shared infrastructure, Nginx,
+TLS, production secrets and live-owner recovery remain under existing authority.
+
+The incomplete release check is now closed locally: a clean Linux x86-64 fixture
+with Node 22.23.4, pnpm 12.9.1 and disposable PostgreSQL 16.15/Redis 7.4.12 passed
+the full `pnpm check:release`, including all 21 previously blocked PostgreSQL
+integration tests, both builds, artifact assertions and both smokes. All 59
+tooling, 456 shared, 527 web and 592 API tests passed. The Linux gate exposed an
+existing `killTree` portability failure; capturing/signalling descendants before
+the parent fixed it under the existing test. Production systemd shutdown/fencing
+was unchanged. Audit, explicit production build, standalone Linux packaging,
+receiver extraction, ten deployment safeguard tests, shell syntax and workflow
+lint also passed. [The detailed validation record](../deploy/CICD-validation.md)
+records intermediate failures, versions, checksums and limits. These local results
+do not close any target/public-launch or physical/browser acceptance gate.

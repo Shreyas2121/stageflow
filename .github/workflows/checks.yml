@@ -9,83 +9,84 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '23 4 * * 1'
+  workflow_call:
+    inputs:
+      package:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15
         env:
           POSTGRES_USER: stageflow
-          POSTGRES_PASSWORD: stageflow
+          POSTGRES_PASSWORD: stageflow-ci-disposable
           POSTGRES_DB: stageflow_ci
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U stageflow -d stageflow_ci"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+          --health-interval 5s --health-timeout 3s --health-retries 20
       redis:
-        image: redis:7-alpine
+        image: redis:7.4.12
         ports: ['6379:6379']
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+          --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       CI: 'true'
       HUSKY: '0'
       REDIS_URL: redis://127.0.0.1:6379
-      JWT_SECRET: stageflow-ci-only-placeholder
-      DATABASE_URL: postgresql://stageflow:stageflow@127.0.0.1:5432/stageflow_ci
+      JWT_SECRET: stageflow-ci-only-placeholder-at-least-32
+      DATABASE_URL: postgresql://stageflow:stageflow-ci-disposable@127.0.0.1:5432/stageflow_ci
       CORS_ORIGIN: http://127.0.0.1:5173
       LIVE_NAMESPACE: sf_ci
-      VITE_API_BASE_URL: http://127.0.0.1:4000/api
-      VITE_WS_URL: http://127.0.0.1:4000
-      CHECK_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
-      CHECK_AUDIT: ${{ github.event_name != 'pull_request' }}
+      VITE_API_BASE_URL: https://stage.shreyasrasaikar.cloud/api
+      VITE_WS_URL: https://stage.shreyasrasaikar.cloud
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
+          node-version: 22.23.4
+      - uses: pnpm/action-setup@9fd676a19091d4595eefd76e4bd31c97133911f1 # v4.2.0
+        with:
+          version: 12.9.1
           run_install: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - id: plan
-        name: Select integration prerequisites
+      - name: Install Ubuntu-packaged integration FFmpeg
         shell: bash
         run: |
-          node scripts/check-affected.mjs --plan > "$RUNNER_TEMP/stageflow-check-plan.json"
-          node --input-type=module -e '
-            import { readFileSync, appendFileSync } from "node:fs";
-            const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/stageflow-check-plan.json"));
-            appendFileSync(process.env.GITHUB_OUTPUT, `integration=${plan.full || plan.packages.includes("api")}\n`);
-          '
-      - name: Install pinned integration FFmpeg
-        if: steps.plan.outputs.integration == 'true'
-        shell: bash
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -version
+          echo "FFMPEG_PATH=/usr/bin/ffmpeg" >> "$GITHUB_ENV"
+      - name: Full release gate (lint, types, all tests, build, artifacts, both smokes)
+        run: pnpm check:release
+      - run: pnpm audit:check
+      - name: Production build and endpoint assertions
+        run: pnpm build:production
+      - name: Receiver safeguards and syntax
         run: |
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/ffmpeg.gz" https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz
-          echo "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f  $RUNNER_TEMP/ffmpeg.gz" | sha256sum --check
-          gzip --decompress "$RUNNER_TEMP/ffmpeg.gz"
-          chmod +x "$RUNNER_TEMP/ffmpeg"
-          "$RUNNER_TEMP/ffmpeg" -version
-          echo "FFMPEG_PATH=$RUNNER_TEMP/ffmpeg" >> "$GITHUB_ENV"
-      - run: pnpm check:affected
+          python3 -m unittest discover -s deploy -p 'test_ci_deploy.py' -v
+          bash -n scripts/package-release.sh scripts/ci-upload.sh
+      - name: Package Linux production runtime
+        run: bash scripts/package-release.sh "$RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.ref == 'refs/heads/main' && (inputs.package || github.event_name == 'push')
+        with:
+          name: stageflow-${{ github.sha }}
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 14

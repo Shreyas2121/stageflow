@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stageflow-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STAGEFLOW_AUTO_DEPLOY == 'true')
+    uses: ./.github/workflows/checks.yml
+    with:
+      package: true
+  deploy:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://stage.shreyasrasaikar.cloud
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: stageflow-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+      - name: Transfer and activate approved artifact
+        env:
+          DEPLOY_HOST: ${{ vars.STAGEFLOW_SSH_HOST }}
+          DEPLOY_PORT: ${{ vars.STAGEFLOW_SSH_PORT || '22' }}
+          DEPLOY_KEY: ${{ secrets.STAGEFLOW_DEPLOY_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.STAGEFLOW_KNOWN_HOSTS }}
+        run: bash scripts/ci-upload.sh "$RUNNER_TEMP/release"

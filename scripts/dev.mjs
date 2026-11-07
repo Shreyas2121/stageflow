@@ -77,6 +77,11 @@ export function killPid(pid) {
 
 export function killTree(child) {
   if (!child?.pid || !isAlive(child.pid)) return;
+  if (process.platform !== 'win32') {
+    // Unlike Windows taskkill /t, signalling a Unix PID leaves its children alive.
+    // Capture the owned tree before the parent exits and reparents descendants.
+    for (const pid of listDescendantPids(child.pid).reverse()) killPid(pid);
+  }
   killPid(child.pid);
 }
 

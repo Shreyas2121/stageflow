@@ -1,5 +1,13 @@
 # StageFlow on the shared Hostinger KVM 2
 
+For GitHub Actions builds, restricted SSH deployment, bootstrap and recovery, see
+[the CI/CD runbook](CICD.md). Production deployment remains disabled until setup
+and a separately authorized manual dispatch.
+On CI-managed hosts, use the operator-installed
+`/usr/local/lib/stageflow-ops/{backup,restore}.sh` for root backup/restore commands
+below, and install the mandatory infrastructure drop-in from that runbook. Root
+helpers stay outside the uploaded release.
+
 For a beginner-friendly visual explanation, open [explained.html](explained.html) in a browser. It includes clickable request journeys, a release simulation, storage and recovery explanations, and a glossary; it works offline.
 
 This profile targets **Ubuntu Server 26.04 LTS, x86-64**, selected for V3M-C12. The VPS is shared with other applications. It runs one native Node API writer and a site in the existing nginx. No cluster, second API, automatic guard takeover, or public media directory is supported. These files do not authorize deployment or an unrestricted launch.
