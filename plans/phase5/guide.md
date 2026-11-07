@@ -366,7 +366,7 @@ Add explicit production builds and resolved mode/public-endpoint evidence, verif
 
 ## Maintenance: V3M-C12 — Single-writer VPS profile (2026-11-07)
 
-Status: verified; ready to commit. Proposed commit: `ops: add a single-writer VPS deployment and recovery profile`.
-Actual commit:
+Status: committed. Proposed commit: `ops: add a single-writer VPS deployment and recovery profile`.
+Actual commit: `98bfd6d`.
 
 Deliver the Ubuntu 26.04 LTS profile under [deploy](../../deploy/README.md), preserving the shared VPS's other applications and single-owner guard. Four focused tooling tests passed; a real isolated Ubuntu/systemd/Compose/nginx drill passed ingress, encoding, stop/crash/Redis fencing, offline protected replay restore, and local disk-alert recovery. The final paced-input drill passed with isolated journal/log rotation and a private 12 GiB ext4 filesystem; missing-mount refusal and ingress bounds passed. Full release passed 57 tooling, 456 shared, 527 web and 588 API tests plus both smokes/builds/artifacts; audit passed. A concurrent unpaced fixture burst hit the unchanged encoder stop bound; it is recorded as a headroom observation, not hidden or fixed by loosening budgets. Detailed versions, commands, corrections, evidence and unverified target/remote/physical gates are recorded in [phase5.md](../phase5.md). No public service is deployed by this slice.

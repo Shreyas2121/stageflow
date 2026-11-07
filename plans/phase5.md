@@ -253,8 +253,8 @@ Clean install/build/production-artifact/runtime logs are outside Git under `C:/U
 
 ## Maintenance: V3M-C12 — Single-writer VPS profile (2026-11-07)
 
-Status: verified; ready to commit. Proposed commit: `ops: add a single-writer VPS deployment and recovery profile`.
-Actual commit:
+Status: committed. Proposed commit: `ops: add a single-writer VPS deployment and recovery profile`.
+Actual commit: `98bfd6d`.
 
 The user selected Ubuntu 26, then delegated the version choice; the profile targets Ubuntu Server 26.04 LTS x86-64 on the shared Hostinger KVM 2. The actual host inventory/domain/access were not supplied, and no public or existing service was deployed or reconfigured. `deploy/README.md` and its nearest guide own the native single-writer API/migration/health/alert units, dedicated PostgreSQL 16.15/Redis 7.4.12 Compose profile, private persistent media, scoped journal and container/nginx log bounds, TLS/WSS/SPA/security-header ingress with a default loopback-only allowlist, resource/traffic trial ceilings, certificate hooks, explicit migration/release workflow, fenced guard recovery and offline database/media snapshots. Root/tooling guides and README point to this owner. Target OS lifetime was checked against Ubuntu's official release cycle; latest interim 26.10 was rejected for its short support window.
 
