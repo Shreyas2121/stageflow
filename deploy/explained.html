@@ -1,0 +1,1674 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>StageFlow deployment, explained</title>
+    <style>
+      :root {
+        --paper: #f6f5ef;
+        --card: #fffefa;
+        --ink: #192f32;
+        --muted: #53686a;
+        --line: #d9dfd7;
+        --green: #166858;
+        --mint: #e4f2e9;
+        --orange: #ad4b2c;
+        --peach: #fff0e2;
+        --navy: #193c42;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 32px;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font:
+          16px/1.65 system-ui,
+          sans-serif;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        cursor: pointer;
+      }
+      a {
+        color: var(--green);
+        text-underline-offset: 4px;
+      }
+      :focus-visible {
+        outline: 3px solid #b65c24;
+        outline-offset: 4px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1,
+      h2 {
+        font-family: Georgia, serif;
+        font-weight: 400;
+        letter-spacing: -0.045em;
+        line-height: 1.08;
+      }
+      h1 {
+        font-size: clamp(44px, 5.2vw, 74px);
+        max-width: 850px;
+        margin-bottom: 22px;
+      }
+      h2 {
+        font-size: clamp(32px, 3.5vw, 46px);
+        margin-bottom: 16px;
+      }
+      h3 {
+        font-size: 18px;
+        line-height: 1.4;
+        margin-bottom: 8px;
+      }
+      p {
+        margin-bottom: 14px;
+      }
+      code {
+        font:
+          0.86em/1.5 Consolas,
+          ui-monospace,
+          monospace;
+        overflow-wrap: anywhere;
+      }
+      p code,
+      li code,
+      td code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #e9ede6;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 214px minmax(0, 1fr);
+        max-width: 1560px;
+        margin: auto;
+      }
+      .rail {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        padding: 38px 24px;
+        border-right: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        gap: 36px;
+      }
+      .brand {
+        font-weight: 750;
+        font-size: 20px;
+        letter-spacing: -0.7px;
+      }
+      .brand-mark {
+        display: inline-block;
+        color: var(--green);
+        margin-right: 7px;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-weight: 750;
+        color: var(--green);
+        margin-bottom: 14px;
+      }
+      .rail .eyebrow {
+        margin-top: 8px;
+        font-size: 10px;
+      }
+      nav {
+        display: grid;
+        gap: 5px;
+      }
+      nav a {
+        text-decoration: none;
+        color: var(--muted);
+        font-size: 13px;
+        padding: 8px 0;
+      }
+      nav a:hover {
+        color: var(--green);
+      }
+      nav span {
+        color: #879796;
+        margin-right: 9px;
+        font-size: 11px;
+      }
+      .rail-foot {
+        margin-top: auto;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      main {
+        padding: 46px clamp(22px, 4.5vw, 72px) 30px;
+        min-width: 0;
+      }
+      .topline {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--line);
+        margin-bottom: 44px;
+      }
+      .topline .eyebrow {
+        margin: 0;
+      }
+      .tag {
+        display: inline-block;
+        border: 1px solid var(--line);
+        padding: 5px 10px;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .status {
+        color: #843f21;
+        background: var(--peach);
+        border-color: #eccdb9;
+      }
+      .intro {
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+      .hero-note {
+        border-left: 3px solid var(--green);
+        padding: 14px 20px;
+        background: var(--mint);
+        margin-top: 28px;
+        font-size: 14px;
+      }
+      .hero-note p {
+        margin: 0;
+      }
+      .section {
+        padding: 62px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .section-head {
+        max-width: 740px;
+        margin-bottom: 28px;
+      }
+      .section-head > p:last-child {
+        color: var(--muted);
+      }
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 25px;
+      }
+      .card p:last-child {
+        margin-bottom: 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 13px;
+      }
+      .large-number {
+        font:
+          38px/1 Georgia,
+          serif;
+        color: var(--green);
+        margin-bottom: 16px;
+      }
+      .tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink);
+        border-radius: 99px;
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+      .chip[aria-pressed='true'] {
+        background: var(--ink);
+        color: white;
+        border-color: var(--ink);
+      }
+      .map-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(240px, 1fr);
+        gap: 22px;
+        align-items: start;
+      }
+      .diagram {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--card);
+      }
+      .node {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        border: 1px solid #cdd7d1;
+        border-radius: 11px;
+        background: #f6f8f2;
+        padding: 15px;
+        color: var(--ink);
+        text-align: left;
+        transition:
+          background 0.2s,
+          border-color 0.2s;
+      }
+      .node strong {
+        display: block;
+        font-size: 15px;
+      }
+      .node span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+        margin-top: 3px;
+      }
+      .node.on-route {
+        border-color: var(--green);
+        background: var(--mint);
+      }
+      .node[aria-pressed='true'] {
+        box-shadow: 0 0 0 2px var(--green);
+      }
+      .node:hover {
+        border-color: var(--green);
+      }
+      .browser {
+        max-width: 290px;
+        margin: auto;
+      }
+      .connector {
+        text-align: center;
+        color: var(--muted);
+        font-size: 11px;
+        margin: 9px 0;
+      }
+      .connector b {
+        display: block;
+        color: var(--green);
+        font-size: 22px;
+        font-weight: 400;
+        line-height: 1;
+      }
+      .server {
+        border: 1px dashed #b6c7c2;
+        border-radius: 13px;
+        padding: 18px;
+        background: #f9faf6;
+      }
+      .server-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 15px;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+      .branches {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .helpers {
+        margin-top: 12px;
+      }
+      .helper-label {
+        font-size: 10px;
+        text-align: center;
+        color: var(--muted);
+        margin: 13px 0 8px;
+      }
+      .peer-note {
+        padding: 13px 2px 0;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: center;
+      }
+      .inspector {
+        background: var(--navy);
+        color: #f3f7ef;
+        border-radius: 16px;
+        padding: 25px;
+      }
+      .inspector .eyebrow {
+        color: #a0d3ba;
+      }
+      .inspector h3 {
+        font-size: 25px;
+        font-weight: 550;
+      }
+      .inspector p {
+        color: #d1e0db;
+        font-size: 14px;
+      }
+      .inspector code {
+        display: block;
+        margin-top: 20px;
+        padding: 12px;
+        background: #102e33;
+        border-radius: 7px;
+        color: #c1e2d0;
+      }
+      .route-card {
+        margin-top: 16px;
+      }
+      .route-card ol {
+        padding-left: 20px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .route-card li + li {
+        margin-top: 9px;
+      }
+      .map-tip {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-top: 24px;
+      }
+      .facts strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+      .step-layout {
+        display: grid;
+        grid-template-columns: 210px minmax(0, 1fr);
+        gap: 24px;
+      }
+      .steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 8px;
+        align-content: start;
+      }
+      .steps button {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        width: 100%;
+        text-align: left;
+        padding: 12px;
+        border: 1px solid transparent;
+        border-radius: 9px;
+        color: var(--muted);
+        background: transparent;
+        font-size: 13px;
+      }
+      .steps .step-no {
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 50%;
+        width: 27px;
+        height: 27px;
+        flex: 0 0 auto;
+        font-size: 11px;
+      }
+      .steps button[aria-current='step'] {
+        background: var(--mint);
+        color: var(--green);
+        border-color: #b7d8c6;
+      }
+      .steps button[aria-current='step'] .step-no {
+        background: var(--green);
+        color: white;
+        border-color: var(--green);
+      }
+      .step-panel {
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        background: var(--card);
+      }
+      .step-panel h3 {
+        font-size: 24px;
+      }
+      .step-panel p {
+        color: var(--muted);
+      }
+      .release-state {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin: 24px 0;
+      }
+      .state-box {
+        padding: 14px;
+        background: #edf0e9;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .state-box strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+      .kept {
+        background: var(--mint);
+      }
+      .step-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+        margin-top: 24px;
+      }
+      .control {
+        padding: 10px 17px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        font-size: 13px;
+      }
+      .control.next {
+        background: var(--green);
+        color: white;
+        border-color: var(--green);
+      }
+      .control:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .step-count {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .file-tree {
+        background: var(--navy);
+        color: #e1eee6;
+        border-radius: 16px;
+        padding: 28px;
+      }
+      .file-tree h3 {
+        color: #a7d5be;
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 24px;
+      }
+      .folder {
+        padding: 0 0 19px;
+        margin-bottom: 19px;
+        border-bottom: 1px solid #39585c;
+      }
+      .folder:last-child {
+        border: 0;
+        padding: 0;
+        margin: 0;
+      }
+      .folder strong {
+        font-size: 14px;
+        color: white;
+      }
+      .folder p {
+        font-size: 12px;
+        color: #c8d9d4;
+        margin: 7px 0 0;
+      }
+      .file-tree code {
+        display: block;
+        color: #b4d8c4;
+        margin-top: 5px;
+        font-size: 11px;
+      }
+      .recovery {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--card);
+      }
+      .recovery-top {
+        padding: 22px 25px;
+        background: var(--peach);
+        border-bottom: 1px solid #ecd7c7;
+      }
+      .recovery-top h3 {
+        margin: 6px 0;
+      }
+      .recovery-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 24px;
+        padding: 25px;
+      }
+      .recovery-grid .eyebrow {
+        font-size: 10px;
+        margin-bottom: 9px;
+      }
+      .recovery-grid p {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0;
+      }
+      .note {
+        margin-top: 20px;
+        font-size: 13px;
+        color: var(--muted);
+        border-left: 2px solid #b8c7bf;
+        padding-left: 17px;
+      }
+      .check-list {
+        padding: 0;
+        list-style: none;
+        margin-bottom: 0;
+      }
+      .check-list li {
+        display: flex;
+        gap: 13px;
+        margin-top: 17px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .check-list li::before {
+        content: '○';
+        color: var(--green);
+        flex: 0 0 auto;
+      }
+      .check-list.done li::before {
+        content: '✓';
+      }
+      .check-list strong {
+        color: var(--ink);
+      }
+      .commands {
+        padding: 22px;
+        background: #e9ede6;
+        border-radius: 12px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-height: 1.8;
+      }
+      details {
+        border-bottom: 1px solid var(--line);
+        padding: 18px 0;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 650;
+        font-size: 15px;
+      }
+      details p {
+        margin: 12px 0 0;
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      footer {
+        padding: 28px 0;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        justify-content: space-between;
+      }
+      .no-js {
+        background: var(--peach);
+        padding: 15px;
+        border-radius: 8px;
+      }
+      @media (max-width: 1100px) {
+        .shell {
+          grid-template-columns: 170px minmax(0, 1fr);
+        }
+        .rail {
+          padding: 28px 18px;
+        }
+        main {
+          padding: 30px 25px;
+        }
+        .map-layout {
+          grid-template-columns: minmax(0, 1.25fr) minmax(210px, 1fr);
+          gap: 15px;
+        }
+        .diagram {
+          padding: 16px;
+        }
+        .server {
+          padding: 12px;
+        }
+        .step-layout {
+          grid-template-columns: 175px minmax(0, 1fr);
+          gap: 14px;
+        }
+      }
+      @media (max-width: 820px) {
+        .shell {
+          display: block;
+        }
+        .rail {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          padding: 18px 22px;
+          gap: 12px;
+        }
+        .rail .eyebrow,
+        .rail-foot {
+          display: none;
+        }
+        nav {
+          display: flex;
+          gap: 16px;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+        nav a {
+          font-size: 11px;
+        }
+        nav span {
+          display: none;
+        }
+        main {
+          padding: 28px 22px;
+        }
+        .topline {
+          margin-bottom: 30px;
+        }
+        .section {
+          padding: 42px 0;
+        }
+        .map-layout {
+          grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
+        }
+        .facts {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .facts .card {
+          padding: 18px 22px;
+        }
+        .recovery-grid {
+          gap: 16px;
+        }
+      }
+      @media (max-width: 600px) {
+        .topline {
+          align-items: flex-start;
+        }
+        .topline .eyebrow {
+          max-width: 150px;
+        }
+        .topline .tag {
+          max-width: 140px;
+          text-align: center;
+        }
+        h1 {
+          font-size: 45px;
+        }
+        .intro {
+          font-size: 16px;
+        }
+        .two-col,
+        .map-layout,
+        .step-layout,
+        .recovery-grid {
+          grid-template-columns: 1fr;
+        }
+        .steps {
+          grid-template-columns: repeat(3, 1fr);
+          gap: 5px;
+        }
+        .steps button {
+          flex-direction: column;
+          text-align: center;
+          font-size: 11px;
+          gap: 7px;
+          padding: 10px 4px;
+        }
+        .step-panel {
+          padding: 23px;
+        }
+        .release-state {
+          grid-template-columns: 1fr;
+        }
+        .recovery-grid {
+          gap: 22px;
+        }
+        .card {
+          padding: 23px;
+        }
+        .server-title {
+          font-size: 9px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+        * {
+          transition: none !important;
+        }
+      }
+      @media print {
+        .shell {
+          display: block;
+        }
+        .rail,
+        .step-controls {
+          display: none;
+        }
+        main {
+          padding: 0;
+        }
+        body {
+          font-size: 12px;
+          background: white;
+        }
+        .section {
+          padding: 24px 0;
+        }
+        .card,
+        .diagram,
+        .inspector,
+        .step-panel,
+        .recovery {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail">
+        <div>
+          <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span>StageFlow</div>
+          <div class="eyebrow">Deployment field guide</div>
+        </div>
+        <nav aria-label="Guide sections">
+          <a href="#start"><span>01</span>The big picture</a>
+          <a href="#map"><span>02</span>Follow a request</a>
+          <a href="#release"><span>03</span>Ship an update</a>
+          <a href="#data"><span>04</span>Keep your data</a>
+          <a href="#recovery"><span>05</span>When things fail</a>
+          <a href="#launch"><span>06</span>Before going live</a>
+          <a href="#words"><span>07</span>Plain-English terms</a>
+        </nav>
+        <div class="rail-foot">
+          Ubuntu 26.04 LTS<br />Shared Hostinger KVM 2<br /><br />An offline explanation of the
+          repository's deployment profile.
+        </div>
+      </aside>
+      <main>
+        <header id="start">
+          <div class="topline">
+            <p class="eyebrow">A beginner's guide · November 2026</p>
+            <span class="tag status">Prepared &amp; locally tested</span>
+          </div>
+          <h1>From your laptop<br />to someone else's browser.</h1>
+          <p class="intro">
+            Deployment means putting a ready-to-run version of StageFlow on your rented server,
+            giving it a web address, and keeping it running when your laptop is off.
+          </p>
+          <div class="hero-note">
+            <p>
+              <strong>Where we are today:</strong> the setup files and operating instructions are in
+              this repository, and we tested them on a disposable Linux server locally.
+              <strong>We have not installed StageFlow on your actual VPS.</strong>
+            </p>
+          </div>
+        </header>
+
+        <section class="section" aria-labelledby="picture-title">
+          <div class="section-head">
+            <p class="eyebrow">01 / The big picture</p>
+            <h2>One server. Several small jobs.</h2>
+            <p>
+              Your VPS is a computer rented from Hostinger. Ubuntu is its operating system.
+              StageFlow shares that computer with your other applications, so it gets its own files,
+              passwords, private ports, and resource limits.
+            </p>
+          </div>
+          <div class="two-col">
+            <article class="card">
+              <div class="large-number">A</div>
+              <h3>Getting the app onto the server</h3>
+              <p class="muted">
+                We build and test the code on Linux, copy a versioned release onto the VPS, update
+                the database if needed, and start one API process.
+              </p>
+              <p class="small">
+                <strong>This is currently an operator-run process.</strong> A Git push runs
+                repository checks; it does not automatically deploy to the VPS.
+              </p>
+            </article>
+            <article class="card">
+              <div class="large-number">B</div>
+              <h3>Serving people after that</h3>
+              <p class="muted">
+                Visitors use your domain. Nginx delivers the website and forwards app requests to
+                the API. The API uses private databases and recording storage.
+              </p>
+              <p class="small">
+                <strong>systemd keeps the API running.</strong> You can disconnect your SSH session
+                and turn off your laptop.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section id="map" class="section" aria-labelledby="map-title">
+          <div class="section-head">
+            <p class="eyebrow">02 / Follow a request</p>
+            <h2>What happens when someone visits?</h2>
+            <p>
+              DNS points your domain to the VPS. HTTPS encrypts the connection. Nginx is the front
+              desk that sends each request to the right place.
+            </p>
+          </div>
+          <div id="flow-buttons" class="tabs" aria-label="Choose a request journey">
+            <button class="chip" data-flow="website" aria-pressed="true">Open the website</button>
+            <button class="chip" data-flow="action" aria-pressed="false">Use the app</button>
+            <button class="chip" data-flow="speakers" aria-pressed="false">Live speakers</button>
+            <button class="chip" data-flow="record" aria-pressed="false">Record the stage</button>
+            <button class="chip" data-flow="watch" aria-pressed="false">Watch a replay</button>
+          </div>
+          <p class="map-tip">Choose a journey above. Click any component below to learn its job.</p>
+          <div class="map-layout">
+            <div class="diagram" aria-label="Deployment architecture">
+              <button class="node browser on-route" data-node="browser" aria-pressed="false">
+                <strong>Visitor's browser</strong><span>The React app runs here</span>
+              </button>
+              <div class="connector">
+                Your domain · encrypted HTTPS / WSS<b aria-hidden="true">↓</b>
+              </div>
+              <div class="server">
+                <div class="server-title">
+                  <span>Your shared VPS</span><span>Ubuntu 26.04</span>
+                </div>
+                <button class="node on-route" data-node="nginx" aria-pressed="true">
+                  <strong>Nginx · the front desk</strong
+                  ><span>Public ports 80 / 443 · shared with your other sites</span>
+                </button>
+                <div class="connector">
+                  <b aria-hidden="true">↓</b>Website files or application requests
+                </div>
+                <div class="branches">
+                  <button class="node on-route" data-node="web" aria-pressed="false">
+                    <strong>Built website</strong><span>HTML, CSS &amp; JavaScript files</span>
+                  </button>
+                  <button class="node" data-node="api" aria-pressed="false">
+                    <strong>Node API</strong><span>One process · private port 4100</span>
+                  </button>
+                </div>
+                <div class="helper-label">The API uses these private helpers ↓</div>
+                <div class="branches helpers">
+                  <button class="node" data-node="postgres" aria-pressed="false">
+                    <strong>PostgreSQL</strong><span>Accounts, rooms &amp; recording records</span>
+                  </button>
+                  <button class="node" data-node="redis" aria-pressed="false">
+                    <strong>Redis</strong><span>Live state, chat, Q&amp;A &amp; owner lock</span>
+                  </button>
+                  <button class="node" data-node="ffmpeg" aria-pressed="false">
+                    <strong>FFmpeg</strong><span>Turns uploaded recording into playable video</span>
+                  </button>
+                  <button class="node" data-node="media" aria-pressed="false">
+                    <strong>Private media</strong><span>Video files on persistent storage</span>
+                  </button>
+                </div>
+              </div>
+              <div class="peer-note">
+                Live speaker media: browser ↔ other speakers through WebRTC.<br />A TURN relay may
+                help when a direct connection fails.
+              </div>
+            </div>
+            <div>
+              <article class="inspector" aria-live="polite" aria-atomic="true">
+                <p class="eyebrow" id="node-label">Reception desk</p>
+                <h3 id="node-title">Nginx</h3>
+                <p id="node-description">
+                  It accepts the browser's encrypted connection, serves the website files, and
+                  passes API requests and live socket connections to Node.
+                </p>
+                <code id="node-location">Public entry: HTTPS on port 443</code>
+              </article>
+              <article class="card route-card" aria-live="polite" aria-atomic="true">
+                <h3 id="flow-title">Open the website</h3>
+                <ol id="flow-route">
+                  <li>Your browser finds the VPS through your domain's DNS.</li>
+                  <li>Nginx sends the built website files.</li>
+                  <li>JavaScript starts the React app inside your browser.</li>
+                </ol>
+              </article>
+            </div>
+          </div>
+          <div class="facts">
+            <div class="card small">
+              <strong>Docker has a specific job</strong
+              ><span class="muted"
+                >PostgreSQL and Redis run in separate containers. The API runs directly under
+                systemd, and nginx runs on Ubuntu.</span
+              >
+            </div>
+            <div class="card small">
+              <strong>Private means server-only</strong
+              ><span class="muted"
+                ><code>127.0.0.1</code> is the VPS talking to itself. Visitors reach the API through
+                nginx; they do not connect to database ports.</span
+              >
+            </div>
+            <div class="card small">
+              <strong>Video has two paths</strong
+              ><span class="muted"
+                >Speakers exchange WebRTC media. Broadcast viewers and replay viewers receive
+                authorized HLS video through the API.</span
+              >
+            </div>
+          </div>
+        </section>
+
+        <section id="release" class="section" aria-labelledby="release-title">
+          <div class="section-head">
+            <p class="eyebrow">03 / Ship an update</p>
+            <h2>A release is a controlled handover.</h2>
+            <p>
+              We prepare a new version alongside the old one. The database, passwords, and
+              recordings live elsewhere, so replacing code preserves them. This profile uses a short
+              maintenance window for the handover.
+            </p>
+          </div>
+          <div class="step-layout">
+            <ol id="steps" class="steps" aria-label="Release simulation">
+              <li>
+                <button data-step="0" aria-current="step">
+                  <span class="step-no">1</span>Build &amp; test
+                </button>
+              </li>
+              <li>
+                <button data-step="1"><span class="step-no">2</span>Stage the release</button>
+              </li>
+              <li>
+                <button data-step="2"><span class="step-no">3</span>Pause &amp; back up</button>
+              </li>
+              <li>
+                <button data-step="3"><span class="step-no">4</span>Switch &amp; migrate</button>
+              </li>
+              <li>
+                <button data-step="4"><span class="step-no">5</span>Start one API</button>
+              </li>
+              <li>
+                <button data-step="5"><span class="step-no">6</span>Verify &amp; monitor</button>
+              </li>
+            </ol>
+            <article class="step-panel">
+              <div aria-live="polite" aria-atomic="true">
+                <p class="eyebrow" id="step-label">Step 1 / Prepare</p>
+                <h3 id="step-title">Build a production version on Linux.</h3>
+                <p id="step-description">
+                  Install the exact dependency versions, compile the apps, and run the checks. The
+                  website's API and socket addresses are baked into its JavaScript during this
+                  build.
+                </p>
+                <div class="release-state">
+                  <div class="state-box">
+                    <strong>App state</strong
+                    ><span id="app-state">Existing version can keep serving</span>
+                  </div>
+                  <div class="state-box kept">
+                    <strong>Accounts &amp; recordings</strong
+                    ><span id="data-state">Stay in persistent storage</span>
+                  </div>
+                </div>
+                <p class="small" id="step-detail">
+                  The build command is pnpm build:production. A release includes compiled code and
+                  Linux runtime dependencies, with secrets kept separately.
+                </p>
+              </div>
+              <div class="step-controls">
+                <button id="previous-step" class="control" disabled>← Previous</button
+                ><span id="step-count" class="step-count">1 of 6</span
+                ><button id="next-step" class="control next">Next step →</button>
+              </div>
+            </article>
+          </div>
+          <p class="note">
+            This is a simulation: nothing is executed. On the first deployment, the server, domain,
+            certificates, private storage, and secrets must be set up before these release steps.
+          </p>
+        </section>
+
+        <section id="data" class="section" aria-labelledby="data-title">
+          <div class="section-head">
+            <p class="eyebrow">04 / Keep your data</p>
+            <h2>Code changes. Your recordings stay.</h2>
+            <p>
+              Three separate locations keep updates from overwriting the things you want to
+              preserve.
+            </p>
+          </div>
+          <div class="two-col">
+            <div class="file-tree">
+              <h3>Where things live on the VPS</h3>
+              <div class="folder">
+                <strong>Replaceable code</strong><code>/opt/stageflow/releases/&lt;commit&gt;</code
+                ><code>/opt/stageflow/current → selected release</code>
+                <p>
+                  Each release has its own folder. “current” is a shortcut pointing to the selected
+                  version.
+                </p>
+              </div>
+              <div class="folder">
+                <strong>Protected configuration</strong><code>/etc/stageflow/</code>
+                <p>
+                  Database passwords, the login-token secret, and production settings. These are
+                  kept out of Git and release folders.
+                </p>
+              </div>
+              <div class="folder">
+                <strong>Persistent data</strong><code>/srv/stageflow/postgres</code
+                ><code>/srv/stageflow/redis</code><code>/srv/stageflow/media</code
+                ><code>/srv/stageflow/backups</code>
+                <p>
+                  A dedicated 12 GiB filesystem protects the shared server from unbounded StageFlow
+                  data growth.
+                </p>
+              </div>
+            </div>
+            <div>
+              <article class="card">
+                <h3>A recording has two pieces</h3>
+                <p class="muted">
+                  <strong>PostgreSQL</strong> remembers who owns it, its visibility, and whether it
+                  is ready. <strong>Media storage</strong> holds the actual video files. A useful
+                  backup needs both from the same stopped-app snapshot.
+                </p>
+                <p class="small">
+                  The backup script makes that local pair and checksums it. Encrypting and copying
+                  it off the VPS is a separate operator step. A copy on the same disk does not
+                  protect against losing the VPS.
+                </p>
+              </article>
+              <article class="card" style="margin-top: 18px">
+                <h3>Resource limits are guardrails</h3>
+                <p class="muted">
+                  The API and encoder together have a 1.5 GiB memory ceiling and 75% of one CPU
+                  core. The app allows one encoder, retains up to 1 GiB of media, and refuses new
+                  recording work when free space is too low.
+                </p>
+                <p class="small">
+                  These are proposed limits for a shared server. They do not prove how many
+                  simultaneous users your real VPS can support.
+                </p>
+              </article>
+            </div>
+          </div>
+          <p class="note">
+            Nginx serves the website's build directory. Recordings stay private: the API checks
+            access before serving HLS files, including owner-only replays.
+          </p>
+        </section>
+
+        <section id="recovery" class="section" aria-labelledby="recovery-title">
+          <div class="section-head">
+            <p class="eyebrow">05 / When things fail</p>
+            <h2>A supervisor helps. A lock prevents confusion.</h2>
+            <p>
+              systemd starts the API, watches its process, and limits resource use. Redis holds an
+              owner lock so two API processes cannot both control the same live rooms.
+            </p>
+          </div>
+          <div id="recovery-buttons" class="tabs" aria-label="Choose a failure scenario">
+            <button class="chip" data-recovery="normal" aria-pressed="true">Normal restart</button
+            ><button class="chip" data-recovery="crash" aria-pressed="false">API crash</button
+            ><button class="chip" data-recovery="redis" aria-pressed="false">Redis outage</button
+            ><button class="chip" data-recovery="disk" aria-pressed="false">Low disk space</button>
+          </div>
+          <article class="recovery" aria-live="polite" aria-atomic="true">
+            <div class="recovery-top">
+              <span class="tag" id="recovery-status">Graceful handover</span>
+              <h3 id="recovery-heading">The API gets time to close properly.</h3>
+            </div>
+            <div class="recovery-grid">
+              <div>
+                <p class="eyebrow">What the system does</p>
+                <p id="recovery-auto">
+                  systemd asks Node to stop. The app closes its live work, stops its encoder, and
+                  releases its owner lock. The stop budget is 45 seconds.
+                </p>
+              </div>
+              <div>
+                <p class="eyebrow">What remains</p>
+                <p id="recovery-kept">
+                  Accounts, room records, and completed recordings stay. Live memberships reset when
+                  the API starts again; an interrupted broadcast is not resumed.
+                </p>
+              </div>
+              <div>
+                <p class="eyebrow">What the operator does</p>
+                <p id="recovery-action">
+                  Start one replacement and check database health, live readiness, and a protected
+                  replay before resuming the trial.
+                </p>
+              </div>
+            </div>
+          </article>
+          <p class="note">
+            <strong>“Fence the old writer”</strong> means making certain the previous API, any
+            manual copy, and any cloned old server cannot keep running. An operator can then remove
+            only the exact old lock using the guarded recovery helper. The guide does not automate
+            that decision.
+          </p>
+          <h3 style="margin-top: 30px">A few read-only checks</h3>
+          <p class="small muted">
+            These commands are for the VPS terminal after installation. The first health check asks
+            PostgreSQL “are you reachable?”; the second asks whether live Redis is ready.
+          </p>
+          <pre class="commands"><code>sudo systemctl status stageflow.service
+curl --fail http://127.0.0.1:4100/api/health
+curl --fail http://127.0.0.1:4100/api/health/live
+sudo journalctl --namespace=stageflow -u stageflow.service -n 50 --no-pager</code></pre>
+          <p class="small muted">
+            Health checks run about every minute. Alerts currently write to the local journal;
+            sending notifications to you still needs an external monitoring connection.
+          </p>
+        </section>
+
+        <section id="launch" class="section" aria-labelledby="launch-title">
+          <div class="section-head">
+            <p class="eyebrow">06 / Before going live</p>
+            <h2>Prepared locally. Verified on the VPS next.</h2>
+            <p>
+              The current nginx template admits only requests from the server itself. Opening access
+              is a deliberate later step, beginning with invited testers.
+            </p>
+          </div>
+          <div class="two-col">
+            <article class="card">
+              <h3>Already prepared and tested locally</h3>
+              <ul class="check-list done">
+                <li><span>Production builds and compiled startup/migration commands.</span></li>
+                <li>
+                  <span
+                    >Linux services, encrypted test connections, live sockets, and recording.</span
+                  >
+                </li>
+                <li>
+                  <span>Crash refusal, guarded recovery, disk alerts, and resource limits.</span>
+                </li>
+                <li>
+                  <span
+                    >Backup/restore with a decoded private replay and another account denied.</span
+                  >
+                </li>
+              </ul>
+            </article>
+            <article class="card">
+              <h3>Still needed for the real host</h3>
+              <ul class="check-list">
+                <li>
+                  <span
+                    ><strong>Inventory:</strong> installed OS, free resources, existing apps, and
+                    safe private ports.</span
+                  >
+                </li>
+                <li>
+                  <span
+                    ><strong>A real domain:</strong> DNS, a trusted certificate, and tested
+                    certificate renewal.</span
+                  >
+                </li>
+                <li>
+                  <span
+                    ><strong>Operations:</strong> external alerts, encrypted off-host backups, and a
+                    timed restore.</span
+                  >
+                </li>
+                <li>
+                  <span
+                    ><strong>Real-world testing:</strong> shared-VPS load, remote TURN connectivity,
+                    browsers, and physical audio/video.</span
+                  >
+                </li>
+              </ul>
+            </article>
+          </div>
+          <p class="note">
+            TURN is a relay that helps speakers behind difficult networks connect. The profile
+            leaves it unset until a controlled remote trial is configured and tested. A successful
+            local video test does not prove remote connectivity or server capacity.
+          </p>
+        </section>
+
+        <section id="words" class="section" aria-labelledby="words-title">
+          <div class="section-head">
+            <p class="eyebrow">07 / Plain-English terms</p>
+            <h2>The words you will keep seeing.</h2>
+            <p>Open a term whenever the runbook feels unfamiliar.</p>
+          </div>
+          <details>
+            <summary>VPS, SSH, and root</summary>
+            <p>
+              A VPS is your rented Linux computer. SSH is a secure terminal connection to it. Root
+              is its administrator account, which can change the entire machine. The running
+              StageFlow API uses a separate, limited account named <code>stageflow</code>.
+            </p>
+          </details>
+          <details>
+            <summary>DNS, HTTPS, TLS, and WSS</summary>
+            <p>
+              DNS connects a domain name to the server's address. TLS provides the encryption used
+              by HTTPS. WSS is the encrypted form of a WebSocket connection, used for live events. A
+              certificate helps the browser verify that it reached the correct domain.
+            </p>
+          </details>
+          <details>
+            <summary>Nginx, API, and reverse proxy</summary>
+            <p>
+              Nginx accepts public web requests. An API is the program that handles actions such as
+              logging in, joining a room, or requesting a private replay. Nginx acts as a reverse
+              proxy when it forwards a visitor's request to the private API and returns the
+              response.
+            </p>
+          </details>
+          <details>
+            <summary>systemd, service, and timer</summary>
+            <p>
+              systemd is Ubuntu's service supervisor. A service file describes how to run a job, as
+              which user, with which limits. A timer schedules a job. In this profile, the health
+              timer checks readiness and disk space, and the log-rotation timer keeps old nginx logs
+              manageable.
+            </p>
+          </details>
+          <details>
+            <summary>Docker and Compose</summary>
+            <p>
+              A container packages a process and the files it needs. Compose describes several
+              containers together. Here, <code>compose.yml</code> defines dedicated PostgreSQL and
+              Redis containers, their private ports, persistent directories, health checks, and
+              limits. The local fixture Dockerfile is a test environment, not the production app
+              image.
+            </p>
+          </details>
+          <details>
+            <summary>Build, artifact, release, and migration</summary>
+            <p>
+              A build turns source code into runnable files. Those files are build artifacts. A
+              release is a particular version prepared for deployment. A migration changes the
+              database structure to match the new code; the migration job runs explicitly while the
+              API is stopped.
+            </p>
+          </details>
+          <details>
+            <summary>Symlink and rollback</summary>
+            <p>
+              A symlink is a filesystem shortcut. <code>/opt/stageflow/current</code> points at the
+              selected release folder. Rolling back means returning to a compatible earlier version.
+              If the database changed incompatibly, switching the shortcut alone is insufficient:
+              use a tested forward fix or restore the matching database/media backup with compatible
+              code.
+            </p>
+          </details>
+          <details>
+            <summary>WebRTC, FFmpeg, and HLS</summary>
+            <p>
+              WebRTC carries live speaker audio/video between browsers, with TURN helping when
+              needed. When a webinar host records, their browser captures the composed stage and
+              uploads WebM chunks. FFmpeg turns that stream into HLS, a playlist plus small video
+              segments that authorized viewers can play. A meeting does not start this broadcast
+              pipeline.
+            </p>
+          </details>
+          <details>
+            <summary>Allowlist, health check, and monitoring</summary>
+            <p>
+              An allowlist admits only approved client IP addresses. A health check asks whether a
+              dependency or service is ready. Monitoring collects health, errors, traffic, disk use,
+              and resource measurements over time. An alert tells an operator when a measurement
+              needs attention; our current local alert needs to be connected to a notification
+              system.
+            </p>
+          </details>
+          <details>
+            <summary>RPO and RTO</summary>
+            <p>
+              RPO asks “how much recent data could we lose?” RTO asks “how long could recovery
+              take?” The runbook proposes backups at least daily and a 30-minute recovery target
+              after fencing. Those targets still need to be demonstrated using an off-host backup on
+              the actual environment.
+            </p>
+          </details>
+          <noscript
+            ><p class="no-js">
+              JavaScript is disabled. The overview, storage explanation, launch checklist, and
+              glossary still work. Enable JavaScript for the journey buttons and release simulation.
+            </p></noscript
+          >
+        </section>
+        <footer>
+          <span>Explains the V3M-C12 repository profile. This page makes no server changes.</span
+          ><a href="README.md">Open the detailed operator runbook →</a>
+        </footer>
+      </main>
+    </div>
+    <script>
+      const nodes = {
+        browser: [
+          'On the visitor’s device',
+          'The browser',
+          'Nginx delivers the website files. React then runs in the visitor’s browser and makes requests to your API. Speakers’ cameras and microphones stay under browser capture consent.',
+          'Outside the VPS',
+        ],
+        nginx: [
+          'Reception desk',
+          'Nginx',
+          'It accepts the browser’s encrypted connection, serves the website files, and passes API requests and live socket connections to Node. Separate domain configurations let your other websites share the same nginx.',
+          'Public entry: HTTPS on port 443',
+        ],
+        web: [
+          'The website package',
+          'Built website files',
+          'These are the production HTML, CSS, and JavaScript generated by Vite. Nginx sends them to visitors. The production website does not need a Vite development server.',
+          '/opt/stageflow/current/apps/web/dist',
+        ],
+        api: [
+          'Application manager',
+          'One Node API',
+          'The Nest API checks identity and permission, handles app actions, coordinates live rooms, and starts the encoder. systemd runs it as a limited user. One API process owns each live namespace.',
+          'Private address: 127.0.0.1:4100',
+        ],
+        postgres: [
+          'Durable filing cabinet',
+          'PostgreSQL',
+          'Stores accounts, room records, schedules, recording status, and replay ownership/visibility. Its data persists outside code releases. It runs in a dedicated Docker container.',
+          'Private host port: 5542 · /srv/stageflow/postgres',
+        ],
+        redis: [
+          'Live noticeboard and owner key',
+          'Redis',
+          'Stores live memberships, chat, Q&A, and the single-writer owner lock. Redis persistence preserves fencing across restarts, but API startup intentionally clears ephemeral room presence. Live sessions are not restored from backup.',
+          'Private host port: 6381 · /srv/stageflow/redis',
+        ],
+        ffmpeg: [
+          'Video processing worker',
+          'FFmpeg',
+          'When a webinar host starts recording, the browser uploads its composed stage. The API launches FFmpeg to turn the WebM stream into HLS. The profile permits one encoder, with one encoder thread.',
+          'Child process of the API · same resource budget',
+        ],
+        media: [
+          'Private recording shelf',
+          'Persistent media',
+          'Holds HLS playlists and video segments outside release folders. Playback goes through the API’s access checks. Nginx does not publish this directory as a public file server.',
+          '/srv/stageflow/media',
+        ],
+      };
+      const flows = {
+        website: {
+          title: 'Open the website',
+          nodes: ['browser', 'nginx', 'web'],
+          steps: [
+            'Your browser finds the VPS through your domain’s DNS.',
+            'Nginx sends the built website files.',
+            'JavaScript starts the React app inside your browser.',
+          ],
+        },
+        action: {
+          title: 'Use the app',
+          nodes: ['browser', 'nginx', 'api', 'postgres', 'redis'],
+          steps: [
+            'A click sends an HTTPS request or a live socket event through nginx.',
+            'The API checks identity, permission, and limits.',
+            'It uses PostgreSQL for durable records or Redis for live state, depending on the action.',
+            'The result returns to the browser.',
+          ],
+        },
+        speakers: {
+          title: 'Live speakers',
+          nodes: ['browser', 'nginx', 'api', 'redis'],
+          steps: [
+            'The API and Redis coordinate who joined and who may speak.',
+            'WebSocket messages help the browsers establish their WebRTC connections.',
+            'The actual live audio/video travels between speakers’ browsers.',
+            'TURN may relay that media when a direct connection fails. Real remote TURN testing is still pending.',
+          ],
+        },
+        record: {
+          title: 'Record a webinar stage',
+          nodes: ['browser', 'nginx', 'api', 'ffmpeg', 'media', 'postgres'],
+          steps: [
+            'The host starts recording with the required browser capture consent.',
+            'The host browser composes the stage and uploads WebM chunks through nginx.',
+            'The API enforces recording limits and feeds FFmpeg.',
+            'FFmpeg writes private HLS files; PostgreSQL tracks the attempt and its final status.',
+          ],
+        },
+        watch: {
+          title: 'Watch a completed replay',
+          nodes: ['browser', 'nginx', 'api', 'postgres', 'media'],
+          steps: [
+            'The browser requests the replay playlist and segments through nginx.',
+            'The API validates the viewer and checks replay visibility.',
+            'It serves authorized video from private storage. HOST replays remain owner-only.',
+            'These API responses are not put in a public nginx cache.',
+          ],
+        },
+      };
+      function showNode(key) {
+        const [label, title, description, location] = nodes[key];
+        document.getElementById('node-label').textContent = label;
+        document.getElementById('node-title').textContent = title;
+        document.getElementById('node-description').textContent = description;
+        document.getElementById('node-location').textContent = location;
+        document
+          .querySelectorAll('[data-node]')
+          .forEach((button) =>
+            button.setAttribute('aria-pressed', String(button.dataset.node === key)),
+          );
+      }
+      function showFlow(key) {
+        const flow = flows[key];
+        document
+          .querySelectorAll('[data-flow]')
+          .forEach((button) =>
+            button.setAttribute('aria-pressed', String(button.dataset.flow === key)),
+          );
+        document
+          .querySelectorAll('[data-node]')
+          .forEach((button) =>
+            button.classList.toggle('on-route', flow.nodes.includes(button.dataset.node)),
+          );
+        document.getElementById('flow-title').textContent = flow.title;
+        document.getElementById('flow-route').replaceChildren(
+          ...flow.steps.map((text) => {
+            const item = document.createElement('li');
+            item.textContent = text;
+            return item;
+          }),
+        );
+        showNode(key === 'website' ? 'nginx' : key === 'record' ? 'ffmpeg' : 'api');
+      }
+      document
+        .querySelectorAll('[data-node]')
+        .forEach((button) => button.addEventListener('click', () => showNode(button.dataset.node)));
+      document
+        .querySelectorAll('[data-flow]')
+        .forEach((button) => button.addEventListener('click', () => showFlow(button.dataset.flow)));
+
+      const releaseSteps = [
+        {
+          label: 'Prepare',
+          title: 'Build a production version on Linux.',
+          description:
+            'Install the exact dependency versions, compile the apps, and run the checks. The website’s API and socket addresses are baked into its JavaScript during this build.',
+          state: 'Existing version can keep serving',
+          detail:
+            'The build command is pnpm build:production. A release includes compiled code and Linux runtime dependencies, with secrets kept separately.',
+        },
+        {
+          label: 'Stage',
+          title: 'Copy the new release beside the old one.',
+          description:
+            'Put the tested files in a new /opt/stageflow/releases/<commit> folder. The “current” shortcut still points at the existing version while preparation happens.',
+          state: 'Existing version still selected',
+          detail:
+            'The release folder does not contain production passwords or recordings. Those belong to /etc/stageflow and /srv/stageflow.',
+        },
+        {
+          label: 'Maintenance window',
+          title: 'Pause the app and take a matching backup.',
+          description:
+            'Stop the health timer and the API. This ends live activity, so schedule it with users. With the writer stopped, back up the database records and recording files together.',
+          state: 'API stopped · maintenance window',
+          detail:
+            'The helper creates a local snapshot and checksums. Encrypt and export the backup through the operator’s backup system. The backup script does not upload it automatically.',
+        },
+        {
+          label: 'Database update',
+          title: 'Switch the shortcut, then run migrations.',
+          description:
+            'Point “current” at the new release while the API remains stopped. Run the explicit migration job to bring the database structure up to date.',
+          state: 'New release selected · API stopped',
+          detail:
+            'Repeat the migration job: it should report no pending migrations. Migrations are a deliberate release step; API startup does not automatically change the schema.',
+        },
+        {
+          label: 'Activate',
+          title: 'Start exactly one API process.',
+          description:
+            'systemd checks the configuration and required storage, then starts Node under a limited service account. The API must acquire its Redis owner lock before it becomes ready.',
+          state: 'Starting the selected release',
+          detail:
+            'At startup, old live memberships reset and in-flight broadcasts fail. Previously completed recordings remain subject to their existing playback permissions.',
+        },
+        {
+          label: 'Verify',
+          title: 'Check the app, then resume the controlled trial.',
+          description:
+            'Check database health, live readiness, HTTPS/WSS, and protected replay playback. Resume health monitoring and log rotation. Watch errors, memory, CPU, disk, and traffic.',
+          state: 'Healthy checks → restricted trial',
+          detail:
+            'Opening access still requires the target-host gates. If checks fail, keep the app closed and investigate. Rollback may need both compatible code and a matching data backup.',
+        },
+      ];
+      let currentStep = 0;
+      function showStep(index) {
+        currentStep = Math.max(0, Math.min(releaseSteps.length - 1, index));
+        const step = releaseSteps[currentStep];
+        document.getElementById('step-label').textContent =
+          `Step ${currentStep + 1} / ${step.label}`;
+        document.getElementById('step-title').textContent = step.title;
+        document.getElementById('step-description').textContent = step.description;
+        document.getElementById('app-state').textContent = step.state;
+        document.getElementById('step-detail').textContent = step.detail;
+        document.getElementById('step-count').textContent =
+          `${currentStep + 1} of ${releaseSteps.length}`;
+        document.getElementById('previous-step').disabled = currentStep === 0;
+        document.getElementById('next-step').disabled = currentStep === releaseSteps.length - 1;
+        document.querySelectorAll('[data-step]').forEach((button) => {
+          if (Number(button.dataset.step) === currentStep)
+            button.setAttribute('aria-current', 'step');
+          else button.removeAttribute('aria-current');
+        });
+      }
+      document
+        .querySelectorAll('[data-step]')
+        .forEach((button) =>
+          button.addEventListener('click', () => showStep(Number(button.dataset.step))),
+        );
+      document
+        .getElementById('previous-step')
+        .addEventListener('click', () => showStep(currentStep - 1));
+      document
+        .getElementById('next-step')
+        .addEventListener('click', () => showStep(currentStep + 1));
+
+      const recoveries = {
+        normal: [
+          'Graceful handover',
+          'The API gets time to close properly.',
+          'systemd asks Node to stop. The app closes its live work, stops its encoder, and releases its owner lock. The stop budget is 45 seconds.',
+          'Accounts, room records, and completed recordings stay. Live memberships reset when the API starts again; an interrupted broadcast is not resumed.',
+          'Start one replacement and check database health, live readiness, and a protected replay before resuming the trial.',
+        ],
+        crash: [
+          'Operator may be needed',
+          'The process died before it could tidy up.',
+          'systemd retries failures after a delay, up to its start-limit policy. A leftover Redis owner lock makes a replacement refuse startup rather than take over blindly.',
+          'Database records and media stay. A lock left after a crash is intentional protection; it does not prove the old writer is safe to replace.',
+          'Stop restart attempts and fence every old writer. Use the exact-token recovery helper only after those checks, then start one replacement.',
+        ],
+        redis: [
+          'Live service unavailable',
+          'The app lost its live authority.',
+          'Redis connection loss makes the API drop sockets and exit. Redis persistence may retain the owner lock, so an automatic restart can remain blocked after Redis returns.',
+          'PostgreSQL records and stored recordings stay. This is not seamless live-session recovery, and an unavailable API also interrupts playback requests.',
+          'Restore Redis, stop and fence the old writer, and inspect the guard. Perform guarded recovery if necessary, then verify readiness and completed replays.',
+        ],
+        disk: [
+          'Recording work refused',
+          'Storage is running low.',
+          'The app refuses or finalizes recording work at its storage limits. The health job reports low free space and writes an alert to the local journal.',
+          'The system does not automatically erase unrelated recordings to make room. Accounts and existing recordings are kept.',
+          'Inspect media, database, backups, Docker storage, and logs. Follow the retention and recovery runbook; notify the operator through the configured external monitor.',
+        ],
+      };
+      function showRecovery(key) {
+        const [status, heading, automatic, kept, action] = recoveries[key];
+        const values = {
+          'recovery-status': status,
+          'recovery-heading': heading,
+          'recovery-auto': automatic,
+          'recovery-kept': kept,
+          'recovery-action': action,
+        };
+        Object.entries(values).forEach(
+          ([id, text]) => (document.getElementById(id).textContent = text),
+        );
+        document
+          .querySelectorAll('[data-recovery]')
+          .forEach((button) =>
+            button.setAttribute('aria-pressed', String(button.dataset.recovery === key)),
+          );
+      }
+      document
+        .querySelectorAll('[data-recovery]')
+        .forEach((button) =>
+          button.addEventListener('click', () => showRecovery(button.dataset.recovery)),
+        );
+    </script>
+  </body>
+</html>

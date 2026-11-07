@@ -1,5 +1,7 @@
 # StageFlow on the shared Hostinger KVM 2
 
+For a beginner-friendly visual explanation, open [explained.html](explained.html) in a browser. It includes clickable request journeys, a release simulation, storage and recovery explanations, and a glossary; it works offline.
+
 This profile targets **Ubuntu Server 26.04 LTS, x86-64**, selected for V3M-C12. The VPS is shared with other applications. It runs one native Node API writer, a site in the existing nginx, and dedicated Docker PostgreSQL 16.15/standalone Redis 7.4.12 instances. No cluster, second API, automatic guard takeover, or public media directory is supported. The actual VPS inventory, domain, remote access, and other applications' allocations have not been supplied; local Linux evidence is recorded in [the maintenance record](../plans/phase5.md). These files do not authorize deployment or an unrestricted launch.
 
 Ubuntu 26.04 is the selected LTS; Ubuntu 26.10 has a much shorter support window. See [Ubuntu's release cycle](https://ubuntu.com/about/release-cycle). Keep an existing shared 24.04 server until a separately planned OS upgrade. Never reimage it to apply this profile.
@@ -37,7 +39,7 @@ Copy `stageflow.env.example` to `/etc/stageflow/stageflow.env` and `infrastructu
 
 Set the exact real HTTPS `CORS_ORIGIN`; API bind is `127.0.0.1:4100`, PostgreSQL `127.0.0.1:5542`, Redis `127.0.0.1:6381`, and `TRUSTED_PROXIES=127.0.0.1`. Check for port collisions first. Preserve other applications' database and Redis namespaces/credentials. If these ports conflict, change all matching unit/env/proxy/Compose references and repeat the drills. Keep Google unset pending real-provider acceptance. Keep `DATA_ROOT=/srv/stageflow/media` outside the replaceable release.
 
-Copy `compose.yml` to `/etc/stageflow/compose.yml`; install the `stageflow*.service` and `stageflow-health.timer` files into `/etc/systemd/system` as root mode 0644. Point `/opt/stageflow/current` to the new release while the API is stopped. Validate before starting:
+Copy `compose.yml` to `/etc/stageflow/compose.yml`; install the `stageflow*.service` and `stageflow*.timer` files into `/etc/systemd/system` as root mode 0644. Point `/opt/stageflow/current` to the new release while the API is stopped. Validate before starting:
 
 ```sh
 sudo systemctl daemon-reload
