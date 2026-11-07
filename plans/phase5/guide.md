@@ -349,3 +349,10 @@ Read the edited README against phase Sections 5 and 6.
 - `pnpm exec prettier --check README.md plans/phase5.md plans/phase5/guide.md plans/README.md` passed. The affected-check plan selected only `format:check`, which passed across the repository. Mechanical validation resolved all 87 local Markdown references and all 8 heading anchors in the four changed files; `git diff --check` passed. This slice changes documentation only; application suites and browser probes were not rerun. C06's real hash and committed status are recorded after its commit in the required final-hash follow-up.
 
 **Handoff:** V3 phase 6 is local acceptance. Do not write `plans/phase6.md` until that phase is requested.
+
+## Maintenance: V3M-C10 � Shared Q&A Lua invariants (2026-11-07)
+
+Status: verified; ready to commit. Proposed commit: `refactor(qa): share Lua authorization and projections`.
+Actual commit:
+
+Extract the Q&A-specific authorization, projections, ordering, TTL and rate helpers into a prelude assembled before hashing/execution; retain independent room cleanup and atomic command bodies. Keep wire results, role/error precedence, private voted ids, bounds, and NOSCRIPT-only retry unchanged. Verify real Redis behavior, malformed/stale bindings, and copied helper assets. Focused Q&A tests passed (47), and API typecheck/lint passed. The affected planner selected the full release gate: 49 tooling, 456 shared, 527 web tests and workspace typecheck/lint passed. An unrelated API timing assertion failed initially; the complete API retry passed all 588 tests, followed by both builds, formatting, artifacts, and live/broadcast smokes. Detailed commands, the timing failure, fixture versions, and observation limits are recorded in [phase5.md](../phase5.md).

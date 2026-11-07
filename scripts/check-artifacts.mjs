@@ -72,6 +72,7 @@ if (!args.length || args.includes('--api')) {
   const qaLua = (await readdir(qaSource)).filter((name) => name.endsWith('.lua')).sort();
   assert.deepEqual(qaLua, [
     'clear-feature.lua',
+    'common.lua',
     'delete.lua',
     'dismiss.lua',
     'feature.lua',
@@ -99,7 +100,7 @@ if (!args.length || args.includes('--api')) {
   const shared = require('@stageflow/shared');
   assert.equal(shared.isUuid('00000000-0000-4000-8000-000000000001'), true);
   console.log(
-    'API artifacts: production modules load, nineteen live, three chat, and eight Q&A Lua files match source, the password worker matches source, no emitted tests.',
+    `API artifacts: production modules load, ${lua.length} live, ${chatLua.length} chat, and ${qaLua.length} Q&A Lua files match source, the password worker matches source, no emitted tests.`,
   );
 }
 

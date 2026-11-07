@@ -230,18 +230,64 @@ describe('Q&A scripts against Redis', () => {
     expect(await Promise.all(keys.map((key) => redis.dump(key)))).toEqual(before);
   });
 
+  it('shares binding checks across all commands without writing or refreshing refused state', async () => {
+    const f = await fixture();
+    await f.submit();
+    await f.vote();
+    await repository.feature(f.prefix, binding(), '1', limits.ttlSeconds);
+    const keys = [...qaKeys(f.prefix), `${f.prefix}:qa:votes:1`];
+    for (const key of keys) await redis.expire(key, 120);
+    const before = await Promise.all(keys.map((key) => redis.dump(key)));
+    const attempts = (member: TransportBinding) => [
+      () => repository.submit(f.prefix, member, { text: 'No' }, limits, 1000),
+      () => repository.vote(f.prefix, member, '1', limits, 1000),
+      () => repository.state(f.prefix, member),
+      () => repository.dismiss(f.prefix, member, '1', limits.ttlSeconds),
+      () => repository.feature(f.prefix, member, '1', limits.ttlSeconds),
+      () => repository.clearFeature(f.prefix, member, limits.ttlSeconds),
+      () => repository.setSubmissions(f.prefix, member, false, limits.ttlSeconds),
+    ];
+    for (const member of [
+      { ...binding(), socketId: 'old' },
+      { ...binding(), generation: 2 },
+      { ...binding(), generation: '1' } as unknown as TransportBinding,
+      { ...binding(), socketId: null } as unknown as TransportBinding,
+      {} as TransportBinding,
+    ]) {
+      for (const attempt of attempts(member)) {
+        if (!member.participantId) await expect(attempt()).rejects.toThrow();
+        else expect(await attempt()).toEqual({ ok: false, error: 'stale_transport' });
+      }
+    }
+    // Corrupt internal rows remain script failures, never successful authorizations.
+    for (const raw of ['{broken', 'null', '42']) {
+      await redis.hset(`${f.prefix}:participants`, 'host', raw);
+      for (const attempt of attempts(binding())) await expect(attempt()).rejects.toThrow();
+    }
+    expect(await Promise.all(keys.map((key) => redis.dump(key)))).toEqual(before);
+    for (const key of keys) expect(await redis.ttl(key)).toBeLessThanOrEqual(120);
+  });
+
   it('rejects missing ids before writes or TTL refresh and dismiss frees a full board slot', async () => {
     const f = await fixture();
     await seedQuestions(f.prefix, 100);
     await redis.set(`${f.prefix}:qa:featured`, '1');
     await redis.expire(`${f.prefix}:qa:questions`, 20);
-    const before = await Promise.all(qaKeys(f.prefix).map((key) => redis.dump(key)));
+    // HEXISTS can advance Redis hash rehashing without changing any fields. DUMP
+    // reflects that internal ordering, so compare the board's logical contents.
+    const snapshot = () =>
+      Promise.all(
+        qaKeys(f.prefix).map((key) =>
+          key === `${f.prefix}:qa:questions` ? redis.hgetall(key) : redis.dump(key),
+        ),
+      );
+    const before = await snapshot();
     for (const method of ['dismiss', 'feature'] as const) {
       expect(await repository[method](f.prefix, binding(), '101', limits.ttlSeconds)).toEqual({
         ok: false,
         error: 'qa_missing',
       });
-      expect(await Promise.all(qaKeys(f.prefix).map((key) => redis.dump(key)))).toEqual(before);
+      expect(await snapshot()).toEqual(before);
       expect(await redis.ttl(`${f.prefix}:qa:questions`)).toBeLessThanOrEqual(20);
     }
     expect(await f.submit()).toEqual({ ok: false, error: 'qa_full' });

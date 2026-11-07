@@ -56,9 +56,13 @@ export class QaRepository {
   private readonly scripts: Record<ScriptName, { source: string; sha: string }>;
 
   constructor(private readonly redis: Redis) {
+    const directory = join(__dirname, 'scripts');
+    const common = readFileSync(join(directory, 'common.lua'), 'utf8');
     this.scripts = Object.fromEntries(
       scriptNames.map((name) => {
-        const source = readFileSync(join(__dirname, 'scripts', `${name}.lua`), 'utf8');
+        const body = readFileSync(join(directory, `${name}.lua`), 'utf8');
+        // Room cleanup has no transport binding and remains independent of authorization.
+        const source = name === 'delete' ? body : `${common}\n${body}`;
         return [name, { source, sha: createHash('sha1').update(source).digest('hex') }];
       }),
     ) as Record<ScriptName, { source: string; sha: string }>;
